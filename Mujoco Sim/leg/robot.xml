@@ -1,0 +1,152 @@
+<?xml version="1.0" ?>
+<!-- Generated using onshape-to-robot -->
+<!-- Onshape https://cad.onshape.com/documents/865be092c66c9f7e37910352/w/5e74383f4d70a831a9754b12/e/6a9eb92becca39ddc7a0abc7 -->
+<mujoco model="my-robot">
+  <compiler angle="radian" meshdir="assets" autolimits="false"/>
+  <default>
+    <default class="my-robot">
+      <joint frictionloss="0.1" armature="0.005" damping="0.5"/>
+      <position kp="50" dampratio="1"/>
+      <default class="visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="2"/>
+      </default>
+      <default class="collision">
+        <geom group="3"/>
+      </default>
+    </default>
+  </default>
+  <worldbody>
+    <!-- Link bearing_side -->
+    <body name="bearing_side" pos="0 0 0" quat="1 0 0 0" childclass="my-robot">
+      <freejoint name="bearing_side_freejoint"/>
+      <inertial pos="0.0523141 -0.345198 -0.125984" mass="0.569274" fullinertia="0.000931755 0.000508091 0.00108601 8.59678e-05 -8.85421e-05 -0.00020225"/>
+      <!-- Part motor_side -->
+      <geom type="mesh" class="visual" pos="-0.157414 -0.307288 0.728345" quat="0.689857 0.117927 -0.155231 -0.697204" mesh="motor_side" material="motor_side_material"/>
+      <geom type="mesh" class="collision" pos="-0.157414 -0.307288 0.728345" quat="0.689857 0.117927 -0.155231 -0.697204" mesh="motor_side" material="motor_side_material"/>
+      <!-- Part foot_center -->
+      <geom type="mesh" class="visual" pos="-0.157414 -0.307288 0.728345" quat="0.689857 0.117927 -0.155231 -0.697204" mesh="foot_center" material="foot_center_material"/>
+      <geom type="mesh" class="collision" pos="-0.157414 -0.307288 0.728345" quat="0.689857 0.117927 -0.155231 -0.697204" mesh="foot_center" material="foot_center_material"/>
+      <!-- Part bearing_side -->
+      <geom type="mesh" class="visual" pos="-0.157414 -0.307288 0.728345" quat="0.689857 0.117927 -0.155231 -0.697204" mesh="bearing_side" material="bearing_side_material"/>
+      <geom type="mesh" class="collision" pos="-0.157414 -0.307288 0.728345" quat="0.689857 0.117927 -0.155231 -0.697204" mesh="bearing_side" material="bearing_side_material"/>
+      <!-- Link fibia -->
+      <body name="fibia" pos="0.070186 -0.352833 -0.0928241" quat="0.57119 -0.404416 0.383233 -0.602762">
+        <!-- Joint from bearing_side to fibia -->
+        <joint axis="0 0 1" name="ankle" type="hinge"/>
+        <inertial pos="0.0136191 -0.119221 -0.0289884" mass="1.14869" fullinertia="0.0163657 0.000627357 0.0165094 0.00183161 1.30351e-05 -0.000110908"/>
+        <!-- Part rs00 -->
+        <geom type="mesh" class="visual" pos="-9.02056e-16 2.56739e-15 -0.006" quat="7.4675e-16 0.99227 -0.124098 2.17132e-16" mesh="rs00" material="rs00_material"/>
+        <geom type="mesh" class="collision" pos="-9.02056e-16 2.56739e-15 -0.006" quat="7.4675e-16 0.99227 -0.124098 2.17132e-16" mesh="rs00" material="rs00_material"/>
+        <!-- Part fibia -->
+        <geom type="mesh" class="visual" pos="-0.208688 -0.821284 0.10075" quat="0.701641 0.701641 -0.0877502 -0.0877502" mesh="fibia" material="fibia_material"/>
+        <geom type="mesh" class="collision" pos="-0.208688 -0.821284 0.10075" quat="0.701641 0.701641 -0.0877502 -0.0877502" mesh="fibia" material="fibia_material"/>
+        <!-- Part tibia -->
+        <geom type="mesh" class="visual" pos="-0.208689 -0.821275 0.10075" quat="0.701641 0.701641 -0.0877502 -0.0877502" mesh="tibia" material="tibia_material"/>
+        <geom type="mesh" class="collision" pos="-0.208689 -0.821275 0.10075" quat="0.701641 0.701641 -0.0877502 -0.0877502" mesh="tibia" material="tibia_material"/>
+        <!-- Link femur -->
+        <body name="femur" pos="0.0379435 -0.331182 -0.02975" quat="8.88819e-16 0.507046 -0.861919 -1.3661e-15">
+          <!-- Joint from fibia to femur -->
+          <joint axis="0 0 1" name="passive1" type="hinge"/>
+          <inertial pos="-0.0360015 0.190765 0.00270802" mass="0.869518" fullinertia="0.00921086 0.000542291 0.0094264 0.00155873 3.47601e-05 -0.000324144"/>
+          <!-- Part femur -->
+          <geom type="mesh" class="visual" pos="-0.118334 0.535746 -0.1305" quat="0.707107 -0.707107 0 2.40882e-17" mesh="femur" material="femur_material"/>
+          <geom type="mesh" class="collision" pos="-0.118334 0.535746 -0.1305" quat="0.707107 -0.707107 0 2.40882e-17" mesh="femur" material="femur_material"/>
+          <!-- Link hip -->
+          <body name="hip" pos="-0.0533341 0.329046 0.03125" quat="0 1 0 0">
+            <!-- Joint from femur to hip -->
+            <joint axis="0 0 1" name="hip-surge" type="hinge"/>
+            <inertial pos="0.00134373 -0.00213816 0.03125" mass="3.29742" fullinertia="0.0145706 0.0143643 0.00651198 0.000214331 -6.56684e-05 -4.12686e-05"/>
+            <!-- Part hip -->
+            <geom type="mesh" class="visual" pos="0.209596 0.0549475 0.16175" quat="0.342021 0.342021 0.618887 0.618887" mesh="hip" material="hip_material"/>
+            <geom type="mesh" class="collision" pos="0.209596 0.0549475 0.16175" quat="0.342021 0.342021 0.618887 0.618887" mesh="hip" material="hip_material"/>
+            <!-- Part rs04 -->
+            <geom type="mesh" class="visual" pos="1.76384e-15 3.63703e-15 0.088" quat="3.41151e-16 -0.960908 -0.276866 7.98712e-17" mesh="rs04" material="rs04_material"/>
+            <geom type="mesh" class="collision" pos="1.76384e-15 3.63703e-15 0.088" quat="3.41151e-16 -0.960908 -0.276866 7.98712e-17" mesh="rs04" material="rs04_material"/>
+            <!-- Part rs04_2 -->
+            <geom type="mesh" class="visual" pos="1.66269e-15 3.46218e-15 -0.0255" quat="0.276866 -8.07882e-17 2.96034e-16 -0.960908" mesh="rs04" material="rs04_material"/>
+            <geom type="mesh" class="collision" pos="1.66269e-15 3.46218e-15 -0.0255" quat="0.276866 -8.07882e-17 2.96034e-16 -0.960908" mesh="rs04" material="rs04_material"/>
+            <!-- Link rs04 -->
+            <body name="rs04" pos="0.0372461 -0.0592683 0.03125" quat="0.455158 -0.67331 0.215993 0.541139">
+              <!-- Joint from hip to rs04 -->
+              <joint axis="0 0 1" name="hip-sway" type="hinge"/>
+              <inertial pos="0.000539148 -0.000397581 -0.0281894" mass="1.42" fullinertia="0.00174465 0.00175243 0.00261226 -1.22396e-05 -6.72714e-06 5.20455e-07"/>
+              <!-- Part rs04_3 -->
+              <geom type="mesh" class="visual" pos="-3.25434e-15 -2.01358e-15 -0.0255" quat="1 0 0 0" mesh="rs04" material="rs04_material"/>
+              <geom type="mesh" class="collision" pos="-3.25434e-15 -2.01358e-15 -0.0255" quat="1 0 0 0" mesh="rs04" material="rs04_material"/>
+            </body>
+            <!-- Link knee_driver -->
+            <body name="knee_driver" pos="5.50704e-16 -4.17114e-17 0.0625" quat="0.610089 6.03985e-16 -9.84127e-16 0.792333">
+              <!-- Joint from hip to knee_driver -->
+              <joint axis="0 0 1" name="knee" type="hinge"/>
+              <inertial pos="0.0061429 -0.0161771 -0.0137851" mass="0.13246" fullinertia="8.36936e-05 3.87518e-05 9.27251e-05 1.9941e-05 7.33015e-06 -1.93037e-05"/>
+              <!-- Part knee_driver -->
+              <geom type="mesh" class="visual" pos="-0.065 -0.2067 0.09925" quat="0.707107 0.707107 0 2.17621e-17" mesh="knee_driver" material="knee_driver_material"/>
+              <geom type="mesh" class="collision" pos="-0.065 -0.2067 0.09925" quat="0.707107 0.707107 0 2.17621e-17" mesh="knee_driver" material="knee_driver_material"/>
+              <!-- Part knee_driver_peg -->
+              <geom type="mesh" class="visual" pos="-0.065 -0.2067 0.09925" quat="0.707107 0.707107 -2.22045e-16 -9.96341e-16" mesh="knee_driver_peg" material="knee_driver_peg_material"/>
+              <geom type="mesh" class="collision" pos="-0.065 -0.2067 0.09925" quat="0.707107 0.707107 -2.22045e-16 -9.96341e-16" mesh="knee_driver_peg" material="knee_driver_peg_material"/>
+              <!-- Frame closing_passive3_1 -->
+              <site group="3" name="closing_passive3_1" pos="0.0168463 -0.0443642 -0.03125" quat="0 1 0 0"/>
+              <!-- Frame closing_passive3_1_z -->
+              <site group="3" name="closing_passive3_1_z" pos="0.0168463 -0.0443642 -0.13125" quat="0 1 0 0"/>
+            </body>
+          </body>
+        </body>
+        <!-- Link align_bar -->
+        <body name="align_bar" pos="0.043345 -0.378329 -0.02975" quat="0.99227 -1.00679e-15 -1.13334e-16 -0.124098">
+          <!-- Joint from fibia to align_bar -->
+          <joint axis="0 0 1" name="passive2" type="hinge"/>
+          <inertial pos="-0.161981 0.072095 6.12488e-10" mass="0.474343" fullinertia="0.000763569 0.00363404 0.00434396 0.00160262 -3.29783e-11 1.50137e-11"/>
+          <!-- Part align_bar -->
+          <geom type="mesh" class="visual" pos="-0.440511 0.25628 0.1305" quat="0.431398 0.431398 -0.560264 -0.560264" mesh="align_bar" material="align_bar_material"/>
+          <geom type="mesh" class="collision" pos="-0.440511 0.25628 0.1305" quat="0.431398 0.431398 -0.560264 -0.560264" mesh="align_bar" material="align_bar_material"/>
+          <!-- Frame closing_passive3_2 -->
+          <site group="3" name="closing_passive3_2" pos="-0.304486 0.135661 -3.09508e-19" quat="7.88257e-16 0.991662 -0.128866 -2.34185e-16"/>
+          <!-- Frame closing_passive3_2_z -->
+          <site group="3" name="closing_passive3_2_z" pos="-0.304486 0.135661 -0.1" quat="7.88257e-16 0.991662 -0.128866 -2.34185e-16"/>
+        </body>
+      </body>
+    </body>
+    <!-- Fixed anchor body to hold rs04 in place -->
+    <body name="rs04_anchor" pos="1.75217e-07 -0.0526994 -3.59829e-07" quat="-3.16092e-07 5.49334e-07 -0.707107 0.707107"/>
+  </worldbody>
+  <asset>
+    <mesh file="femur.stl"/>
+    <mesh file="fibia.stl"/>
+    <mesh file="hip.stl"/>
+    <mesh file="bearing_side.stl"/>
+    <mesh file="motor_side.stl"/>
+    <mesh file="rs00.stl"/>
+    <mesh file="align_bar.stl"/>
+    <mesh file="knee_driver_peg.stl"/>
+    <mesh file="knee_driver.stl"/>
+    <mesh file="rs04.stl"/>
+    <mesh file="foot_center.stl"/>
+    <mesh file="tibia.stl"/>
+    <material name="motor_side_material" rgba="0.301961 0.301961 0.301961 1"/>
+    <material name="foot_center_material" rgba="0.301961 0.301961 0.301961 1"/>
+    <material name="bearing_side_material" rgba="0.301961 0.301961 0.301961 1"/>
+    <material name="rs00_material" rgba="0.647059 0.647059 0.647059 1"/>
+    <material name="fibia_material" rgba="0.917647 0.917647 0.917647 1"/>
+    <material name="tibia_material" rgba="0.917647 0.917647 0.917647 1"/>
+    <material name="femur_material" rgba="0.647059 0.647059 0.647059 1"/>
+    <material name="hip_material" rgba="0.301961 0.301961 0.301961 1"/>
+    <material name="rs04_material" rgba="0.615686 0.811765 0.929412 1"/>
+    <material name="knee_driver_material" rgba="0.972549 0.529412 0.00392157 1"/>
+    <material name="knee_driver_peg_material" rgba="0.498039 0.498039 0.498039 1"/>
+    <material name="align_bar_material" rgba="0.231373 0.380392 0.705882 1"/>
+  </asset>
+  <actuator>
+    <position class="my-robot" name="ankle" joint="ankle"/>
+    <!-- <position class="my-robot" name="passive1" joint="passive1"/> -->
+    <position class="my-robot" name="hip-surge" joint="hip-surge"/>
+    <position class="my-robot" name="hip-sway" joint="hip-sway"/>
+    <position class="my-robot" name="knee" joint="knee"/>
+    <!-- <position class="my-robot" name="passive2" joint="passive2"/> -->
+  </actuator>
+  <equality>
+    <connect site1="closing_passive3_1" site2="closing_passive3_2"/>
+    <connect site1="closing_passive3_1_z" site2="closing_passive3_2_z"/>
+    <weld body1="rs04" body2="rs04_anchor"/>
+  </equality>
+</mujoco>
