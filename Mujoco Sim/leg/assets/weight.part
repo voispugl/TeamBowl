@@ -2,12 +2,12 @@
     "configuration": "default",
     "documentId": "865be092c66c9f7e37910352",
     "documentMicroversion": "c25355821f892ac1186cf63e",
-    "elementId": "f98d0aac0c0f8e2a4dd1401b",
+    "elementId": "4121b58f1bbd4ff6c2f6c07f",
     "fullConfiguration": "default",
-    "id": "MT5wtcxdFqH3E0J3Q",
+    "id": "MugmxPIhR58z0iF8Y",
     "isStandardContent": false,
-    "name": "Femur <2>",
-    "partId": "RRCD",
+    "name": "Weight <1>",
+    "partId": "JHD",
     "suppressed": false,
     "type": "Part"
 }
