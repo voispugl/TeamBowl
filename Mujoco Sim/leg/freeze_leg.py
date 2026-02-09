@@ -19,10 +19,10 @@ TARGET_ANGLES: Dict[str, float] = {
     "hip-sway (1)": 0,
     "hip-surge": -0.8,
     "hip-surge (1)": -0.8,
-    "knee": -0.8,
-    "knee (1)": -0.8,
-    "ankle": 0.2,
-    "ankle (1)": 0.2,
+    "knee": 0.5,
+    "knee (1)": 0.5,
+    "ankle": 0,
+    "ankle (1)": 0,
 }
 
 KP = 120.0  # proportional gain
@@ -30,6 +30,23 @@ KD = 4.0    # derivative gain
 ANKLE_TORQUE_LIMIT = 10.0
 OTHER_TORQUE_LIMIT = 120.0
 LOCK_BASE = True  # keep freejoint pose fixed to stop spinning
+HEADLESS = True  # disable the interactive viewer
+
+
+class _HeadlessViewer:
+    """Stand-in for mujoco.viewer when running headless."""
+
+    def __enter__(self) -> "_HeadlessViewer":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def is_running(self) -> bool:
+        return True
+
+    def sync(self) -> None:
+        return None
 
 
 def _set_joint_angles(model: mujoco.MjModel, data: mujoco.MjData, targets: Dict[str, float]) -> None:
@@ -82,7 +99,8 @@ def main() -> None:
     actuator_map = _build_actuator_map(model)
     _set_joint_angles(model, data, TARGET_ANGLES)
 
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    viewer_ctx = _HeadlessViewer() if HEADLESS else mujoco.viewer.launch_passive(model, data)
+    with viewer_ctx as viewer:
         try:
             while viewer.is_running():
                 if LOCK_BASE:

@@ -1,0 +1,23 @@
+{
+    // Onshape URL of the assembly
+    "url": "https://cad.onshape.com/documents/d33ee4be47748debca1f193d/w/b71ca2b26fc569bc49f65e9e/e/9264a6d7363f17e1122831e3",
+    // Output format
+    "output_format": "mujoco",
+
+    // Post-process MJCF (quaternions, defaults, IMU + joint velocity + actuator force sensors)
+    "post_import_commands": ["python robot/post_process_mujoco.py"],
+
+    // Actuator/joint settings
+    "joint_properties": {
+        "hip*": { "forcerange": 120 },
+        "calf*": { "forcerange": 120 },
+        "driver*": { "forcerange": 120 },
+        "ankle*": { "forcerange": 15 },
+        "lid_gear": { "forcerange": 5 },
+        "motor*": { "forcerange": 2 }
+    }
+
+    // "simplify_stls": true,
+    // // Maximum size of the STL files in MB (default: 3)
+    // "max_stl_size": 3
+}

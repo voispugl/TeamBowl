@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import mujoco
@@ -22,6 +22,45 @@ STEP_SIZE = 0.08
 NUM_DIRECTIONS = 6
 TOP_DIRECTIONS = 4
 DEATH_PENALTY = 50.0
+HEADLESS = False  # disable the interactive viewer
+
+# Initial joint angles (radians) for the starting pose.
+START_ANGLES: Dict[str, float] = {
+    "hip-sway": 0,
+    "hip-sway (1)": 0,
+    "hip-surge": -0.8,
+    "hip-surge (1)": -0.8,
+    "knee": 0.5,
+    "knee (1)": 0.5,
+    "ankle": 0,
+    "ankle (1)": 0,
+}
+
+
+class _HeadlessViewer:
+    """Lightweight stand-in so training can run without opening a window."""
+
+    def __enter__(self) -> "_HeadlessViewer":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def is_running(self) -> bool:
+        return True
+
+    def sync(self) -> None:
+        return None
+
+
+def _print_policy(policy: np.ndarray) -> None:
+    """Emit the learned policy weights for copy/paste reuse."""
+    weights = [[float(w) for w in row] for row in policy]
+    print("\nCopy these weights to reuse as a starting policy:\n")
+    print("START_POLICY = [")
+    for row in weights:
+        print(f"    {row},")
+    print("]")
 
 
 def _sensor_span(model: mujoco.MjModel, name: str) -> Tuple[int, int]:
@@ -53,9 +92,16 @@ def _get_obs(data: mujoco.MjData, accel_span: Tuple[int, int], gyro_span: Tuple[
     return np.concatenate([accel, gyro])
 
 
-def _apply_symmetry_and_limits(ctrl: np.ndarray, hip_sway_id: int, hip_sway_2_id: int, hip_surge_id: int,
-                               hip_surge_2_id: int, ankle_id: int, ankle_2_id: int) -> None:
-    """Force hips to be inverses and bound ankle torques."""
+def _apply_symmetry_and_limits(
+    ctrl: np.ndarray,
+    torque_ids: tuple[int, int, int, int, int, int],
+    pos_ids: tuple[int, int, int, int, int, int],
+) -> None:
+    """Force hips to be inverses for torque and position actuators; limit torques."""
+    hip_sway_id, hip_sway_2_id, hip_surge_id, hip_surge_2_id, ankle_id, ankle_2_id = torque_ids
+    hip_sway_pos_id, hip_sway_pos_2_id, hip_surge_pos_id, hip_surge_pos_2_id, ankle_pos_id, ankle_pos_2_id = pos_ids
+
+    # Torque symmetry and limits.
     sway_avg = 0.5 * (ctrl[hip_sway_id] - ctrl[hip_sway_2_id])
     ctrl[hip_sway_id] = sway_avg
     ctrl[hip_sway_2_id] = -sway_avg
@@ -66,6 +112,16 @@ def _apply_symmetry_and_limits(ctrl: np.ndarray, hip_sway_id: int, hip_sway_2_id
     ctrl[ankle_id] = np.clip(ctrl[ankle_id], -ANKLE_TORQUE_LIMIT, ANKLE_TORQUE_LIMIT)
     ctrl[ankle_2_id] = np.clip(ctrl[ankle_2_id], -ANKLE_TORQUE_LIMIT, ANKLE_TORQUE_LIMIT)
 
+    # Position symmetry for mirrored legs; clip ankle targets to keep sane angles.
+    sway_pos = 0.5 * (ctrl[hip_sway_pos_id] - ctrl[hip_sway_pos_2_id])
+    ctrl[hip_sway_pos_id] = sway_pos
+    ctrl[hip_sway_pos_2_id] = -sway_pos
+    surge_pos = 0.5 * (ctrl[hip_surge_pos_id] - ctrl[hip_surge_pos_2_id])
+    ctrl[hip_surge_pos_id] = surge_pos
+    ctrl[hip_surge_pos_2_id] = -surge_pos
+    ctrl[ankle_pos_id] = np.clip(ctrl[ankle_pos_id], -1.0, 1.0)
+    ctrl[ankle_pos_2_id] = np.clip(ctrl[ankle_pos_2_id], -1.0, 1.0)
+
 
 def _is_flipped(data: mujoco.MjData, imu_site_id: int) -> bool:
     imu_mat = data.site_xmat[imu_site_id].reshape(3, 3)
@@ -73,9 +129,20 @@ def _is_flipped(data: mujoco.MjData, imu_site_id: int) -> bool:
     return z_up_dot < FLIP_RESET_DOT_THRESHOLD
 
 
+def _set_joint_angles(model: mujoco.MjModel, data: mujoco.MjData, targets: Dict[str, float]) -> None:
+    """Write target hinge angles into qpos and zero the velocities."""
+    for name, angle in targets.items():
+        jnt_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+        adr = model.jnt_qposadr[jnt_id]
+        data.qpos[adr] = angle
+        data.qvel[adr] = 0.0
+    mujoco.mj_forward(model, data)
+
+
 def _rollout(model: mujoco.MjModel, data: mujoco.MjData, policy: np.ndarray, accel_span: Tuple[int, int],
              gyro_span: Tuple[int, int], imu_site_id: int, hip_ids: tuple[int, int, int, int],
-             ankle_ids: tuple[int, int], viewer: mujoco.viewer.Handle, base_qpos: np.ndarray,
+             ankle_ids: tuple[int, int], hip_pos_ids: tuple[int, int, int, int],
+             ankle_pos_ids: tuple[int, int], viewer: mujoco.viewer.Handle, base_qpos: np.ndarray,
              base_qvel: np.ndarray) -> float:
     """Run one episode and return cumulative reward."""
     mujoco.mj_resetData(model, data)
@@ -85,12 +152,25 @@ def _rollout(model: mujoco.MjModel, data: mujoco.MjData, policy: np.ndarray, acc
 
     hip_sway_id, hip_sway_2_id, hip_surge_id, hip_surge_2_id = hip_ids
     ankle_id, ankle_2_id = ankle_ids
+    hip_sway_pos_id, hip_sway_pos_2_id, hip_surge_pos_id, hip_surge_pos_2_id = hip_pos_ids
+    ankle_pos_id, ankle_pos_2_id = ankle_pos_ids
 
     total_reward = 0.0
     for _ in range(EPISODE_STEPS):
         obs = _get_obs(data, accel_span, gyro_span)
         ctrl = policy @ obs
-        _apply_symmetry_and_limits(ctrl, hip_sway_id, hip_sway_2_id, hip_surge_id, hip_surge_2_id, ankle_id, ankle_2_id)
+        _apply_symmetry_and_limits(
+            ctrl,
+            (hip_sway_id, hip_sway_2_id, hip_surge_id, hip_surge_2_id, ankle_id, ankle_2_id),
+            (
+                hip_sway_pos_id,
+                hip_sway_pos_2_id,
+                hip_surge_pos_id,
+                hip_surge_pos_2_id,
+                ankle_pos_id,
+                ankle_pos_2_id,
+            ),
+        )
         data.ctrl[:] = ctrl
 
         mujoco.mj_step(model, data)
@@ -109,6 +189,8 @@ def main() -> None:
     model = mujoco.MjModel.from_xml_path(MODEL_PATH)
     data = mujoco.MjData(model)
 
+    _set_joint_angles(model, data, START_ANGLES)
+
     accel_span = _sensor_span(model, "imu_accel")
     gyro_span = _sensor_span(model, "imu_gyro")
     imu_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "imu_weight")
@@ -126,8 +208,15 @@ def main() -> None:
     hip_surge_2_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "hip-surge (1)")
     ankle_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "ankle")
     ankle_2_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "ankle (1)")
+    hip_sway_pos_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "hip-sway-pos")
+    hip_sway_pos_2_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "hip-sway (1)-pos")
+    hip_surge_pos_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "hip-surge-pos")
+    hip_surge_pos_2_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "hip-surge (1)-pos")
+    ankle_pos_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "ankle-pos")
+    ankle_pos_2_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "ankle (1)-pos")
 
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    viewer_ctx = _HeadlessViewer() if HEADLESS else mujoco.viewer.launch_passive(model, data)
+    with viewer_ctx as viewer:
         try:
             iteration = 0
             while viewer.is_running():
@@ -139,14 +228,20 @@ def main() -> None:
                     r_pos = _rollout(
                         model, data, policy + noise, accel_span, gyro_span, imu_site_id,
                         (hip_sway_id, hip_sway_2_id, hip_surge_id, hip_surge_2_id),
-                        (ankle_id, ankle_2_id), viewer, qpos0, qvel0,
+                        (ankle_id, ankle_2_id),
+                        (hip_sway_pos_id, hip_sway_pos_2_id, hip_surge_pos_id, hip_surge_pos_2_id),
+                        (ankle_pos_id, ankle_pos_2_id),
+                        viewer, qpos0, qvel0,
                     )
                     if not viewer.is_running():
                         break
                     r_neg = _rollout(
                         model, data, policy - noise, accel_span, gyro_span, imu_site_id,
                         (hip_sway_id, hip_sway_2_id, hip_surge_id, hip_surge_2_id),
-                        (ankle_id, ankle_2_id), viewer, qpos0, qvel0,
+                        (ankle_id, ankle_2_id),
+                        (hip_sway_pos_id, hip_sway_pos_2_id, hip_surge_pos_id, hip_surge_pos_2_id),
+                        (ankle_pos_id, ankle_pos_2_id),
+                        viewer, qpos0, qvel0,
                     )
                     rollouts.append((r_pos, r_neg, noise))
 
@@ -163,6 +258,7 @@ def main() -> None:
                 policy += (STEP_SIZE / (TOP_DIRECTIONS * reward_std)) * update
 
                 iteration += 1
+                _print_policy(policy)
                 now = time.time()
                 if now - last_status > STATUS_PERIOD:
                     best = max(max(r[0], r[1]) for r in rollouts)
@@ -171,6 +267,8 @@ def main() -> None:
                     last_status = now
         except KeyboardInterrupt:
             pass
+        finally:
+            _print_policy(policy)
 
 
 if __name__ == "__main__":
