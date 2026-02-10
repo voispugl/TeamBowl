@@ -1,116 +1,365 @@
 from __future__ import annotations
 
 import argparse
-import inspect
-import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Tuple
 
 import jax
 import jax.numpy as jp
+import mujoco
+import numpy as np
+import optax
 from flax import linen as nn
+from flax import struct
 from flax.training import checkpoints
-
-from brax.training import distribution
-from brax.training import networks as brax_networks
-from brax.training.agents import ppo
+from mujoco import mjx
 
 ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))
-
-from custom_nav_env import CustomNavEnv
 
 HIDDEN_SIZES = (256, 256, 256)
 LEARNING_RATE = 3e-4
 ENTROPY_COST = 0.01
 DISCOUNTING = 0.99
+GAE_LAMBDA = 0.95
+PPO_CLIP_EPS = 0.2
+VALUE_LOSS_COEF = 0.5
 GRAD_CLIP = 10.0
-BATCH_SIZE = 2048
 NUM_MINIBATCHES = 32
 NUM_UPDATES_PER_BATCH = 4
 UNROLL_LENGTH = 10
-NUM_ENVS = 2048
+NUM_ENVS = 128
 NUM_TIMESTEPS = 50_000_000
-EPISODE_LENGTH = 1000
+MAX_EPISODE_STEPS = 1000
+OBS_NORM_EPS = 1e-6
+
+UPRIGHT_BONUS_COEF = 1.0
+CTRL_COST_COEF = 1.0e-3
+ACTION_DELAY_ALPHA = 0.2
+
+QPOS_NOISE_STD = 1.0e-3
+QVEL_NOISE_STD = 5.0e-2
+GYRO_NOISE_STD = 2.0e-2
+GYRO_BIAS_STD = 2.0e-2
+
+TARGET_RADIUS = 5.0
+FALL_HEIGHT = 0.6
+TILT_RAD = 0.78
 
 
-class MLP(nn.Module):
-    layer_sizes: Tuple[int, ...]
+class PolicyMLP(nn.Module):
+    hidden_sizes: Tuple[int, ...]
+    action_size: int
 
     @nn.compact
     def __call__(self, x: jp.ndarray) -> jp.ndarray:
-        for i, size in enumerate(self.layer_sizes[:-1]):
+        for i, size in enumerate(self.hidden_sizes):
             x = nn.Dense(size, name=f"hidden_{i}")(x)
             x = nn.silu(x)
-        x = nn.Dense(self.layer_sizes[-1], name="out")(x)
-        return x
+        return nn.Dense(self.action_size, name="out")(x)
 
 
-def _make_networks(obs_size: int, action_size: int):
-    param_dist = distribution.NormalTanhDistribution(event_size=action_size)
-    policy_sizes = (*HIDDEN_SIZES, param_dist.param_size)
-    value_sizes = (*HIDDEN_SIZES, 1)
+class ValueMLP(nn.Module):
+    hidden_sizes: Tuple[int, ...]
 
-    policy_module = MLP(policy_sizes)
-    value_module = MLP(value_sizes)
-
-    def policy_init(rng: jp.ndarray) -> Dict[str, Any]:
-        return policy_module.init(rng, jp.zeros((obs_size,)))
-
-    def policy_apply(params: Dict[str, Any], obs: jp.ndarray) -> jp.ndarray:
-        return policy_module.apply(params, obs)
-
-    def value_init(rng: jp.ndarray) -> Dict[str, Any]:
-        return value_module.init(rng, jp.zeros((obs_size,)))
-
-    def value_apply(params: Dict[str, Any], obs: jp.ndarray) -> jp.ndarray:
-        return value_module.apply(params, obs)
-
-    policy_network = brax_networks.FeedForwardNetwork(policy_init, policy_apply)
-    value_network = brax_networks.FeedForwardNetwork(value_init, value_apply)
-
-    try:
-        from brax.training.agents.ppo import networks as ppo_networks
-
-        return ppo_networks.PPONetworks(policy_network, value_network, param_dist)
-    except Exception:
-        return brax_networks.PPONetworks(policy_network, value_network, param_dist)
+    @nn.compact
+    def __call__(self, x: jp.ndarray) -> jp.ndarray:
+        for i, size in enumerate(self.hidden_sizes):
+            x = nn.Dense(size, name=f"hidden_{i}")(x)
+            x = nn.silu(x)
+        value = nn.Dense(1, name="out")(x)
+        return jp.squeeze(value, axis=-1)
 
 
-def _extract_normalizer(obj: Any) -> Any:
-    if obj is None:
-        return None
-    if isinstance(obj, Mapping):
-        for key in ("normalizer", "obs_normalizer"):
-            if key in obj:
-                return obj[key]
-    for key in ("normalizer", "obs_normalizer"):
-        if hasattr(obj, key):
-            return getattr(obj, key)
-    return None
+@struct.dataclass
+class EnvState:
+    data: Any
+    target_pos: jp.ndarray
+    prev_action: jp.ndarray
+    gyro_bias: jp.ndarray
+    steps: jp.ndarray
 
 
-def _get_normalizer_mean_std(normalizer: Any) -> Tuple[jp.ndarray, jp.ndarray] | None:
-    if normalizer is None:
-        return None
-    if isinstance(normalizer, Mapping):
-        mean = normalizer.get("mean")
-        std = normalizer.get("std")
-        var = normalizer.get("var")
-    else:
-        mean = getattr(normalizer, "mean", None)
-        std = getattr(normalizer, "std", None)
-        var = getattr(normalizer, "var", None)
-    if std is None and var is not None:
-        std = jp.sqrt(var + 1e-8)
-    if mean is None or std is None:
-        return None
-    return mean, std
+@struct.dataclass
+class ObsStats:
+    count: jp.ndarray
+    mean: jp.ndarray
+    var: jp.ndarray
 
 
-def _flatten_dense_layers(params: Any) -> list[tuple[str, Any, Any]]:
+@struct.dataclass
+class RolloutBatch:
+    obs_norm: jp.ndarray
+    obs_raw: jp.ndarray
+    actions: jp.ndarray
+    log_probs: jp.ndarray
+    rewards: jp.ndarray
+    dones: jp.ndarray
+    values: jp.ndarray
+
+
+class MJXNavEnv:
+    def __init__(self, xml_path: str):
+        self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
+        self._model = mjx.put_model(self._mj_model)
+        self._data_template = mjx.make_data(self._mj_model)
+
+        self._torso_body_id = int(
+            mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_BODY, "frame")
+        )
+        self._imu_site_id = int(
+            mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_SITE, "imu")
+        )
+
+        gyro_id = int(
+            mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_gyro")
+        )
+        accel_id = int(
+            mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_accel")
+        )
+        self._gyro_slice = slice(
+            int(self._mj_model.sensor_adr[gyro_id]),
+            int(self._mj_model.sensor_adr[gyro_id] + self._mj_model.sensor_dim[gyro_id]),
+        )
+        self._accel_slice = slice(
+            int(self._mj_model.sensor_adr[accel_id]),
+            int(self._mj_model.sensor_adr[accel_id] + self._mj_model.sensor_dim[accel_id]),
+        )
+
+        self._action_size = int(self._mj_model.nu)
+        self._obs_size = int(self._mj_model.nq + self._mj_model.nv + 6 + 2)
+
+        root_qpos = []
+        root_dofs = []
+        for jnt_id, jnt_type in enumerate(self._mj_model.jnt_type):
+            if int(jnt_type) == int(mujoco.mjtJoint.mjJNT_FREE):
+                qadr = int(self._mj_model.jnt_qposadr[jnt_id])
+                dadr = int(self._mj_model.jnt_dofadr[jnt_id])
+                root_qpos.extend(range(qadr, qadr + 7))
+                root_dofs.extend(range(dadr, dadr + 6))
+
+        qpos_mask = jp.ones((self._mj_model.nq,), dtype=jp.float32)
+        if root_qpos:
+            qpos_mask = qpos_mask.at[jp.array(root_qpos, dtype=jp.int32)].set(0.0)
+        self._non_root_qpos_mask = qpos_mask
+
+        self._qpos0 = jp.array(self._mj_model.qpos0, dtype=jp.float32)
+        self._qvel0 = jp.zeros((self._mj_model.nv,), dtype=jp.float32)
+
+        ctrlrange = jp.array(self._mj_model.actuator_ctrlrange, dtype=jp.float32)
+        trnid = self._mj_model.actuator_trnid[:, 0]
+        jnt_range = jp.array(self._mj_model.jnt_range[trnid], dtype=jp.float32)
+        self._actuator_ctrlrange = ctrlrange
+        self._actuator_jnt_range = jnt_range
+
+    @property
+    def action_size(self) -> int:
+        return self._action_size
+
+    @property
+    def obs_size(self) -> int:
+        return self._obs_size
+
+    def _scale_action(self, action: jp.ndarray) -> jp.ndarray:
+        ctrlrange = self._actuator_ctrlrange
+        jnt_range = self._actuator_jnt_range
+
+        ctrl_lo = ctrlrange[:, 0]
+        ctrl_hi = ctrlrange[:, 1]
+        ctrl_span = ctrl_hi - ctrl_lo
+        use_ctrl = ctrl_span > 0.0
+        ctrl = 0.5 * (action + 1.0) * ctrl_span + ctrl_lo
+
+        jnt_lo = jnt_range[:, 0]
+        jnt_hi = jnt_range[:, 1]
+        jnt_span = jnt_hi - jnt_lo
+        use_jnt = jnt_span > 0.0
+        jnt_ctrl = 0.5 * (action + 1.0) * jnt_span + jnt_lo
+
+        return jp.where(use_ctrl, ctrl, jp.where(use_jnt, jnt_ctrl, action))
+
+    def _upright(self, data: Any) -> jp.ndarray:
+        xmat = data.site_xmat[self._imu_site_id]
+        return xmat[2, 2]
+
+    def _local_target(self, data: Any, target_pos: jp.ndarray) -> jp.ndarray:
+        pos = data.xpos[self._torso_body_id][:2]
+        v = target_pos - pos
+        xmat = data.xmat[self._torso_body_id]
+        yaw = jp.arctan2(xmat[1, 0], xmat[0, 0])
+        c = jp.cos(yaw)
+        s = jp.sin(yaw)
+        x_local = c * v[0] + s * v[1]
+        y_local = -s * v[0] + c * v[1]
+        return jp.array([x_local, y_local], dtype=jp.float32)
+
+    def _get_obs(
+        self,
+        data: Any,
+        target_pos: jp.ndarray,
+        gyro_bias: jp.ndarray,
+        rng: jp.ndarray,
+    ) -> jp.ndarray:
+        rng_qpos, rng_qvel, rng_gyro = jax.random.split(rng, 3)
+
+        qpos = data.qpos + jax.random.normal(rng_qpos, data.qpos.shape) * QPOS_NOISE_STD
+        qpos = self._qpos0 + (qpos - self._qpos0) * self._non_root_qpos_mask
+
+        qvel = data.qvel + jax.random.normal(rng_qvel, data.qvel.shape) * QVEL_NOISE_STD
+
+        sensordata = data.sensordata
+        gyro = sensordata[self._gyro_slice] + gyro_bias
+        gyro = gyro + jax.random.normal(rng_gyro, gyro.shape) * GYRO_NOISE_STD
+        accel = sensordata[self._accel_slice]
+
+        local_target = self._local_target(data, target_pos)
+        return jp.concatenate([qpos, qvel, gyro, accel, local_target], axis=0)
+
+    def reset(self, rng: jp.ndarray) -> tuple[EnvState, jp.ndarray]:
+        rng_qpos, rng_qvel, rng_goal, rng_bias, rng_obs = jax.random.split(rng, 5)
+
+        qpos_noise = jax.random.normal(rng_qpos, self._qpos0.shape) * 1.0e-2
+        qvel_noise = jax.random.normal(rng_qvel, self._qvel0.shape) * 1.0e-2
+
+        qpos = self._qpos0 + qpos_noise * self._non_root_qpos_mask
+        qvel = self._qvel0 + qvel_noise
+
+        data = self._data_template.replace(
+            qpos=qpos,
+            qvel=qvel,
+            ctrl=jp.zeros((self._action_size,), dtype=jp.float32),
+        )
+        data = mjx.forward(self._model, data)
+
+        rng_theta, rng_radius = jax.random.split(rng_goal)
+        theta = jax.random.uniform(rng_theta, (), minval=0.0, maxval=2.0 * jp.pi)
+        radius = jax.random.uniform(rng_radius, (), minval=0.0, maxval=TARGET_RADIUS)
+        target_pos = jp.array([radius * jp.cos(theta), radius * jp.sin(theta)], dtype=jp.float32)
+
+        gyro_bias = jax.random.normal(rng_bias, (3,), dtype=jp.float32) * GYRO_BIAS_STD
+
+        obs = self._get_obs(data, target_pos, gyro_bias, rng_obs)
+
+        state = EnvState(
+            data=data,
+            target_pos=target_pos,
+            prev_action=jp.zeros((self._action_size,), dtype=jp.float32),
+            gyro_bias=gyro_bias,
+            steps=jp.array(0, dtype=jp.int32),
+        )
+        return state, obs
+
+    def step(
+        self,
+        state: EnvState,
+        action: jp.ndarray,
+        rng: jp.ndarray,
+    ) -> tuple[EnvState, jp.ndarray, jp.ndarray, jp.ndarray]:
+        delayed = ACTION_DELAY_ALPHA * action + (1.0 - ACTION_DELAY_ALPHA) * state.prev_action
+        delayed = jp.clip(delayed, -1.0, 1.0)
+        ctrl = self._scale_action(delayed)
+
+        data = state.data.replace(ctrl=ctrl)
+        data = mjx.step(self._model, data)
+
+        obs = self._get_obs(data, state.target_pos, state.gyro_bias, rng)
+
+        prev_pos = state.data.xpos[self._torso_body_id][:2]
+        new_pos = data.xpos[self._torso_body_id][:2]
+        old_dist = jp.linalg.norm(state.target_pos - prev_pos)
+        new_dist = jp.linalg.norm(state.target_pos - new_pos)
+
+        upright = self._upright(data)
+        upright_bonus = UPRIGHT_BONUS_COEF * upright
+        ctrl_cost = CTRL_COST_COEF * jp.sum(jp.square(delayed))
+        reward = (old_dist - new_dist) + upright_bonus - ctrl_cost
+
+        height = data.xpos[self._torso_body_id][2]
+        tilt_fail = upright < jp.cos(TILT_RAD)
+        nan_fail = jp.any(jp.isnan(data.qpos)) | jp.any(jp.isnan(data.qvel))
+
+        steps = state.steps + 1
+        timeout = steps >= MAX_EPISODE_STEPS
+        done = (height < FALL_HEIGHT) | tilt_fail | nan_fail | timeout
+
+        next_state = EnvState(
+            data=data,
+            target_pos=state.target_pos,
+            prev_action=action,
+            gyro_bias=state.gyro_bias,
+            steps=steps,
+        )
+
+        return next_state, obs, reward, done.astype(jp.float32)
+
+
+def _tree_select(cond: jp.ndarray, new_tree: Any, old_tree: Any) -> Any:
+    def select(new_leaf: jp.ndarray, old_leaf: jp.ndarray) -> jp.ndarray:
+        cond_leaf = cond
+        while cond_leaf.ndim < new_leaf.ndim:
+            cond_leaf = cond_leaf[..., None]
+        return jp.where(cond_leaf, new_leaf, old_leaf)
+
+    return jax.tree_util.tree_map(select, new_tree, old_tree)
+
+
+def _init_obs_stats(obs_size: int) -> ObsStats:
+    return ObsStats(
+        count=jp.array(1e-4, dtype=jp.float32),
+        mean=jp.zeros((obs_size,), dtype=jp.float32),
+        var=jp.ones((obs_size,), dtype=jp.float32),
+    )
+
+
+def _update_obs_stats(stats: ObsStats, obs_batch: jp.ndarray) -> ObsStats:
+    batch = obs_batch.reshape((-1, obs_batch.shape[-1]))
+    batch_count = jp.array(batch.shape[0], dtype=jp.float32)
+    batch_mean = jp.mean(batch, axis=0)
+    batch_var = jp.var(batch, axis=0)
+
+    delta = batch_mean - stats.mean
+    total_count = stats.count + batch_count
+
+    new_mean = stats.mean + delta * (batch_count / total_count)
+    m_a = stats.var * stats.count
+    m_b = batch_var * batch_count
+    m2 = m_a + m_b + jp.square(delta) * (stats.count * batch_count / total_count)
+    new_var = jp.maximum(m2 / total_count, 1e-8)
+
+    return ObsStats(count=total_count, mean=new_mean, var=new_var)
+
+
+def _normalize_obs(obs_raw: jp.ndarray, stats: ObsStats) -> jp.ndarray:
+    std = jp.sqrt(stats.var + OBS_NORM_EPS)
+    return (obs_raw - stats.mean) / std
+
+
+def _gaussian_log_prob(pre_tanh: jp.ndarray, mean: jp.ndarray, log_std: jp.ndarray) -> jp.ndarray:
+    inv_std = jp.exp(-log_std)
+    return -0.5 * jp.sum(
+        jp.square((pre_tanh - mean) * inv_std) + 2.0 * log_std + jp.log(2.0 * jp.pi),
+        axis=-1,
+    )
+
+
+def _tanh_log_prob_from_pre_tanh(
+    pre_tanh: jp.ndarray,
+    action: jp.ndarray,
+    mean: jp.ndarray,
+    log_std: jp.ndarray,
+) -> jp.ndarray:
+    log_prob = _gaussian_log_prob(pre_tanh, mean, log_std)
+    correction = jp.sum(jp.log(1.0 - jp.square(action) + 1e-6), axis=-1)
+    return log_prob - correction
+
+
+def _tanh_log_prob(action: jp.ndarray, mean: jp.ndarray, log_std: jp.ndarray) -> jp.ndarray:
+    clipped = jp.clip(action, -0.999999, 0.999999)
+    pre_tanh = jp.arctanh(clipped)
+    return _tanh_log_prob_from_pre_tanh(pre_tanh, clipped, mean, log_std)
+
+
+def _extract_policy_mlp(params: Any) -> list[tuple[Any, Any]]:
     if isinstance(params, Mapping) and "params" in params:
         params = params["params"]
 
@@ -126,38 +375,25 @@ def _flatten_dense_layers(params: Any) -> list[tuple[str, Any, Any]]:
                 visit(name, value)
 
     visit("", params)
-    return layers
-
-
-def _layer_sort_key(name: str) -> Tuple[int, int]:
-    tokens = name.replace("/", "_").split("_")
-    for token in reversed(tokens):
-        if token.isdigit():
-            return (0, int(token))
-    if "out" in name or "mean" in name:
-        return (2, 0)
-    return (1, 0)
-
-
-def _extract_policy_mlp(params: Any) -> list[tuple[Any, Any]]:
-    policy = params
-    if isinstance(params, Mapping):
-        for key in ("policy", "actor"):
-            if key in params:
-                policy = params[key]
-                break
-
-    layers = _flatten_dense_layers(policy)
     if not layers:
         raise ValueError("No Dense layers found in policy params.")
 
-    layers.sort(key=lambda item: _layer_sort_key(item[0]))
+    def sort_key(name: str) -> tuple[int, int]:
+        tokens = name.replace("/", "_").split("_")
+        for token in reversed(tokens):
+            if token.isdigit():
+                return (0, int(token))
+        if "out" in name:
+            return (2, 0)
+        return (1, 0)
+
+    layers.sort(key=lambda item: sort_key(item[0]))
     return [(w, b) for _name, w, b in layers]
 
 
 def _render_policy(
     xml_path: Path,
-    params: Any,
+    policy_params: Any,
     obs_mean: Any,
     obs_std: Any,
     target_xy: Tuple[float, float],
@@ -165,7 +401,6 @@ def _render_policy(
 ) -> None:
     import time
 
-    import mujoco
     import numpy as np
     from mujoco import viewer
 
@@ -197,23 +432,17 @@ def _render_policy(
 
         return np.where(use_ctrl, ctrl, np.where(use_jnt, jnt_ctrl, action))
 
-    def local_target(model: mujoco.MjModel, data: mujoco.MjData, target_xy: np.ndarray) -> np.ndarray:
+    def local_target(model: mujoco.MjModel, data: mujoco.MjData, target_xy_arr: np.ndarray) -> np.ndarray:
         body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "frame")
         pos_xy = data.xpos[body_id, :2]
-        v = target_xy - pos_xy
-
-        # xmat is row-major; column 0 is the body x-axis in world coordinates.
+        v = target_xy_arr - pos_xy
         xmat = data.xmat[body_id]
         yaw = np.arctan2(xmat[3], xmat[0])
-
-        # Rotate global vector by -yaw to get body-frame target coordinates.
         c = np.cos(yaw)
         s = np.sin(yaw)
-        x_local = c * v[0] + s * v[1]
-        y_local = -s * v[0] + c * v[1]
-        return np.array([x_local, y_local])
+        return np.array([c * v[0] + s * v[1], -s * v[0] + c * v[1]])
 
-    weights = _extract_policy_mlp(params)
+    weights = _extract_policy_mlp(policy_params)
     weights = [(np.array(w), np.array(b)) for w, b in weights]
     mean = np.array(obs_mean)
     std = np.array(obs_std)
@@ -254,8 +483,7 @@ def _render_policy(
             obs = np.concatenate([qpos, qvel, gyro, accel, local_xy])
             obs = (obs - mean) / std
 
-            raw_out = mlp_forward(obs, weights)
-            mean_action = raw_out[: model.nu]
+            mean_action = mlp_forward(obs, weights)
             action = np.tanh(mean_action)
 
             delayed = 0.2 * action + 0.8 * prev_action
@@ -271,108 +499,345 @@ def _render_policy(
             time.sleep(model.opt.timestep)
 
 
+@jax.jit
+def _compute_gae(
+    rewards: jp.ndarray,
+    dones: jp.ndarray,
+    values: jp.ndarray,
+    last_value: jp.ndarray,
+) -> tuple[jp.ndarray, jp.ndarray]:
+    def scan_fn(carry: tuple[jp.ndarray, jp.ndarray], xs: tuple[jp.ndarray, jp.ndarray, jp.ndarray]):
+        gae, next_value = carry
+        reward_t, done_t, value_t = xs
+        delta = reward_t + DISCOUNTING * (1.0 - done_t) * next_value - value_t
+        gae = delta + DISCOUNTING * GAE_LAMBDA * (1.0 - done_t) * gae
+        return (gae, value_t), gae
+
+    (_, _), advantages_rev = jax.lax.scan(
+        scan_fn,
+        (jp.zeros_like(last_value), last_value),
+        (rewards[::-1], dones[::-1], values[::-1]),
+    )
+    advantages = advantages_rev[::-1]
+    returns = advantages + values
+    return advantages, returns
+
+
+def _flatten_time_env(x: jp.ndarray) -> jp.ndarray:
+    return x.reshape((x.shape[0] * x.shape[1],) + x.shape[2:])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--xml", default="robot/scene.xml")
-    parser.add_argument("--checkpoint_dir", default="robot/checkpoints")
+    parser.add_argument("--xml", default=str(ROOT / "scene.xml"))
+    parser.add_argument("--checkpoint_dir", default=str(ROOT / "checkpoints"))
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--num_timesteps", type=int, default=NUM_TIMESTEPS)
+    parser.add_argument("--num_envs", type=int, default=NUM_ENVS)
+    parser.add_argument("--unroll_length", type=int, default=UNROLL_LENGTH)
+    parser.add_argument("--num_minibatches", type=int, default=NUM_MINIBATCHES)
+    parser.add_argument("--num_updates_per_batch", type=int, default=NUM_UPDATES_PER_BATCH)
     parser.add_argument("--render", action="store_true")
+    parser.add_argument(
+        "--render_on_start",
+        action="store_true",
+        help="Open a viewer immediately after initialization, before training updates.",
+    )
+    parser.add_argument(
+        "--render_every_updates",
+        type=int,
+        default=0,
+        help="If > 0, open a viewer every N training updates using the current policy.",
+    )
     parser.add_argument("--render_steps", type=int, default=1000)
     parser.add_argument("--render_target_x", type=float, default=3.0)
     parser.add_argument("--render_target_y", type=float, default=2.0)
     args = parser.parse_args()
 
-    xml_path = Path(args.xml)
+    xml_path = Path(args.xml).expanduser()
     if not xml_path.exists():
         xml_path = ROOT / xml_path.name
-    env = CustomNavEnv(xml_path=str(xml_path))
 
-    train_fn = ppo.train
-    sig = inspect.signature(train_fn)
-    kwargs: Dict[str, Any] = {
-        "environment": env,
-        "num_timesteps": NUM_TIMESTEPS,
-        "num_envs": NUM_ENVS,
-        "episode_length": EPISODE_LENGTH,
-        "learning_rate": LEARNING_RATE,
-        "entropy_cost": ENTROPY_COST,
-        "discounting": DISCOUNTING,
-        "batch_size": BATCH_SIZE,
-        "num_minibatches": NUM_MINIBATCHES,
-        "num_updates_per_batch": NUM_UPDATES_PER_BATCH,
-        "unroll_length": UNROLL_LENGTH,
-        "seed": args.seed,
+    checkpoint_dir = Path(args.checkpoint_dir).expanduser()
+    if not checkpoint_dir.is_absolute():
+        checkpoint_dir = Path.cwd() / checkpoint_dir
+
+    print(f"Loading MJX model from {xml_path} ...", flush=True)
+    env = MJXNavEnv(str(xml_path))
+    print(f"MJX model loaded: obs_size={env.obs_size}, action_size={env.action_size}", flush=True)
+    num_envs = int(args.num_envs)
+    unroll_length = int(args.unroll_length)
+
+    if num_envs <= 0:
+        raise ValueError("--num_envs must be > 0")
+    if unroll_length <= 0:
+        raise ValueError("--unroll_length must be > 0")
+    if args.render_every_updates < 0:
+        raise ValueError("--render_every_updates must be >= 0")
+
+    num_updates = max(1, args.num_timesteps // (num_envs * unroll_length))
+    print(
+        f"Starting MJX PPO: envs={num_envs}, unroll={unroll_length}, "
+        f"updates={num_updates}, total_steps≈{num_updates * num_envs * unroll_length}",
+        flush=True,
+    )
+
+    policy_model = PolicyMLP(hidden_sizes=HIDDEN_SIZES, action_size=env.action_size)
+    value_model = ValueMLP(hidden_sizes=HIDDEN_SIZES)
+
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(GRAD_CLIP),
+        optax.adam(LEARNING_RATE),
+    )
+
+    rng = jax.random.PRNGKey(args.seed)
+    rng, policy_key, value_key, env_key = jax.random.split(rng, 4)
+
+    dummy_obs = jp.zeros((env.obs_size,), dtype=jp.float32)
+    params: dict[str, Any] = {
+        "policy": policy_model.init(policy_key, dummy_obs),
+        "value": value_model.init(value_key, dummy_obs),
+        "log_std": jp.zeros((env.action_size,), dtype=jp.float32),
+    }
+    opt_state = optimizer.init(params)
+
+    env_keys = jax.random.split(env_key, num_envs)
+    env_state, obs_raw = jax.vmap(env.reset)(env_keys)
+
+    obs_stats = _init_obs_stats(env.obs_size)
+    obs_stats = _update_obs_stats(obs_stats, obs_raw)
+
+    if args.render_on_start:
+        print("Opening initial viewer before training ...", flush=True)
+        obs_std_start = jp.sqrt(obs_stats.var + OBS_NORM_EPS)
+        _render_policy(
+            xml_path=xml_path,
+            policy_params=params["policy"],
+            obs_mean=obs_stats.mean,
+            obs_std=obs_std_start,
+            target_xy=(args.render_target_x, args.render_target_y),
+            max_steps=args.render_steps,
+        )
+
+    @jax.jit
+    def collect_rollout(
+        params_in: dict[str, Any],
+        obs_stats_in: ObsStats,
+        env_state_in: EnvState,
+        obs_raw_in: jp.ndarray,
+        rng_in: jp.ndarray,
+    ) -> tuple[EnvState, jp.ndarray, jp.ndarray, RolloutBatch]:
+        log_std = params_in["log_std"]
+
+        def step_fn(
+            carry: tuple[EnvState, jp.ndarray, jp.ndarray],
+            _unused: Any,
+        ) -> tuple[tuple[EnvState, jp.ndarray, jp.ndarray], RolloutBatch]:
+            env_state_t, obs_raw_t, rng_t = carry
+            rng_t, action_key, step_key, reset_key = jax.random.split(rng_t, 4)
+
+            obs_norm_t = _normalize_obs(obs_raw_t, obs_stats_in)
+            mean_action = policy_model.apply(params_in["policy"], obs_norm_t)
+            value_t = value_model.apply(params_in["value"], obs_norm_t)
+
+            noise = jax.random.normal(action_key, mean_action.shape)
+            pre_tanh = mean_action + jp.exp(log_std) * noise
+            action_t = jp.tanh(pre_tanh)
+            log_prob_t = _tanh_log_prob_from_pre_tanh(pre_tanh, action_t, mean_action, log_std)
+
+            step_keys = jax.random.split(step_key, num_envs)
+            next_state, next_obs_raw, reward_t, done_t = jax.vmap(env.step)(
+                env_state_t,
+                action_t,
+                step_keys,
+            )
+
+            reset_keys = jax.random.split(reset_key, num_envs)
+            reset_state, reset_obs_raw = jax.vmap(env.reset)(reset_keys)
+
+            done_bool = done_t.astype(jp.bool_)
+            next_state = _tree_select(done_bool, reset_state, next_state)
+            next_obs_raw = _tree_select(done_bool, reset_obs_raw, next_obs_raw)
+
+            transition = RolloutBatch(
+                obs_norm=obs_norm_t,
+                obs_raw=obs_raw_t,
+                actions=action_t,
+                log_probs=log_prob_t,
+                rewards=reward_t,
+                dones=done_t,
+                values=value_t,
+            )
+            return (next_state, next_obs_raw, rng_t), transition
+
+        (env_state_out, obs_raw_out, rng_out), rollout = jax.lax.scan(
+            step_fn,
+            (env_state_in, obs_raw_in, rng_in),
+            xs=None,
+            length=unroll_length,
+        )
+        return env_state_out, obs_raw_out, rng_out, rollout
+
+    @jax.jit
+    def train_minibatch(
+        params_in: dict[str, Any],
+        opt_state_in: Any,
+        obs_mb: jp.ndarray,
+        actions_mb: jp.ndarray,
+        old_logp_mb: jp.ndarray,
+        adv_mb: jp.ndarray,
+        returns_mb: jp.ndarray,
+    ) -> tuple[dict[str, Any], Any, dict[str, jp.ndarray]]:
+        def loss_fn(p: dict[str, Any]) -> tuple[jp.ndarray, dict[str, jp.ndarray]]:
+            mean_action = policy_model.apply(p["policy"], obs_mb)
+            value = value_model.apply(p["value"], obs_mb)
+            log_std = p["log_std"]
+
+            new_logp = _tanh_log_prob(actions_mb, mean_action, log_std)
+            ratio = jp.exp(new_logp - old_logp_mb)
+            clipped_ratio = jp.clip(ratio, 1.0 - PPO_CLIP_EPS, 1.0 + PPO_CLIP_EPS)
+
+            policy_loss = -jp.mean(jp.minimum(ratio * adv_mb, clipped_ratio * adv_mb))
+            value_loss = 0.5 * jp.mean(jp.square(returns_mb - value))
+            entropy = jp.sum(log_std + 0.5 * (1.0 + jp.log(2.0 * jp.pi)))
+
+            total_loss = policy_loss + VALUE_LOSS_COEF * value_loss - ENTROPY_COST * entropy
+            metrics = {
+                "loss": total_loss,
+                "policy_loss": policy_loss,
+                "value_loss": value_loss,
+                "entropy": entropy,
+            }
+            return total_loss, metrics
+
+        (loss, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(params_in)
+        del loss
+        updates, opt_state_out = optimizer.update(grads, opt_state_in, params_in)
+        params_out = optax.apply_updates(params_in, updates)
+        return params_out, opt_state_out, metrics
+
+    last_metrics = {
+        "loss": jp.array(0.0),
+        "policy_loss": jp.array(0.0),
+        "value_loss": jp.array(0.0),
+        "entropy": jp.array(0.0),
     }
 
-    if "num_eval_envs" in sig.parameters:
-        kwargs["num_eval_envs"] = max(1, NUM_ENVS // 16)
-    if "normalize_observations" in sig.parameters:
-        kwargs["normalize_observations"] = True
-    if "grad_clip" in sig.parameters:
-        kwargs["grad_clip"] = GRAD_CLIP
-    if "grad_clipping" in sig.parameters:
-        kwargs["grad_clipping"] = GRAD_CLIP
-    if "max_grad_norm" in sig.parameters:
-        kwargs["max_grad_norm"] = GRAD_CLIP
+    total_steps = 0
+    for update in range(num_updates):
+        env_state, obs_raw, rng, rollout = collect_rollout(params, obs_stats, env_state, obs_raw, rng)
 
-    if "network_factory" in sig.parameters:
-        kwargs["network_factory"] = _make_networks
-    else:
-        networks = _make_networks(env.observation_size, env.action_size)
-        if "policy_network" in sig.parameters:
-            kwargs["policy_network"] = networks.policy_network
-        if "value_network" in sig.parameters:
-            kwargs["value_network"] = networks.value_network
-        if "parametric_action_distribution" in sig.parameters:
-            kwargs["parametric_action_distribution"] = networks.parametric_action_distribution
+        next_obs_norm = _normalize_obs(obs_raw, obs_stats)
+        next_values = value_model.apply(params["value"], next_obs_norm)
 
-    for ckpt_key in ("save_checkpoint_path", "checkpoint_path", "checkpoint_dir"):
-        if ckpt_key in sig.parameters:
-            kwargs[ckpt_key] = args.checkpoint_dir
-            break
+        advantages, returns = _compute_gae(
+            rollout.rewards,
+            rollout.dones,
+            rollout.values,
+            next_values,
+        )
+        advantages = (advantages - jp.mean(advantages)) / (jp.std(advantages) + 1e-8)
 
-    result = train_fn(**kwargs)
+        obs_batch = _flatten_time_env(rollout.obs_norm)
+        actions_batch = _flatten_time_env(rollout.actions)
+        old_logp_batch = _flatten_time_env(rollout.log_probs)
+        adv_batch = _flatten_time_env(advantages)
+        returns_batch = _flatten_time_env(returns)
 
-    make_inference_fn = None
-    params = None
-    metrics = None
-    training_state = None
+        batch_size = int(obs_batch.shape[0])
+        num_minibatches = max(1, min(int(args.num_minibatches), batch_size))
+        minibatch_size = batch_size // num_minibatches
+        trim = minibatch_size * num_minibatches
 
-    if isinstance(result, tuple):
-        if len(result) >= 1:
-            make_inference_fn = result[0]
-        if len(result) >= 2:
-            params = result[1]
-        if len(result) >= 3:
-            metrics = result[2]
-        if len(result) >= 4:
-            training_state = result[3]
+        obs_batch = obs_batch[:trim]
+        actions_batch = actions_batch[:trim]
+        old_logp_batch = old_logp_batch[:trim]
+        adv_batch = adv_batch[:trim]
+        returns_batch = returns_batch[:trim]
 
-    normalizer = _extract_normalizer(training_state) or _extract_normalizer(metrics)
-    mean_std = _get_normalizer_mean_std(normalizer)
+        for _epoch in range(int(args.num_updates_per_batch)):
+            rng, perm_key = jax.random.split(rng)
+            perm = jax.random.permutation(perm_key, trim)
 
-    if params is None:
-        raise RuntimeError("PPO training did not return policy params.")
+            obs_perm = obs_batch[perm].reshape((num_minibatches, minibatch_size, -1))
+            actions_perm = actions_batch[perm].reshape((num_minibatches, minibatch_size, -1))
+            old_logp_perm = old_logp_batch[perm].reshape((num_minibatches, minibatch_size))
+            adv_perm = adv_batch[perm].reshape((num_minibatches, minibatch_size))
+            returns_perm = returns_batch[perm].reshape((num_minibatches, minibatch_size))
 
-    payload: Dict[str, Any] = {"params": params}
-    if mean_std is not None:
-        payload["normalizer"] = {"mean": mean_std[0], "std": mean_std[1]}
+            for mb in range(num_minibatches):
+                params, opt_state, last_metrics = train_minibatch(
+                    params,
+                    opt_state,
+                    obs_perm[mb],
+                    actions_perm[mb],
+                    old_logp_perm[mb],
+                    adv_perm[mb],
+                    returns_perm[mb],
+                )
+
+        obs_for_stats = jp.concatenate([_flatten_time_env(rollout.obs_raw), obs_raw], axis=0)
+        obs_stats = _update_obs_stats(obs_stats, obs_for_stats)
+
+        total_steps += num_envs * unroll_length
+
+        if update == 0 or (update + 1) % 10 == 0 or update + 1 == num_updates:
+            mean_reward = float(jp.mean(rollout.rewards))
+            done_rate = float(jp.mean(rollout.dones))
+            print(
+                f"update {update + 1}/{num_updates} "
+                f"steps={total_steps} "
+                f"reward={mean_reward:.4f} "
+                f"done_rate={done_rate:.4f} "
+                f"loss={float(last_metrics['loss']):.4f}"
+            , flush=True)
+
+        should_render_periodic = (
+            args.render_every_updates > 0
+            and (update + 1) % args.render_every_updates == 0
+            and not (args.render and (update + 1) == num_updates)
+        )
+        if should_render_periodic:
+            obs_std_now = jp.sqrt(obs_stats.var + OBS_NORM_EPS)
+            print(
+                f"Opening eval viewer at update {update + 1}/{num_updates} ...",
+                flush=True,
+            )
+            _render_policy(
+                xml_path=xml_path,
+                policy_params=params["policy"],
+                obs_mean=obs_stats.mean,
+                obs_std=obs_std_now,
+                target_xy=(args.render_target_x, args.render_target_y),
+                max_steps=args.render_steps,
+            )
+
+    obs_std = jp.sqrt(obs_stats.var + OBS_NORM_EPS)
+    payload: dict[str, Any] = {
+        "params": {
+            "policy": params["policy"],
+            "value": params["value"],
+            "log_std": params["log_std"],
+        },
+        "normalizer": {
+            "mean": obs_stats.mean,
+            "std": obs_std,
+        },
+    }
 
     checkpoints.save_checkpoint(
-        args.checkpoint_dir, payload, step=NUM_TIMESTEPS, overwrite=True
+        str(checkpoint_dir),
+        payload,
+        step=total_steps,
+        overwrite=True,
     )
 
     if args.render:
-        if mean_std is None:
-            raise RuntimeError(
-                "Cannot render without observation normalizer stats. "
-                "Ensure normalize_observations=True is supported by your Brax version."
-            )
         _render_policy(
             xml_path=xml_path,
-            params=params,
-            obs_mean=mean_std[0],
-            obs_std=mean_std[1],
+            policy_params=params["policy"],
+            obs_mean=obs_stats.mean,
+            obs_std=obs_std,
             target_xy=(args.render_target_x, args.render_target_y),
             max_steps=args.render_steps,
         )

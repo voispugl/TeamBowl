@@ -1,0 +1,14 @@
+# Core ML + simulation stack
+jax[cpu]==0.9.0
+flax==0.12.3
+optax==0.2.6
+orbax-checkpoint>=0.11.0
+mujoco==3.4.0
+numpy==2.3.5
+absl-py>=2.0.0
+
+# Mesh tooling
+trimesh==4.11.1
+
+# Needed by custom_nav_env.py (legacy Brax env path)
+brax==0.14.0

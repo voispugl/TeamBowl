@@ -5,8 +5,7 @@ from typing import Any, Dict, Tuple
 import jax
 import jax.numpy as jp
 import mujoco
-from brax.envs import mjx_env
-from brax.envs.base import State
+from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from brax.mjx import pipeline
 
@@ -26,12 +25,22 @@ TILT_RAD = 0.78
 MAX_EPISODE_STEPS = 1000
 
 
-class CustomNavEnv(mjx_env.MjxEnv):
+class CustomNavEnv(PipelineEnv):
     """Goal-conditioned navigation environment with MJX physics and noise."""
 
     def __init__(self, xml_path: str = "robot/scene.xml", **kwargs: Any):
-        self._mj_model = mjcf.load(xml_path)
-        super().__init__(mj_model=self._mj_model, **kwargs)
+        # Keep a MuJoCo model for name/id lookups and sensor metadata,
+        # and a Brax system for MJX stepping/training.
+        self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
+        sys = mjcf.load(xml_path)
+
+        backend = kwargs.pop("backend", "mjx")
+        n_frames = kwargs.pop("n_frames", 1)
+        debug = kwargs.pop("debug", False)
+        super().__init__(sys=sys, backend=backend, n_frames=n_frames, debug=debug)
+        if kwargs:
+            unknown = ", ".join(sorted(kwargs.keys()))
+            raise TypeError(f"Unexpected keyword arguments: {unknown}")
 
         self._torso_body_id = mujoco.mj_name2id(
             self._mj_model, mujoco.mjtObj.mjOBJ_BODY, "frame"
@@ -77,10 +86,16 @@ class CustomNavEnv(mjx_env.MjxEnv):
 
         # Non-root dof mask for damping randomization.
         root_dofs = []
+        dof_per_joint = {
+            mujoco.mjtJoint.mjJNT_FREE: 6,
+            mujoco.mjtJoint.mjJNT_BALL: 3,
+            mujoco.mjtJoint.mjJNT_HINGE: 1,
+            mujoco.mjtJoint.mjJNT_SLIDE: 1,
+        }
         for jnt_id, jnt_type in enumerate(self._mj_model.jnt_type):
             if jnt_type == mujoco.mjtJoint.mjJNT_FREE:
                 adr = int(self._mj_model.jnt_dofadr[jnt_id])
-                dofnum = int(self._mj_model.jnt_dofnum[jnt_id])
+                dofnum = int(dof_per_joint.get(jnt_type, 0))
                 root_dofs.extend(range(adr, adr + dofnum))
         root_dofs = jp.array(root_dofs, dtype=jp.int32)
         dof_mask = jp.ones((self.sys.nv,), dtype=jp.bool_)
