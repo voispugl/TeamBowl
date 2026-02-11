@@ -114,19 +114,13 @@ class MJXNavEnv:
         self._floor_geom_id = int(
             mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
         )
-        wheel_body_ids: list[int] = []
-        for name in ("wheel", "wheel_2"):
-            try:
-                body_id = int(
-                    mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
-                )
-            except ValueError:
-                continue
-            wheel_body_ids.append(body_id)
-        contact_body_ids = [self._torso_body_id] + wheel_body_ids
+        contact_body_ids = [self._torso_body_id]
         geom_bodyid = np.asarray(self._mj_model.geom_bodyid)
         target_geom_ids = np.where(np.isin(geom_bodyid, contact_body_ids))[0]
         self._contact_geom_ids = jp.array(target_geom_ids, dtype=jp.int32)
+        geom_mask = np.zeros((self._mj_model.ngeom,), dtype=bool)
+        geom_mask[target_geom_ids] = True
+        self._contact_geom_mask = jp.array(geom_mask)
         self._imu_site_id = int(
             mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_SITE, "imu")
         )
@@ -213,10 +207,14 @@ class MJXNavEnv:
         valid = (g1 >= 0) & (g2 >= 0)
         floor = self._floor_geom_id
         floor_contact = (g1 == floor) | (g2 == floor)
-        target_contact = jp.isin(g1, self._contact_geom_ids) | jp.isin(
-            g2, self._contact_geom_ids
-        )
-        return jp.any(valid & floor_contact & target_contact)
+        in_contact = contact.dist <= 0.0
+        max_geom = self._contact_geom_mask.shape[0] - 1
+        g1_clamped = jp.clip(g1, 0, max_geom)
+        g2_clamped = jp.clip(g2, 0, max_geom)
+        g1_target = self._contact_geom_mask[g1_clamped] & (g1 >= 0)
+        g2_target = self._contact_geom_mask[g2_clamped] & (g2 >= 0)
+        target_contact = g1_target | g2_target
+        return jp.any(valid & in_contact & floor_contact & target_contact)
 
     def _local_target(self, data: Any, target_pos: jp.ndarray) -> jp.ndarray:
         pos = data.xpos[self._torso_body_id][:2]
@@ -652,7 +650,7 @@ def _debug_done_conditions(env: "MJXNavEnv", seed: int, samples: int = 4) -> Non
         f"  fall_fail={height_mean < FALL_HEIGHT} tilt_fail={upright_mean < tilt_threshold}",
         flush=True,
     )
-    print("  done uses ground_contact | nan | timeout", flush=True)
+    print("  done uses frame ground_contact | nan | timeout", flush=True)
     ground_contact = env._ground_contact(env.reset(jax.random.PRNGKey(seed + 1))[0].data)
     print(f"  ground_contact_at_reset={bool(ground_contact)}", flush=True)
 

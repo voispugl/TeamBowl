@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple
 import jax
 import jax.numpy as jp
 import mujoco
+import numpy as np
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 from brax.mjx import pipeline
@@ -51,6 +52,11 @@ class CustomNavEnv(PipelineEnv):
         self._floor_geom_id = mujoco.mj_name2id(
             self._mj_model, mujoco.mjtObj.mjOBJ_GEOM, "floor"
         )
+        geom_bodyid = np.asarray(self._mj_model.geom_bodyid)
+        target_geom_ids = np.where(geom_bodyid == self._torso_body_id)[0]
+        geom_mask = np.zeros((self._mj_model.ngeom,), dtype=bool)
+        geom_mask[target_geom_ids] = True
+        self._contact_geom_mask = jp.array(geom_mask)
 
         self._action_size = int(self.sys.nu)
         self._obs_size = int(self.sys.nq + self.sys.nv + 6 + 2)
@@ -212,13 +218,12 @@ class CustomNavEnv(PipelineEnv):
         ctrl_cost = CTRL_COST_COEF * jp.sum(jp.square(delayed))
         reward = (old_dist - new_dist) + upright_bonus - ctrl_cost
 
-        height = data.xpos[self._torso_body_id][2]
-        tilt_fail = upright < jp.cos(TILT_RAD)
+        ground_contact = self._ground_contact(data)
         nan_fail = jp.any(jp.isnan(data.qpos)) | jp.any(jp.isnan(data.qvel))
 
         steps = state.info["steps"] + 1
         timeout = steps >= MAX_EPISODE_STEPS
-        done = (height < FALL_HEIGHT) | tilt_fail | nan_fail | timeout
+        done = ground_contact | nan_fail | timeout
 
         info = dict(state.info)
         info.update(
@@ -232,7 +237,7 @@ class CustomNavEnv(PipelineEnv):
         metrics = {
             "distance": new_dist,
             "upright": upright,
-            "height": height,
+            "height": data.xpos[self._torso_body_id][2],
         }
 
         return state.replace(
@@ -249,6 +254,23 @@ class CustomNavEnv(PipelineEnv):
         xmat = data.site_xmat[self._imu_site_id]
         z_axis_world = jp.array([xmat[2], xmat[5], xmat[8]])
         return z_axis_world[2]
+
+    def _ground_contact(self, data: Any) -> jp.ndarray:
+        contact = data._impl.contact
+        geoms = contact.geom
+        g1 = geoms[:, 0]
+        g2 = geoms[:, 1]
+        valid = (g1 >= 0) & (g2 >= 0)
+        floor = self._floor_geom_id
+        floor_contact = (g1 == floor) | (g2 == floor)
+        in_contact = contact.dist <= 0.0
+        max_geom = self._contact_geom_mask.shape[0] - 1
+        g1_clamped = jp.clip(g1, 0, max_geom)
+        g2_clamped = jp.clip(g2, 0, max_geom)
+        g1_target = self._contact_geom_mask[g1_clamped] & (g1 >= 0)
+        g2_target = self._contact_geom_mask[g2_clamped] & (g2 >= 0)
+        target_contact = g1_target | g2_target
+        return jp.any(valid & in_contact & floor_contact & target_contact)
 
     def _local_target(self, data: Any, target_pos: jp.ndarray) -> jp.ndarray:
         # Global-to-body transform: rotate the global target vector by -yaw.

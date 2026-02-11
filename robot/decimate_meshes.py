@@ -14,12 +14,12 @@ import trimesh
 Backend = Literal["auto", "quadric", "cluster"]
 
 SPECIAL_TARGET_RATIOS = {
-    "wheel.stl": 0.05,
-    "lid_gear.stl": 0.2,
+    "wheel.stl": 0.03,
+    "lid_gear.stl": 0.1,
 }
 
 SPECIAL_MIN_FACES = {
-    "lid_gear.stl": 200,
+    "lid_gear.stl": 120,
 }
 
 WHEEL_COLLISION_SECTIONS = 16
@@ -157,12 +157,18 @@ def _decimate(
     target_faces: int,
     backend: Backend,
     quadric_aggression: int,
+    post_cluster: bool,
 ) -> tuple[trimesh.Trimesh, str]:
     if backend in ("auto", "quadric"):
         try:
             dec = _quadric_decimate(mesh, target_faces=target_faces, aggression=quadric_aggression)
             if len(dec.faces) > 0:
-                return dec, "quadric"
+                used = "quadric"
+                if post_cluster:
+                    dec2 = _cluster_decimate(dec, target_faces=target_faces)
+                    if len(dec2.faces) > 0 and len(dec2.faces) < len(dec.faces):
+                        return dec2, f"{used}->cluster"
+                return dec, used
         except Exception as exc:
             if backend == "quadric":
                 raise RuntimeError(
@@ -240,13 +246,13 @@ def main() -> None:
     parser.add_argument(
         "--target_ratio",
         type=float,
-        default=0.35,
-        help="Target face ratio (0-1], e.g. 0.35 keeps ~35%% of faces.",
+        default=0.15,
+        help="Target face ratio (0-1], e.g. 0.15 keeps ~15%% of faces.",
     )
     parser.add_argument(
         "--min_faces",
         type=int,
-        default=300,
+        default=150,
         help="Never decimate below this many faces per mesh.",
     )
     parser.add_argument(
@@ -258,7 +264,7 @@ def main() -> None:
     parser.add_argument(
         "--quadric_aggression",
         type=int,
-        default=7,
+        default=10,
         help="Aggression for quadric decimation when available.",
     )
     parser.add_argument(
@@ -266,8 +272,31 @@ def main() -> None:
         default=str(Path(__file__).resolve().parent / "assets_decimated"),
         help="Directory for decimated meshes when not using --inplace.",
     )
-    parser.add_argument("--inplace", action="store_true", help="Overwrite meshes in assets_dir.")
+    parser.add_argument(
+        "--inplace",
+        action="store_true",
+        default=True,
+        help="Overwrite meshes in assets_dir (default).",
+    )
+    parser.add_argument(
+        "--no_inplace",
+        action="store_false",
+        dest="inplace",
+        help="Write decimated meshes to output_dir instead of overwriting assets_dir.",
+    )
     parser.add_argument("--dry_run", action="store_true", help="Compute stats but do not write files.")
+    parser.add_argument(
+        "--post_cluster",
+        action="store_true",
+        default=True,
+        help="Run a secondary clustering pass after quadric to reduce coplanar faces.",
+    )
+    parser.add_argument(
+        "--no_post_cluster",
+        action="store_false",
+        dest="post_cluster",
+        help="Disable the secondary clustering pass.",
+    )
     parser.add_argument(
         "--backup_dir",
         default="",
@@ -327,6 +356,7 @@ def main() -> None:
             target_faces=target_faces,
             backend=args.backend,
             quadric_aggression=args.quadric_aggression,
+            post_cluster=args.post_cluster,
         )
 
         faces_after = int(len(decimated.faces))
