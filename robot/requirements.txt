@@ -1,5 +1,6 @@
 # Core ML + simulation stack
-jax[cpu]==0.9.0
+jax[cuda12]==0.9.0
+tensorflow[and-cuda]>=2.17
 flax==0.12.3
 optax==0.2.6
 orbax-checkpoint>=0.11.0

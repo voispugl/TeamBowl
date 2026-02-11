@@ -13,6 +13,17 @@ import trimesh
 
 Backend = Literal["auto", "quadric", "cluster"]
 
+SPECIAL_TARGET_RATIOS = {
+    "wheel.stl": 0.05,
+    "lid_gear.stl": 0.2,
+}
+
+SPECIAL_MIN_FACES = {
+    "lid_gear.stl": 200,
+}
+
+WHEEL_COLLISION_SECTIONS = 16
+
 
 def _load_mesh(path: Path) -> trimesh.Trimesh:
     loaded = trimesh.load(path, force="mesh")
@@ -162,6 +173,28 @@ def _decimate(
     return dec, "cluster"
 
 
+def _make_wheel_collision_mesh(mesh: trimesh.Trimesh, sections: int) -> trimesh.Trimesh:
+    verts = np.asarray(mesh.vertices)
+    if verts.size == 0:
+        raise ValueError("Wheel mesh has no vertices.")
+
+    mins = verts.min(axis=0)
+    maxs = verts.max(axis=0)
+    center = (mins + maxs) * 0.5
+    extents = maxs - mins
+
+    radius = 0.5 * float(max(extents[1], extents[2]))
+    height = float(extents[0])
+
+    cyl = trimesh.creation.cylinder(radius=radius, height=height, sections=sections)
+    rot = trimesh.transformations.rotation_matrix(np.pi / 2.0, [0.0, 1.0, 0.0])
+    cyl.apply_transform(rot)
+    cyl.apply_translation(center)
+    cyl.remove_infinite_values()
+    cyl.merge_vertices()
+    return cyl
+
+
 def _iter_meshes(assets_dir: Path, pattern: str) -> Iterable[Path]:
     return sorted(p for p in assets_dir.glob(pattern) if p.is_file())
 
@@ -285,7 +318,9 @@ def main() -> None:
     for src in mesh_paths:
         mesh = _load_mesh(src)
         faces_before = int(len(mesh.faces))
-        target_faces = max(args.min_faces, int(round(faces_before * args.target_ratio)))
+        target_ratio = SPECIAL_TARGET_RATIOS.get(src.name, args.target_ratio)
+        min_faces = SPECIAL_MIN_FACES.get(src.name, args.min_faces)
+        target_faces = max(min_faces, int(round(faces_before * target_ratio)))
 
         decimated, used_backend = _decimate(
             mesh,
@@ -312,10 +347,22 @@ def main() -> None:
             decimated.export(dst)
 
         pct = 100.0 * (1.0 - (faces_after / max(faces_before, 1)))
+        ratio_note = ""
+        if target_ratio != args.target_ratio or min_faces != args.min_faces:
+            ratio_note = f" (target_ratio={target_ratio:.2f}, min_faces={min_faces})"
         print(
             f"{src.name}: {faces_before} -> {faces_after} faces "
-            f"({pct:.1f}% reduction) [{used_backend}]"
+            f"({pct:.1f}% reduction) [{used_backend}]{ratio_note}"
         )
+
+        if src.name == "wheel.stl":
+            wheel_collision = _make_wheel_collision_mesh(mesh, WHEEL_COLLISION_SECTIONS)
+            if not args.dry_run:
+                wheel_collision.export(output_dir / "wheel_collision.stl")
+            print(
+                f"wheel_collision.stl: {len(wheel_collision.faces)} faces "
+                f"(sections={WHEEL_COLLISION_SECTIONS})"
+            )
 
     total_pct = 100.0 * (1.0 - (total_after / max(total_before, 1)))
     print(f"Total: {total_before} -> {total_after} faces ({total_pct:.1f}% reduction)")

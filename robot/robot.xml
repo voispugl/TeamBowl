@@ -40,7 +40,7 @@
           <inertial pos="-9.89636e-09 -3.55249e-08 -0.007652" mass="0.706823" fullinertia="0.00423992 0.00423992 0.00829168 1.12985e-09 -2.2045e-10 -1.81177e-11"/>
           <!-- Part wheel -->
           <geom type="mesh" class="visual" pos="0.0527022 -0.188111 -0.2968" quat="0.387994 0.591152 0.387994 -0.591152" mesh="wheel" material="wheel_material"/>
-          <geom type="mesh" class="collision" pos="0.0527022 -0.188111 -0.2968" quat="0.387994 0.591152 0.387994 -0.591152" mesh="wheel" material="wheel_material"/>
+          <geom type="mesh" class="collision" pos="0.0527022 -0.188111 -0.2968" quat="0.387994 0.591152 0.387994 -0.591152" mesh="wheel_collision"/>
         </body>
         <!-- Link wheel_2 -->
         <body name="wheel_2" pos="0.271842 -0.07294 0.350706" quat="0.5 0.5 -0.5 -0.5">
@@ -49,7 +49,7 @@
           <inertial pos="5.0538e-09 3.65296e-08 -0.0173055" mass="0.706823" fullinertia="0.00423992 0.00423992 0.00829168 -1.22924e-09 1.95045e-10 -1.04326e-10"/>
           <!-- Part wheel_2 -->
           <geom type="mesh" class="visual" pos="0.12319 0.151616 0.271842" quat="0.5 -0.5 -0.5 -0.5" mesh="wheel" material="wheel_material"/>
-          <geom type="mesh" class="collision" pos="0.12319 0.151616 0.271842" quat="0.5 -0.5 -0.5 -0.5" mesh="wheel" material="wheel_material"/>
+          <geom type="mesh" class="collision" pos="0.12319 0.151616 0.271842" quat="0.5 -0.5 -0.5 -0.5" mesh="wheel_collision"/>
         </body>
         <!-- Link hip -->
         <body name="hip" pos="-0.15 -0.07744 0.412646" quat="0.688467 0.688467 0.161286 -0.161286">
@@ -207,6 +207,7 @@
   </worldbody>
   <asset>
     <mesh file="assets_decimated/wheel.stl"/>
+    <mesh file="assets_decimated/wheel_collision.stl"/>
     <mesh file="assets_decimated/thigh.stl"/>
     <mesh file="assets_decimated/wheel_gear.stl"/>
     <mesh file="assets_decimated/lid.stl"/>
