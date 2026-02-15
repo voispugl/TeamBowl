@@ -13,15 +13,6 @@ import trimesh
 
 Backend = Literal["auto", "quadric", "cluster"]
 
-SPECIAL_TARGET_RATIOS = {
-    "wheel.stl": 0.05,
-    "lid_gear.stl": 0.2,
-}
-
-SPECIAL_MIN_FACES = {
-    "lid_gear.stl": 200,
-}
-
 WHEEL_COLLISION_SECTIONS = 16
 
 
@@ -240,8 +231,14 @@ def main() -> None:
     parser.add_argument(
         "--target_ratio",
         type=float,
-        default=0.35,
-        help="Target face ratio (0-1], e.g. 0.35 keeps ~35%% of faces.",
+        default=None,
+        help="Optional target face ratio (0-1], e.g. 0.35 keeps ~35%% of faces.",
+    )
+    parser.add_argument(
+        "--target_faces",
+        type=int,
+        default=2000,
+        help="Absolute target faces per mesh (used when --target_ratio is not set).",
     )
     parser.add_argument(
         "--min_faces",
@@ -309,18 +306,32 @@ def main() -> None:
     if not mesh_paths:
         raise RuntimeError(f"No meshes matched {args.pattern} in {assets_dir}")
 
+    if args.target_ratio is not None and not (0.0 < args.target_ratio <= 1.0):
+        raise ValueError("--target_ratio must be in (0, 1].")
+    if args.target_faces <= 0:
+        raise ValueError("--target_faces must be > 0.")
+    if args.min_faces <= 0:
+        raise ValueError("--min_faces must be > 0.")
+
     total_before = 0
     total_after = 0
 
     print(f"Found {len(mesh_paths)} meshes in {assets_dir}")
     print(f"Decimation backend: {args.backend}")
+    if args.target_ratio is not None:
+        print(f"Target mode: ratio={args.target_ratio:.3f} (min_faces={args.min_faces})")
+    else:
+        print(f"Target mode: absolute~{args.target_faces} faces (min_faces={args.min_faces})")
 
     for src in mesh_paths:
         mesh = _load_mesh(src)
         faces_before = int(len(mesh.faces))
-        target_ratio = SPECIAL_TARGET_RATIOS.get(src.name, args.target_ratio)
-        min_faces = SPECIAL_MIN_FACES.get(src.name, args.min_faces)
-        target_faces = max(min_faces, int(round(faces_before * target_ratio)))
+        if args.target_ratio is not None:
+            target_faces = max(args.min_faces, int(round(faces_before * args.target_ratio)))
+            mode_note = f"target_ratio={args.target_ratio:.3f}"
+        else:
+            target_faces = max(args.min_faces, args.target_faces)
+            mode_note = f"target_faces={args.target_faces}"
 
         decimated, used_backend = _decimate(
             mesh,
@@ -347,12 +358,9 @@ def main() -> None:
             decimated.export(dst)
 
         pct = 100.0 * (1.0 - (faces_after / max(faces_before, 1)))
-        ratio_note = ""
-        if target_ratio != args.target_ratio or min_faces != args.min_faces:
-            ratio_note = f" (target_ratio={target_ratio:.2f}, min_faces={min_faces})"
         print(
             f"{src.name}: {faces_before} -> {faces_after} faces "
-            f"({pct:.1f}% reduction) [{used_backend}]{ratio_note}"
+            f"({pct:.1f}% reduction) [{used_backend}] ({mode_note})"
         )
 
         if src.name == "wheel.stl":
