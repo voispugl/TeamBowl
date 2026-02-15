@@ -13,6 +13,15 @@ import trimesh
 
 Backend = Literal["auto", "quadric", "cluster"]
 
+SPECIAL_TARGET_RATIOS = {
+    "wheel.stl": 0.03,
+    "lid_gear.stl": 0.1,
+}
+
+SPECIAL_MIN_FACES = {
+    "lid_gear.stl": 120,
+}
+
 WHEEL_COLLISION_SECTIONS = 16
 
 
@@ -148,12 +157,18 @@ def _decimate(
     target_faces: int,
     backend: Backend,
     quadric_aggression: int,
+    post_cluster: bool,
 ) -> tuple[trimesh.Trimesh, str]:
     if backend in ("auto", "quadric"):
         try:
             dec = _quadric_decimate(mesh, target_faces=target_faces, aggression=quadric_aggression)
             if len(dec.faces) > 0:
-                return dec, "quadric"
+                used = "quadric"
+                if post_cluster:
+                    dec2 = _cluster_decimate(dec, target_faces=target_faces)
+                    if len(dec2.faces) > 0 and len(dec2.faces) < len(dec.faces):
+                        return dec2, f"{used}->cluster"
+                return dec, used
         except Exception as exc:
             if backend == "quadric":
                 raise RuntimeError(
@@ -231,19 +246,13 @@ def main() -> None:
     parser.add_argument(
         "--target_ratio",
         type=float,
-        default=None,
-        help="Optional target face ratio (0-1], e.g. 0.35 keeps ~35%% of faces.",
-    )
-    parser.add_argument(
-        "--target_faces",
-        type=int,
-        default=2000,
-        help="Absolute target faces per mesh (used when --target_ratio is not set).",
+        default=0.15,
+        help="Target face ratio (0-1], e.g. 0.15 keeps ~15%% of faces.",
     )
     parser.add_argument(
         "--min_faces",
         type=int,
-        default=300,
+        default=150,
         help="Never decimate below this many faces per mesh.",
     )
     parser.add_argument(
@@ -255,7 +264,7 @@ def main() -> None:
     parser.add_argument(
         "--quadric_aggression",
         type=int,
-        default=7,
+        default=10,
         help="Aggression for quadric decimation when available.",
     )
     parser.add_argument(
@@ -263,8 +272,31 @@ def main() -> None:
         default=str(Path(__file__).resolve().parent / "assets_decimated"),
         help="Directory for decimated meshes when not using --inplace.",
     )
-    parser.add_argument("--inplace", action="store_true", help="Overwrite meshes in assets_dir.")
+    parser.add_argument(
+        "--inplace",
+        action="store_true",
+        default=True,
+        help="Overwrite meshes in assets_dir (default).",
+    )
+    parser.add_argument(
+        "--no_inplace",
+        action="store_false",
+        dest="inplace",
+        help="Write decimated meshes to output_dir instead of overwriting assets_dir.",
+    )
     parser.add_argument("--dry_run", action="store_true", help="Compute stats but do not write files.")
+    parser.add_argument(
+        "--post_cluster",
+        action="store_true",
+        default=True,
+        help="Run a secondary clustering pass after quadric to reduce coplanar faces.",
+    )
+    parser.add_argument(
+        "--no_post_cluster",
+        action="store_false",
+        dest="post_cluster",
+        help="Disable the secondary clustering pass.",
+    )
     parser.add_argument(
         "--backup_dir",
         default="",
@@ -306,38 +338,25 @@ def main() -> None:
     if not mesh_paths:
         raise RuntimeError(f"No meshes matched {args.pattern} in {assets_dir}")
 
-    if args.target_ratio is not None and not (0.0 < args.target_ratio <= 1.0):
-        raise ValueError("--target_ratio must be in (0, 1].")
-    if args.target_faces <= 0:
-        raise ValueError("--target_faces must be > 0.")
-    if args.min_faces <= 0:
-        raise ValueError("--min_faces must be > 0.")
-
     total_before = 0
     total_after = 0
 
     print(f"Found {len(mesh_paths)} meshes in {assets_dir}")
     print(f"Decimation backend: {args.backend}")
-    if args.target_ratio is not None:
-        print(f"Target mode: ratio={args.target_ratio:.3f} (min_faces={args.min_faces})")
-    else:
-        print(f"Target mode: absolute~{args.target_faces} faces (min_faces={args.min_faces})")
 
     for src in mesh_paths:
         mesh = _load_mesh(src)
         faces_before = int(len(mesh.faces))
-        if args.target_ratio is not None:
-            target_faces = max(args.min_faces, int(round(faces_before * args.target_ratio)))
-            mode_note = f"target_ratio={args.target_ratio:.3f}"
-        else:
-            target_faces = max(args.min_faces, args.target_faces)
-            mode_note = f"target_faces={args.target_faces}"
+        target_ratio = SPECIAL_TARGET_RATIOS.get(src.name, args.target_ratio)
+        min_faces = SPECIAL_MIN_FACES.get(src.name, args.min_faces)
+        target_faces = max(min_faces, int(round(faces_before * target_ratio)))
 
         decimated, used_backend = _decimate(
             mesh,
             target_faces=target_faces,
             backend=args.backend,
             quadric_aggression=args.quadric_aggression,
+            post_cluster=args.post_cluster,
         )
 
         faces_after = int(len(decimated.faces))
@@ -358,9 +377,12 @@ def main() -> None:
             decimated.export(dst)
 
         pct = 100.0 * (1.0 - (faces_after / max(faces_before, 1)))
+        ratio_note = ""
+        if target_ratio != args.target_ratio or min_faces != args.min_faces:
+            ratio_note = f" (target_ratio={target_ratio:.2f}, min_faces={min_faces})"
         print(
             f"{src.name}: {faces_before} -> {faces_after} faces "
-            f"({pct:.1f}% reduction) [{used_backend}] ({mode_note})"
+            f"({pct:.1f}% reduction) [{used_backend}]{ratio_note}"
         )
 
         if src.name == "wheel.stl":
