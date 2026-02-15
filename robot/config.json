@@ -6,7 +6,7 @@
 
     "simplify_stls": true,
     // Maximum size of the STL files in MB (default: 3)
-    "max_stl_size": 0.2,
+    "max_stl_size": 0.1,
 
     // Post-process MJCF (quaternions, defaults, IMU + joint velocity + actuator force sensors)
     "post_import_commands": ["python robot/post_process_mujoco.py"],

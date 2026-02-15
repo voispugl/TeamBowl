@@ -206,17 +206,17 @@
     </body>
   </worldbody>
   <asset>
+    <mesh file="align_bar.stl"/>
     <mesh file="frame.stl"/>
     <mesh file="knee_kicker.stl"/>
-    <mesh file="calf.stl"/>
     <mesh file="hip.stl"/>
-    <mesh file="wheel_gear.stl"/>
-    <mesh file="thigh.stl"/>
-    <mesh file="lid_gear.stl"/>
-    <mesh file="lid.stl"/>
     <mesh file="wheel.stl"/>
+    <mesh file="thigh.stl"/>
+    <mesh file="calf.stl"/>
     <mesh file="foot.stl"/>
-    <mesh file="align_bar.stl"/>
+    <mesh file="wheel_gear.stl"/>
+    <mesh file="lid.stl"/>
+    <mesh file="lid_gear.stl"/>
     <material name="frame_material" rgba="0.972549 0.529412 0.00392157 1"/>
     <material name="wheel_material" rgba="0.231373 0.380392 0.705882 1"/>
     <material name="hip_material" rgba="0.615686 0.811765 0.929412 1"/>
