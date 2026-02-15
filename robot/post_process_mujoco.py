@@ -107,6 +107,123 @@ def _extract_actuator_pairs(text: str) -> list[tuple[str, str]]:
     return pairs
 
 
+PASSIVE_JOINTS = {
+    "trochanter0",
+    "trochanter1",
+    "patella0",
+    "patella1",
+}
+
+
+def _remove_passive_actuators(text: str) -> str:
+    match = re.search(r"<actuator>(.*?)</actuator>", text, re.DOTALL)
+    if not match:
+        return text
+
+    block = match.group(1)
+    lines = block.splitlines()
+    filtered: list[str] = []
+    for line in lines:
+        joint_match = re.search(r'\bjoint="([^"]+)"', line)
+        if joint_match and joint_match.group(1) in PASSIVE_JOINTS:
+            continue
+        filtered.append(line)
+
+    new_block = "\n".join(filtered)
+    return text[: match.start(1)] + new_block + text[match.end(1) :]
+
+
+def _prune_actuator_sensors(text: str, actuator_names: set[str]) -> str:
+    lines = text.splitlines()
+    filtered: list[str] = []
+    for line in lines:
+        if "<actuatorfrc" in line:
+            match = re.search(r'\bactuator="([^"]+)"', line)
+            if match and match.group(1) not in actuator_names:
+                continue
+        filtered.append(line)
+    return "\n".join(filtered) + ("\n" if text.endswith("\n") else "")
+
+
+def _add_dual_actuators(text: str) -> str:
+    match = re.search(r"<actuator>(.*?)</actuator>", text, re.DOTALL)
+    if not match:
+        return text
+
+    block = match.group(1)
+    tag_pattern = re.compile(r"<(position|motor)\b([^/>]*)/>")
+
+    def parse_attrs(attr_text: str) -> dict[str, str]:
+        return {k: v for k, v in re.findall(r'(\w+)="([^"]*)"', attr_text)}
+
+    def format_tag(tag: str, attrs: dict[str, str]) -> str:
+        order = ["class", "name", "joint", "forcerange", "ctrlrange", "inheritrange"]
+        parts = []
+        for key in order:
+            if key in attrs:
+                parts.append(f'{key}="{attrs[key]}"')
+        for key in sorted(k for k in attrs.keys() if k not in order):
+            parts.append(f'{key}="{attrs[key]}"')
+        return f"    <{tag} " + " ".join(parts) + "/>"
+
+    joints: dict[str, dict[str, dict[str, str]]] = {}
+    names: set[str] = set()
+    for tag, attr_text in tag_pattern.findall(block):
+        attrs = parse_attrs(attr_text)
+        name = attrs.get("name")
+        joint = attrs.get("joint")
+        if not name or not joint:
+            continue
+        names.add(name)
+        joints.setdefault(joint, {})[tag] = attrs
+
+    def unique_name(base: str) -> str:
+        if base not in names:
+            names.add(base)
+            return base
+        i = 2
+        while f"{base}_{i}" in names:
+            i += 1
+        new_name = f"{base}_{i}"
+        names.add(new_name)
+        return new_name
+
+    new_lines: list[str] = []
+    for joint, kinds in joints.items():
+        if "position" in kinds and "motor" not in kinds:
+            pos_attrs = kinds["position"]
+            motor_attrs: dict[str, str] = {
+                "name": unique_name(f"{joint}_motor"),
+                "joint": joint,
+            }
+            if "class" in pos_attrs:
+                motor_attrs["class"] = pos_attrs["class"]
+            if "forcerange" in pos_attrs:
+                motor_attrs["forcerange"] = pos_attrs["forcerange"]
+                motor_attrs["ctrlrange"] = pos_attrs["forcerange"]
+            new_lines.append(format_tag("motor", motor_attrs))
+        if "motor" in kinds and "position" not in kinds:
+            motor_attrs = kinds["motor"]
+            pos_attrs = {
+                "name": unique_name(f"{joint}_pos"),
+                "joint": joint,
+                "inheritrange": "1",
+            }
+            if "class" in motor_attrs:
+                pos_attrs["class"] = motor_attrs["class"]
+            else:
+                pos_attrs["class"] = "robot"
+            if "forcerange" in motor_attrs:
+                pos_attrs["forcerange"] = motor_attrs["forcerange"]
+            new_lines.append(format_tag("position", pos_attrs))
+
+    if not new_lines:
+        return text
+
+    insertion = block.rstrip() + "\n" + "\n".join(new_lines) + "\n"
+    return text[: match.start(1)] + insertion + text[match.end(1) :]
+
+
 def _ensure_sensor_block(text: str, actuator_pairs: list[tuple[str, str]]) -> str:
     required_lines = [
         "    <gyro name=\"imu_gyro\" site=\"imu\"/>",
@@ -167,8 +284,12 @@ def main() -> int:
 
     text = _replace_euler_with_quat(text)
     text = _update_default_position(text, kp="1", dampratio="0.9")
+    text = _remove_passive_actuators(text)
+    text = _add_dual_actuators(text)
     actuator_pairs = _extract_actuator_pairs(text)
     text = _ensure_sensor_block(text, actuator_pairs)
+    actuator_names = {name for name, _joint in actuator_pairs}
+    text = _prune_actuator_sensors(text, actuator_names)
 
     with open(xml_path, "w", encoding="utf-8") as f:
         f.write(text)

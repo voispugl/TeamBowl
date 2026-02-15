@@ -15,6 +15,7 @@ from mujoco import viewer
 
 ACTION_DELAY_ALPHA = 0.2
 DEFAULT_UNLIMITED_ACT_RANGE = 6.28
+DEFAULT_UNLIMITED_MOTOR_RANGE = 1.0
 
 
 def _extract_policy_mlp(params: Any) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -52,13 +53,14 @@ def _extract_policy_mlp(params: Any) -> list[tuple[np.ndarray, np.ndarray]]:
 def _mlp_forward(x: np.ndarray, weights: list[tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
     for w, b in weights[:-1]:
         x = x @ w + b
-        x = x / (1.0 + np.exp(-x))
+        x = 0.5 * x * (1.0 + np.tanh(0.5 * x))
     w, b = weights[-1]
     return x @ w + b
 
 
 def _scale_action(action: np.ndarray, model: mujoco.MjModel) -> np.ndarray:
     ctrlrange = model.actuator_ctrlrange.copy()
+    bias_type = model.actuator_biastype.copy()
     jnt_range = model.jnt_range[model.actuator_trnid[:, 0]].copy()
 
     ctrl_lo = ctrlrange[:, 0]
@@ -68,11 +70,16 @@ def _scale_action(action: np.ndarray, model: mujoco.MjModel) -> np.ndarray:
     jnt_hi = jnt_range[:, 1]
     jnt_span = jnt_hi - jnt_lo
     use_ctrl = ctrl_span > 0.0
-    use_jnt = (~use_ctrl) & (jnt_span > 0.0)
+    is_position = bias_type != 0
+    use_jnt = (~use_ctrl) & is_position & (jnt_span > 0.0)
     scale = np.where(
         use_ctrl,
         0.5 * ctrl_span,
-        np.where(use_jnt, 0.5 * jnt_span, DEFAULT_UNLIMITED_ACT_RANGE),
+        np.where(
+            use_jnt,
+            0.5 * jnt_span,
+            np.where(is_position, DEFAULT_UNLIMITED_ACT_RANGE, DEFAULT_UNLIMITED_MOTOR_RANGE),
+        ),
     )
     bias = np.where(
         use_ctrl,

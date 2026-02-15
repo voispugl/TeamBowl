@@ -32,14 +32,15 @@ NUM_MINIBATCHES = 32
 NUM_UPDATES_PER_BATCH = 4
 UNROLL_LENGTH = 10
 NUM_ENVS = 128
-NUM_TIMESTEPS = 5_000_000
-MAX_EPISODE_STEPS = 100000
+NUM_TIMESTEPS = 50_000_000
+MAX_EPISODE_STEPS = 1000000
 OBS_NORM_EPS = 1e-6
 
-UPRIGHT_BONUS_COEF = 1.0
 CTRL_COST_COEF = 1.0e-3
 ACTION_DELAY_ALPHA = 0.2
 DEFAULT_UNLIMITED_ACT_RANGE = 6.28
+DEFAULT_UNLIMITED_MOTOR_RANGE = 1.0
+ALIVE_REWARD = 0.001
 
 QPOS_NOISE_STD = 1.0e-3
 QVEL_NOISE_STD = 5.0e-2
@@ -49,6 +50,7 @@ GYRO_BIAS_STD = 2.0e-2
 TARGET_RADIUS = 5.0
 FALL_HEIGHT = 0.25
 TILT_RAD = 0.78
+GOAL_RESAMPLE_STEPS = 1000
 
 
 class PolicyMLP(nn.Module):
@@ -103,10 +105,11 @@ class RolloutBatch:
 
 
 class MJXNavEnv:
-    def __init__(self, xml_path: str):
+    def __init__(self, xml_path: str, goal_resample_steps: int = GOAL_RESAMPLE_STEPS):
         self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
         self._model = mjx.put_model(self._mj_model)
         self._data_template = mjx.make_data(self._mj_model)
+        self._goal_resample_steps = max(0, int(goal_resample_steps))
 
         self._torso_body_id = int(
             mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_BODY, "frame")
@@ -115,6 +118,12 @@ class MJXNavEnv:
             mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
         )
         contact_body_ids = [self._torso_body_id]
+        for name in ("wheel", "wheel_2"):
+            body_id = int(
+                mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+            )
+            if body_id >= 0:
+                contact_body_ids.append(body_id)
         geom_bodyid = np.asarray(self._mj_model.geom_bodyid)
         target_geom_ids = np.where(np.isin(geom_bodyid, contact_body_ids))[0]
         self._contact_geom_ids = jp.array(target_geom_ids, dtype=jp.int32)
@@ -161,6 +170,7 @@ class MJXNavEnv:
         self._qvel0 = jp.zeros((self._mj_model.nv,), dtype=jp.float32)
 
         ctrlrange = jp.array(self._mj_model.actuator_ctrlrange, dtype=jp.float32)
+        bias_type = jp.array(self._mj_model.actuator_biastype, dtype=jp.int32)
         trnid = self._mj_model.actuator_trnid[:, 0]
         jnt_range = jp.array(self._mj_model.jnt_range[trnid], dtype=jp.float32)
         ctrl_lo = ctrlrange[:, 0]
@@ -170,11 +180,16 @@ class MJXNavEnv:
         jnt_hi = jnt_range[:, 1]
         jnt_span = jnt_hi - jnt_lo
         use_ctrl = ctrl_span > 0.0
-        use_jnt = (~use_ctrl) & (jnt_span > 0.0)
+        is_position = bias_type != 0
+        use_jnt = (~use_ctrl) & is_position & (jnt_span > 0.0)
         scale = jp.where(
             use_ctrl,
             0.5 * ctrl_span,
-            jp.where(use_jnt, 0.5 * jnt_span, DEFAULT_UNLIMITED_ACT_RANGE),
+            jp.where(
+                use_jnt,
+                0.5 * jnt_span,
+                jp.where(is_position, DEFAULT_UNLIMITED_ACT_RANGE, DEFAULT_UNLIMITED_MOTOR_RANGE),
+            ),
         )
         bias = jp.where(
             use_ctrl,
@@ -227,6 +242,12 @@ class MJXNavEnv:
         y_local = -s * v[0] + c * v[1]
         return jp.array([x_local, y_local], dtype=jp.float32)
 
+    def _sample_goal(self, rng: jp.ndarray) -> jp.ndarray:
+        rng_theta, rng_radius = jax.random.split(rng)
+        theta = jax.random.uniform(rng_theta, (), minval=0.0, maxval=2.0 * jp.pi)
+        radius = jax.random.uniform(rng_radius, (), minval=0.0, maxval=TARGET_RADIUS)
+        return jp.array([radius * jp.cos(theta), radius * jp.sin(theta)], dtype=jp.float32)
+
     def _get_obs(
         self,
         data: Any,
@@ -265,10 +286,7 @@ class MJXNavEnv:
         )
         data = mjx.forward(self._model, data)
 
-        rng_theta, rng_radius = jax.random.split(rng_goal)
-        theta = jax.random.uniform(rng_theta, (), minval=0.0, maxval=2.0 * jp.pi)
-        radius = jax.random.uniform(rng_radius, (), minval=0.0, maxval=TARGET_RADIUS)
-        target_pos = jp.array([radius * jp.cos(theta), radius * jp.sin(theta)], dtype=jp.float32)
+        target_pos = self._sample_goal(rng_goal)
 
         gyro_bias = jax.random.normal(rng_bias, (3,), dtype=jp.float32) * GYRO_BIAS_STD
 
@@ -289,6 +307,7 @@ class MJXNavEnv:
         action: jp.ndarray,
         rng: jp.ndarray,
     ) -> tuple[EnvState, jp.ndarray, jp.ndarray, jp.ndarray]:
+        rng_obs, rng_goal = jax.random.split(rng)
         delayed = ACTION_DELAY_ALPHA * action + (1.0 - ACTION_DELAY_ALPHA) * state.prev_action
         delayed = jp.clip(delayed, -1.0, 1.0)
         ctrl = self._scale_action(delayed)
@@ -296,17 +315,13 @@ class MJXNavEnv:
         data = state.data.replace(ctrl=ctrl)
         data = mjx.step(self._model, data)
 
-        obs = self._get_obs(data, state.target_pos, state.gyro_bias, rng)
-
         prev_pos = state.data.xpos[self._torso_body_id][:2]
         new_pos = data.xpos[self._torso_body_id][:2]
         old_dist = jp.linalg.norm(state.target_pos - prev_pos)
         new_dist = jp.linalg.norm(state.target_pos - new_pos)
 
-        upright = self._upright(data)
-        upright_bonus = UPRIGHT_BONUS_COEF * upright
         ctrl_cost = CTRL_COST_COEF * jp.sum(jp.square(delayed))
-        reward = (old_dist - new_dist) + upright_bonus - ctrl_cost
+        reward = (old_dist - new_dist) - ctrl_cost + ALIVE_REWARD
 
         ground_contact = self._ground_contact(data)
         nan_fail = jp.any(jp.isnan(data.qpos)) | jp.any(jp.isnan(data.qvel))
@@ -315,9 +330,17 @@ class MJXNavEnv:
         timeout = steps >= MAX_EPISODE_STEPS
         done = ground_contact | nan_fail | timeout
 
+        next_target = state.target_pos
+        if self._goal_resample_steps > 0:
+            resample = (steps % self._goal_resample_steps) == 0
+            sampled = self._sample_goal(rng_goal)
+            next_target = jax.lax.select(resample, sampled, next_target)
+
+        obs = self._get_obs(data, next_target, state.gyro_bias, rng_obs)
+
         next_state = EnvState(
             data=data,
-            target_pos=state.target_pos,
+            target_pos=next_target,
             prev_action=action,
             gyro_bias=state.gyro_bias,
             steps=steps,
@@ -477,7 +500,8 @@ def _render_policy(
     from mujoco import viewer
 
     def silu(x: np.ndarray) -> np.ndarray:
-        return x / (1.0 + np.exp(-x))
+        # Numerically stable SiLU: x * sigmoid(x) = 0.5 * x * (1 + tanh(x/2))
+        return 0.5 * x * (1.0 + np.tanh(0.5 * x))
 
     def mlp_forward(x: np.ndarray, weights: list[tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
         for w, b in weights[:-1]:
@@ -488,6 +512,7 @@ def _render_policy(
 
     def scale_action(action: np.ndarray, model: mujoco.MjModel) -> np.ndarray:
         ctrlrange = model.actuator_ctrlrange.copy()
+        bias_type = model.actuator_biastype.copy()
         jnt_range = model.jnt_range[model.actuator_trnid[:, 0]].copy()
 
         ctrl_lo = ctrlrange[:, 0]
@@ -497,11 +522,16 @@ def _render_policy(
         jnt_hi = jnt_range[:, 1]
         jnt_span = jnt_hi - jnt_lo
         use_ctrl = ctrl_span > 0.0
-        use_jnt = (~use_ctrl) & (jnt_span > 0.0)
+        is_position = bias_type != 0
+        use_jnt = (~use_ctrl) & is_position & (jnt_span > 0.0)
         scale = np.where(
             use_ctrl,
             0.5 * ctrl_span,
-            np.where(use_jnt, 0.5 * jnt_span, DEFAULT_UNLIMITED_ACT_RANGE),
+            np.where(
+                use_jnt,
+                0.5 * jnt_span,
+                np.where(is_position, DEFAULT_UNLIMITED_ACT_RANGE, DEFAULT_UNLIMITED_MOTOR_RANGE),
+            ),
         )
         bias = np.where(
             use_ctrl,
@@ -650,7 +680,7 @@ def _debug_done_conditions(env: "MJXNavEnv", seed: int, samples: int = 4) -> Non
         f"  fall_fail={height_mean < FALL_HEIGHT} tilt_fail={upright_mean < tilt_threshold}",
         flush=True,
     )
-    print("  done uses frame ground_contact | nan | timeout", flush=True)
+    print("  done uses frame+wheels ground_contact | nan | timeout", flush=True)
     ground_contact = env._ground_contact(env.reset(jax.random.PRNGKey(seed + 1))[0].data)
     print(f"  ground_contact_at_reset={bool(ground_contact)}", flush=True)
 
@@ -758,6 +788,12 @@ def main() -> None:
     parser.add_argument("--render_target_x", type=float, default=3.0)
     parser.add_argument("--render_target_y", type=float, default=2.0)
     parser.add_argument(
+        "--goal_resample_steps",
+        type=int,
+        default=GOAL_RESAMPLE_STEPS,
+        help="Resample the navigation goal every N steps (0 disables).",
+    )
+    parser.add_argument(
         "--debug_dones",
         action="store_true",
         help="Print reset-time height/upright stats to debug done conditions.",
@@ -803,7 +839,7 @@ def main() -> None:
         jax.config.update("jax_explain_cache_misses", True)
 
     print(f"Loading MJX model from {xml_path} ...", flush=True)
-    env = MJXNavEnv(str(xml_path))
+    env = MJXNavEnv(str(xml_path), goal_resample_steps=args.goal_resample_steps)
     print(f"MJX model loaded: obs_size={env.obs_size}, action_size={env.action_size}", flush=True)
     if args.debug_dones:
         _debug_done_conditions(env, args.seed)

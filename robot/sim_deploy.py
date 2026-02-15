@@ -11,10 +11,13 @@ import numpy as np
 from mujoco import viewer
 
 ACTION_DELAY_ALPHA = 0.2
+DEFAULT_UNLIMITED_ACT_RANGE = 6.28
+DEFAULT_UNLIMITED_MOTOR_RANGE = 1.0
 
 
 def silu(x: np.ndarray) -> np.ndarray:
-    return x / (1.0 + np.exp(-x))
+    # Numerically stable SiLU.
+    return 0.5 * x * (1.0 + np.tanh(0.5 * x))
 
 
 def mlp_forward(x: np.ndarray, params: List[Tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
@@ -27,6 +30,7 @@ def mlp_forward(x: np.ndarray, params: List[Tuple[np.ndarray, np.ndarray]]) -> n
 
 def scale_action(action: np.ndarray, model: mujoco.MjModel) -> np.ndarray:
     ctrlrange = model.actuator_ctrlrange.copy()
+    bias_type = model.actuator_biastype.copy()
     jnt_range = model.jnt_range[model.actuator_trnid[:, 0]].copy()
 
     ctrl_lo = ctrlrange[:, 0]
@@ -38,10 +42,16 @@ def scale_action(action: np.ndarray, model: mujoco.MjModel) -> np.ndarray:
     jnt_lo = jnt_range[:, 0]
     jnt_hi = jnt_range[:, 1]
     jnt_span = jnt_hi - jnt_lo
-    use_jnt = jnt_span > 0.0
+    is_position = bias_type != 0
+    use_jnt = is_position & (jnt_span > 0.0)
     jnt_ctrl = 0.5 * (action + 1.0) * jnt_span + jnt_lo
 
-    return np.where(use_ctrl, ctrl, np.where(use_jnt, jnt_ctrl, action))
+    fallback = np.where(
+        is_position,
+        action * DEFAULT_UNLIMITED_ACT_RANGE,
+        action * DEFAULT_UNLIMITED_MOTOR_RANGE,
+    )
+    return np.where(use_ctrl, ctrl, np.where(use_jnt, jnt_ctrl, fallback))
 
 
 def local_target(model: mujoco.MjModel, data: mujoco.MjData, target_xy: np.ndarray) -> np.ndarray:

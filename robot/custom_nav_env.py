@@ -11,9 +11,11 @@ from brax.io import mjcf
 from brax.mjx import pipeline
 
 # Environment constants (tune as needed).
-UPRIGHT_BONUS_COEF = 1.0
 CTRL_COST_COEF = 1.0e-3
 ACTION_DELAY_ALPHA = 0.2
+DEFAULT_UNLIMITED_ACT_RANGE = 6.28
+DEFAULT_UNLIMITED_MOTOR_RANGE = 1.0
+ALIVE_REWARD = 0.001
 
 QPOS_NOISE_STD = 1.0e-3
 QVEL_NOISE_STD = 5.0e-2
@@ -52,8 +54,15 @@ class CustomNavEnv(PipelineEnv):
         self._floor_geom_id = mujoco.mj_name2id(
             self._mj_model, mujoco.mjtObj.mjOBJ_GEOM, "floor"
         )
+        contact_body_ids = [self._torso_body_id]
+        for name in ("wheel", "wheel_2"):
+            body_id = int(
+                mujoco.mj_name2id(self._mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
+            )
+            if body_id >= 0:
+                contact_body_ids.append(body_id)
         geom_bodyid = np.asarray(self._mj_model.geom_bodyid)
-        target_geom_ids = np.where(geom_bodyid == self._torso_body_id)[0]
+        target_geom_ids = np.where(np.isin(geom_bodyid, contact_body_ids))[0]
         geom_mask = np.zeros((self._mj_model.ngeom,), dtype=bool)
         geom_mask[target_geom_ids] = True
         self._contact_geom_mask = jp.array(geom_mask)
@@ -112,6 +121,8 @@ class CustomNavEnv(PipelineEnv):
         # Action scaling references.
         ctrlrange = self._mj_model.actuator_ctrlrange
         self._actuator_ctrlrange = jp.array(ctrlrange, dtype=jp.float32)
+        bias_type = self._mj_model.actuator_biastype
+        self._actuator_biastype = jp.array(bias_type, dtype=jp.int32)
         trnid = self._mj_model.actuator_trnid[:, 0]
         jnt_range = self._mj_model.jnt_range[trnid]
         self._actuator_jnt_range = jp.array(jnt_range, dtype=jp.float32)
@@ -213,10 +224,10 @@ class CustomNavEnv(PipelineEnv):
         old_dist = jp.linalg.norm(target_pos - prev_pos)
         new_dist = jp.linalg.norm(target_pos - new_pos)
 
-        upright = self._upright(data)
-        upright_bonus = UPRIGHT_BONUS_COEF * upright
         ctrl_cost = CTRL_COST_COEF * jp.sum(jp.square(delayed))
-        reward = (old_dist - new_dist) + upright_bonus - ctrl_cost
+        reward = (old_dist - new_dist) - ctrl_cost + ALIVE_REWARD
+
+        upright = self._upright(data)
 
         ground_contact = self._ground_contact(data)
         nan_fail = jp.any(jp.isnan(data.qpos)) | jp.any(jp.isnan(data.qvel))
@@ -310,22 +321,35 @@ class CustomNavEnv(PipelineEnv):
 
     def _scale_action(self, action: jp.ndarray) -> jp.ndarray:
         ctrlrange = self._actuator_ctrlrange
+        bias_type = self._actuator_biastype
         jnt_range = self._actuator_jnt_range
 
         ctrl_lo = ctrlrange[:, 0]
         ctrl_hi = ctrlrange[:, 1]
         ctrl_span = ctrl_hi - ctrl_lo
-        use_ctrl = ctrl_span > 0.0
-        ctrl = 0.5 * (action + 1.0) * ctrl_span + ctrl_lo
-
         jnt_lo = jnt_range[:, 0]
         jnt_hi = jnt_range[:, 1]
         jnt_span = jnt_hi - jnt_lo
-        use_jnt = jnt_span > 0.0
-        jnt_ctrl = 0.5 * (action + 1.0) * jnt_span + jnt_lo
 
-        scaled = jp.where(use_ctrl, ctrl, jp.where(use_jnt, jnt_ctrl, action))
-        return scaled
+        use_ctrl = ctrl_span > 0.0
+        is_position = bias_type != 0
+        use_jnt = (~use_ctrl) & is_position & (jnt_span > 0.0)
+
+        scale = jp.where(
+            use_ctrl,
+            0.5 * ctrl_span,
+            jp.where(
+                use_jnt,
+                0.5 * jnt_span,
+                jp.where(is_position, DEFAULT_UNLIMITED_ACT_RANGE, DEFAULT_UNLIMITED_MOTOR_RANGE),
+            ),
+        )
+        bias = jp.where(
+            use_ctrl,
+            0.5 * (ctrl_hi + ctrl_lo),
+            jp.where(use_jnt, 0.5 * (jnt_hi + jnt_lo), 0.0),
+        )
+        return action * scale + bias
 
 
 def create_env(xml_path: str = "robot/scene.xml", **kwargs: Any) -> CustomNavEnv:

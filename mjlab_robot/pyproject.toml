@@ -1,0 +1,19 @@
+[project]
+name = "mjlab-robot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Cole", email = "cherber@andrew.cmu.edu" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mjlab>=1.0.0",
+]
+
+[project.scripts]
+mjlab-robot = "mjlab_robot:main"
+
+[build-system]
+requires = ["uv_build>=0.10.2,<0.11.0"]
+build-backend = "uv_build"
