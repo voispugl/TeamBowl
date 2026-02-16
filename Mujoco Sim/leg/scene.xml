@@ -1,7 +1,7 @@
 <mujoco model="scene">
     <include file="robot.xml" />
 
-    <option solver="PGS" iterations="80" tolerance="1e-8" timestep="0.001"/>
+    <!-- <option solver="PGS" iterations="80" tolerance="1e-8" timestep="0.001"/> -->
 
     <visual>
         <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0" />
