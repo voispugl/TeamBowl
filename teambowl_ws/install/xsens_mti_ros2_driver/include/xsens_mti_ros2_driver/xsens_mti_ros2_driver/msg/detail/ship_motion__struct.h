@@ -1,0 +1,1 @@
+/home/box/teambowl_ws/build/xsens_mti_ros2_driver/rosidl_generator_c/xsens_mti_ros2_driver/msg/detail/ship_motion__struct.h

@@ -1,0 +1,1 @@
+/home/box/teambowl_ws/build/depthai_ros_msgs/rosidl_generator_c/depthai_ros_msgs/msg/auto_focus_ctrl.h

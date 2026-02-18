@@ -1,0 +1,1 @@
+/home/box/teambowl_ws/build/depthai_descriptions/ament_cmake_environment_hooks/depthai_descriptions.sh

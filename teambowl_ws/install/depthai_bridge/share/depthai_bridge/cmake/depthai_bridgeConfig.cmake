@@ -1,0 +1,1 @@
+/home/box/teambowl_ws/build/depthai_bridge/ament_cmake_core/depthai_bridgeConfig.cmake

@@ -1,0 +1,1 @@
+/home/box/teambowl_ws/build/rs_motor_ros2/ament_cmake_environment_hooks/local_setup.zsh
