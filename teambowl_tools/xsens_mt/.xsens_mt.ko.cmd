@@ -1,0 +1,1 @@
+cmd_/home/box/teambowl_tools/xsens_mt/xsens_mt.ko := ld -r -EL  -maarch64elf -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/box/teambowl_tools/xsens_mt/xsens_mt.ko /home/box/teambowl_tools/xsens_mt/xsens_mt.o /home/box/teambowl_tools/xsens_mt/xsens_mt.mod.o;  true

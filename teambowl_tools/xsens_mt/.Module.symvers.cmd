@@ -1,0 +1,1 @@
+cmd_/home/box/teambowl_tools/xsens_mt/Module.symvers := sed 's/\.ko$$/\.o/' /home/box/teambowl_tools/xsens_mt/modules.order | scripts/mod/modpost -m   -o /home/box/teambowl_tools/xsens_mt/Module.symvers -e -i Module.symvers   -T -
