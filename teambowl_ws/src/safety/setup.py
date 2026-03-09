@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'watchdog = safety.system_health:main',
+            'system_health = safety.system_health:main',
             'heartbeat_publisher = safety.heartbeat_publisher:main',
         ],
     },

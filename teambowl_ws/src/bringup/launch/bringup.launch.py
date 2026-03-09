@@ -30,8 +30,8 @@ def generate_launch_description():
 
         Node(
             package='safety',
-            executable='watchdog',
-            name='watchdog',
+            executable='system_health',
+            name='system_health',
             output='screen',
             parameters=[
                 {'heartbeat_topic': '/heartbeat'},

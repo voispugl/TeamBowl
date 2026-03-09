@@ -1,1 +1,0 @@
-/home/box/teambowl_ws/src/drivers/depthai-ros/depthai_ros_driver/launch/stereo_from_rosbag.launch.py

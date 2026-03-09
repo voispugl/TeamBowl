@@ -1,1 +1,0 @@
-/home/box/teambowl_ws/build/depthai_ros_msgs/rosidl_cmake/srv/NormalizedImageCrop_Response.msg

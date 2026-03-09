@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'vesc_usb_driver'
+package_name = 'vesc_driver'
 
 setup(
     name=package_name,

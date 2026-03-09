@@ -1,1 +1,0 @@
-/home/box/teambowl_ws/src/drivers/depthai-ros/depthai_filters/launch/example_wls_filter.launch.py

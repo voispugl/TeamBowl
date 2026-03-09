@@ -1,1 +1,0 @@
-/home/box/teambowl_ws/src/drivers/depthai-ros/depthai_bridge/include/depthai_bridge/BridgePublisher.hpp

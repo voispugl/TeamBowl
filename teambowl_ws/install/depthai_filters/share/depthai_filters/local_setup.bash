@@ -1,1 +1,0 @@
-/home/box/teambowl_ws/build/depthai_filters/ament_cmake_environment_hooks/local_setup.bash

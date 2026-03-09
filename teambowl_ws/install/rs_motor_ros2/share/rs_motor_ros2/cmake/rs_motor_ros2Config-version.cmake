@@ -1,1 +1,0 @@
-/home/box/teambowl_ws/build/rs_motor_ros2/ament_cmake_core/rs_motor_ros2Config-version.cmake
