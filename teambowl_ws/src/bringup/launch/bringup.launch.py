@@ -5,7 +5,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         Node(
-            package='teambowl_mode_manager',
+            package='management',
             executable='mode_manager',
             name='mode_manager',
             output='screen',
@@ -18,7 +18,7 @@ def generate_launch_description():
         ),
 
         Node(
-            package='teambowl_safety_ops',
+            package='safety',
             executable='heartbeat_publisher',
             name='heartbeat_publisher',
             output='screen',
@@ -29,7 +29,7 @@ def generate_launch_description():
         ),
 
         Node(
-            package='teambowl_safety_ops',
+            package='safety',
             executable='watchdog',
             name='watchdog',
             output='screen',
@@ -43,7 +43,7 @@ def generate_launch_description():
         ),
 
         Node(
-            package='teambowl_motion',
+            package='locomotion',
             executable='vel_cmd_mux',
             name='vel_cmd_mux',
             output='screen',
@@ -60,7 +60,7 @@ def generate_launch_description():
         ),
 
         Node(
-            package='teambowl_motion',
+            package='locomotion',
             executable='collision_guard',
             name='collision_guard',
             output='screen',
@@ -74,7 +74,7 @@ def generate_launch_description():
         ),
 
         Node(
-            package='teambowl_vesc_driver',
+            package='vesc_driver',
             executable='cmd_vel_to_vesc',
             name='cmd_vel_to_vesc',
             output='screen',
@@ -85,6 +85,19 @@ def generate_launch_description():
                 {'max_wheel_rpm': 300.0},
                 {'left_port': '/dev/vesc_left'},
                 {'right_port': '/dev/vesc_right'},
+                {'cmd_vel_topic': '/cmd_vel'},
+                {'estop_topic': '/estop'},
+                {'wheel_radius_m': 0.10},
+                {'track_width_m': 0.45},
+                {'erpm_per_wheel_rpm': 1.0},
+                {'max_erpm': 3000},
+                {'cmd_timeout_s': 0.5},
+                {'left_port': '/dev/vesc_left'},
+                {'right_port': '/dev/vesc_right'},
+                {'baud': 115200},
+                {'serial_timeout_s': 0.05},
+                {'left_sign': 1},
+                {'right_sign': 1},
             ],
         ),
     ])
