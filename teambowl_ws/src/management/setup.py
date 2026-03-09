@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'teambowl_bringup'
+package_name = 'management'
 
 setup(
     name=package_name,
@@ -14,7 +14,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='box',
-    maintainer_email='cherber@andrew.cmu.edu',
+    maintainer_email='jvoisin@andrew.cmu.edu',
     description='TODO: Package description',
     license='TODO: License declaration',
     extras_require={
@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'mode_manager = management.mode_manager:main',
         ],
     },
 )

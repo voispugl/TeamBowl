@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'cmd_vel_to_vesc = vesc_usb_driver.cmd_vel_to_vesc:main',
         ],
     },
 )

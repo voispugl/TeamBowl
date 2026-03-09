@@ -14,7 +14,7 @@ class MotorControlSample : public rclcpp::Node {
 public:
   MotorControlSample()
       : rclcpp::Node("motor_control_set_node"),
-        motor(RobStrideMotor("can0", 0xFF, 0x01, 0)) {
+      motor(RobStrideMotor("can0", 0xFF, 0x0B, 0)) {
 
     motor.Get_RobStrite_Motor_parameter(0x7005);
     usleep(1000);

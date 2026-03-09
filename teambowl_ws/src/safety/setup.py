@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'locomotion'
+package_name = 'safety'
 
 setup(
     name=package_name,
@@ -24,8 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'vel_cmd_mux = locomotion.vel_cmd_mux:main',
-            'collision_guard = locomotion.collision_guard:main',
+            'watchdog = safety.system_health:main',
+            'heartbeat_publisher = safety.heartbeat_publisher:main',
         ],
     },
 )
