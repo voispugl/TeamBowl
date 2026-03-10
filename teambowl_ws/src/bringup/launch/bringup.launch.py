@@ -38,7 +38,7 @@ def generate_launch_description():
                 {'estop_topic': '/estop'},
                 {'timeout_s': 1.0},
                 {'publish_rate_hz': 10.0},
-                {'start_estop_true': True},
+                {'start_estop_true': False},
             ],
         ),
 

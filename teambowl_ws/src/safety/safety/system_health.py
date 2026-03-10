@@ -73,7 +73,7 @@ class SystemHealthNode(Node):
         # Publish estop state
         msg = Bool()
         msg.data = self.estop
-        self.pub.publish(msg)
+        # self.pub.publish(msg)
 
 def main():
     rclpy.init()
