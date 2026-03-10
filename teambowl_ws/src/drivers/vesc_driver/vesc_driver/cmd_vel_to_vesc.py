@@ -40,7 +40,7 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('track_width_m', 0.45)
 
         # Conversion / limits
-        self.declare_parameter('erpm_per_wheel_rpm', 1.0)
+        self.declare_parameter('erpm_per_wheel_rpm', 1000.0)
         self.declare_parameter('max_erpm', 30000)
 
         # Command timeout
