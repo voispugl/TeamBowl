@@ -10,9 +10,11 @@ with serial.Serial(PORT, baudrate=BAUD, timeout=0.05) as ser:
     print(f"Opened {PORT}")
 
     # Send RPM command
-    ser.write(pyvesc.encode(SetRPM(2000)))
-    print("Sent RPM = 2000")
-    time.sleep(2.0)
+    t_end = time.time() + 10.0
+    while time.time() < t_end:
+        ser.write(pyvesc.encode(SetRPM(6000)))
+        print("Sent RPM = 2000")
+        time.sleep(0.2)
 
     # Stop motor by commanding zero current
     ser.write(pyvesc.encode(SetCurrent(0)))

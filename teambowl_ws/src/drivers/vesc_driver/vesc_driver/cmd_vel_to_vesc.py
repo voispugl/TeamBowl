@@ -47,8 +47,8 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('cmd_timeout_s', 0.5)
 
         # Serial ports
-        self.declare_parameter('left_port', '/dev/vesc_left')
-        self.declare_parameter('right_port', '/dev/vesc_right')
+        self.declare_parameter('left_port', '/dev/ttyACM0')
+        self.declare_parameter('right_port', '/dev/ttyACM1')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('serial_timeout_s', 0.05)
 
