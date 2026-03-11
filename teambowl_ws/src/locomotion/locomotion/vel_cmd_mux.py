@@ -104,16 +104,10 @@ class VelCmdMuxNode(Node):
         self.last_teleop = msg
         self.last_teleop_time = self.get_clock().now()
 
-        if self.teleop_enabled is True:
-            self._publish_selected(self.last_teleop)
-
     def _auto_reader(self, msg: Twist):
         # Auto msg arrived -> update twist, get time
         self.last_auto = msg
         self.last_auto_time = self.get_clock().now()
-
-        if self.teleop_enabled is False:
-            self._publish_selected(self.last_auto)
 
     def _enable_reader(self, msg: Bool):
         # Get teleop state
@@ -156,11 +150,19 @@ class VelCmdMuxNode(Node):
             return
 
         if self.teleop_enabled is True:
-            if not self._fresh(self.last_teleop_time, self.teleop_timeout):
-                self._publish_selected(zero_twist())
+            if self._fresh(self.last_teleop_time, self.teleop_timeout):
+                self.pub_out.publish(self.last_teleop)
+            else:
+                self.pub_out.publish(zero_twist())
+
         elif self.teleop_enabled is False:
-            if not self._fresh(self.last_auto_time, self.auto_timeout):
-                self._publish_selected(zero_twist())
+            if self._fresh(self.last_auto_time, self.auto_timeout):
+                self.pub_out.publish(self.last_auto)
+            else:
+                self.pub_out.publish(zero_twist())
+
+        else:
+            self.pub_out.publish(zero_twist())
 
 def main():
     rclpy.init()
