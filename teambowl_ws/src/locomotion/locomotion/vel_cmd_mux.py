@@ -93,19 +93,42 @@ class VelCmdMuxNode(Node):
             f'enable={self.teleop_enable_topic}, estop={self.estop_topic}'
         )
 
+    def _publish_selected(self, msg: Twist):
+        if self.estop:
+            self.pub_out.publish(zero_twist())
+            return
+        self.pub_out.publish(msg)
+
     def _teleop_reader(self, msg: Twist):
         # Teleop msg arrived -> update twist, get time
         self.last_teleop = msg
         self.last_teleop_time = self.get_clock().now()
+
+        if self.teleop_enabled:
+            self._publish_selected(self.last_teleop)
 
     def _auto_reader(self, msg: Twist):
         # Auto msg arrived -> update twist, get time
         self.last_auto = msg
         self.last_auto_time = self.get_clock().now()
 
+        if not self.teleop_enabled:
+            self._publish_selected(self.last_auto)
+
     def _enable_reader(self, msg: Bool):
         # Update teleop state (on/off)
         self.teleop_enabled = bool(msg.data)
+
+        if self.teleop_enabled:
+            if self._fresh(self.last_teleop_time, self.teleop_timeout):
+                self._publish_selected(self.last_teleop)
+            else:
+                self._publish_selected(zero_twist())
+        else:
+            if self._fresh(self.last_auto_time, self.auto_timeout):
+                self._publish_selected(self.last_auto)
+            else:
+                self._publish_selected(zero_twist())
 
     def _estop_reader(self, msg: Bool):
         # Update estop state (on/off)
