@@ -60,7 +60,7 @@ class VelCmdMuxNode(Node):
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
 
         # State variabels
-        self.teleop_enabled = False
+        self.teleop_enabled = None
         self.estop = False
         self.last_teleop = zero_twist()
         self.last_auto = zero_twist()
@@ -104,7 +104,7 @@ class VelCmdMuxNode(Node):
         self.last_teleop = msg
         self.last_teleop_time = self.get_clock().now()
 
-        if self.teleop_enabled:
+        if self.teleop_enabled is True:
             self._publish_selected(self.last_teleop)
 
     def _auto_reader(self, msg: Twist):
@@ -112,12 +112,19 @@ class VelCmdMuxNode(Node):
         self.last_auto = msg
         self.last_auto_time = self.get_clock().now()
 
-        if not self.teleop_enabled:
+        if self.teleop_enabled is False:
             self._publish_selected(self.last_auto)
 
     def _enable_reader(self, msg: Bool):
+	# Get teleop state
+	new_enabled = bool(msg.data)
+
+	# Ignore repeated messages with no state change
+	if self.teleop_enabled is not None and new_enabled == self.teleop_enabled:
+	    return
+
         # Update teleop state (on/off)
-        self.teleop_enabled = bool(msg.data)
+        self.teleop_enabled = new_enabled
 
         if self.teleop_enabled:
             if self._fresh(self.last_teleop_time, self.teleop_timeout):
@@ -134,7 +141,7 @@ class VelCmdMuxNode(Node):
         # Update estop state (on/off)
         new_estop = bool(msg.data)
         if new_estop and not self.estop:
-            self.pub_out.publish(zero_twist())
+            self._publish_selected(zero_twist())
         self.estop = new_estop
 
     def _fresh(self, last_time, timeout: Duration) -> bool:
@@ -145,15 +152,15 @@ class VelCmdMuxNode(Node):
 
     def _tick(self):
         if self.estop:
-            self.pub_out.publish(zero_twist())
+            self._publish_selected(zero_twist())
             return
 
-        if self.teleop_enabled:
+        if self.teleop_enabled is True:
             if not self._fresh(self.last_teleop_time, self.teleop_timeout):
-                self.pub_out.publish(zero_twist())
-        else:
+                self._publish_selected(zero_twist())
+        elif self.teleop_enabled is False:
             if not self._fresh(self.last_auto_time, self.auto_timeout):
-                self.pub_out.publish(zero_twist())
+                self._publish_selected(zero_twist())
 
 def main():
     rclpy.init()
