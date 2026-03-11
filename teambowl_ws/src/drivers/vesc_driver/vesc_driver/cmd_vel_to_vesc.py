@@ -78,7 +78,7 @@ class CmdVelToVescNode(Node):
         self.left_sign = int(self.get_parameter('left_sign').value)
         self.right_sign = int(self.get_parameter('right_sign').value)
 
-        self.max_erpm_step_per_tick = int(self.get_parameter('max_erpm_step_per_tick'))
+        self.max_erpm_step_per_tick = int(self.get_parameter('max_erpm_step_per_tick').value)
 
         # State
         self.estop = False
