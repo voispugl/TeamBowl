@@ -12,7 +12,7 @@ with serial.Serial(PORT, baudrate=BAUD, timeout=0.05) as ser:
     # Send RPM command
     t_end = time.time() + 10.0
     while time.time() < t_end:
-        ser.write(pyvesc.encode(SetRPM(6000)))
+        ser.write(pyvesc.encode(SetRPM(8000)))
         print("Sent RPM = 2000")
         time.sleep(0.2)
 

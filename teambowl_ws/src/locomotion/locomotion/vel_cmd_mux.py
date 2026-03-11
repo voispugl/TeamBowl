@@ -45,8 +45,8 @@ class VelCmdMuxNode(Node):
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('output_topic', '/cmd_vel_selected')
         # Cmd timeout topics for safety
-        self.declare_parameter('teleop_timeout_s', 0.35)
-        self.declare_parameter('auto_timeout_s', 0.35)
+        self.declare_parameter('teleop_timeout_s', 0.5)
+        self.declare_parameter('auto_timeout_s', 0.5)
         self.declare_parameter('publish_rate_hz', 30.)
 
         # Read all topics
@@ -60,7 +60,7 @@ class VelCmdMuxNode(Node):
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
 
         # State variabels
-        self.teleop_enabled = False
+        self.teleop_enabled = None
         self.estop = False
         self.last_teleop = zero_twist()
         self.last_auto = zero_twist()
@@ -69,9 +69,9 @@ class VelCmdMuxNode(Node):
 
         # QoS Setup
         qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=10,
+            depth=1,
         )
 
         # Subscribe to topics
@@ -93,6 +93,12 @@ class VelCmdMuxNode(Node):
             f'enable={self.teleop_enable_topic}, estop={self.estop_topic}'
         )
 
+    def _publish_selected(self, msg: Twist):
+        if self.estop:
+            self.pub_out.publish(zero_twist())
+            return
+        self.pub_out.publish(msg)
+
     def _teleop_reader(self, msg: Twist):
         # Teleop msg arrived -> update twist, get time
         self.last_teleop = msg
@@ -104,14 +110,32 @@ class VelCmdMuxNode(Node):
         self.last_auto_time = self.get_clock().now()
 
     def _enable_reader(self, msg: Bool):
+        # Get teleop state
+        new_enabled = bool(msg.data)
+
+        # Ignore repeated messages with no state change
+        if self.teleop_enabled is not None and new_enabled == self.teleop_enabled:
+            return
+
         # Update teleop state (on/off)
-        self.teleop_enabled = bool(msg.data)
+        self.teleop_enabled = new_enabled
+
+        if self.teleop_enabled:
+            if self._fresh(self.last_teleop_time, self.teleop_timeout):
+                self._publish_selected(self.last_teleop)
+            else:
+                self._publish_selected(zero_twist())
+        else:
+            if self._fresh(self.last_auto_time, self.auto_timeout):
+                self._publish_selected(self.last_auto)
+            else:
+                self._publish_selected(zero_twist())
 
     def _estop_reader(self, msg: Bool):
         # Update estop state (on/off)
         new_estop = bool(msg.data)
         if new_estop and not self.estop:
-            self.pub_out.publish(zero_twist())
+            self._publish_selected(zero_twist())
         self.estop = new_estop
 
     def _fresh(self, last_time, timeout: Duration) -> bool:
@@ -121,24 +145,23 @@ class VelCmdMuxNode(Node):
         return (self.get_clock().now() - last_time) <= timeout
 
     def _tick(self):
-        # Ticking forward in time
-
-        # Estop -> publish zero twist
         if self.estop:
-            self.pub_out.publish(zero_twist())
+            self._publish_selected(zero_twist())
             return
 
-        # Check freshness of velocity commands
-        teleop_fresh = self._fresh(self.last_teleop_time, self.teleop_timeout)
-        auto_fresh = self._fresh(self.last_auto_time, self.auto_timeout)
+        if self.teleop_enabled is True:
+            if self._fresh(self.last_teleop_time, self.teleop_timeout):
+                self.pub_out.publish(self.last_teleop)
+            else:
+                self.pub_out.publish(zero_twist())
 
-        # Choose a velocity command to output
-        if self.teleop_enabled and teleop_fresh:
-            self.pub_out.publish(self.last_teleop)
-        elif auto_fresh:
-            self.pub_out.publish(self.last_auto)
+        elif self.teleop_enabled is False:
+            if self._fresh(self.last_auto_time, self.auto_timeout):
+                self.pub_out.publish(self.last_auto)
+            else:
+                self.pub_out.publish(zero_twist())
+
         else:
-            # No fresh command source -> probably error -> stop
             self.pub_out.publish(zero_twist())
 
 def main():
