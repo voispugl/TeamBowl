@@ -116,12 +116,12 @@ class VelCmdMuxNode(Node):
             self._publish_selected(self.last_auto)
 
     def _enable_reader(self, msg: Bool):
-	# Get teleop state
-	new_enabled = bool(msg.data)
+        # Get teleop state
+        new_enabled = bool(msg.data)
 
-	# Ignore repeated messages with no state change
-	if self.teleop_enabled is not None and new_enabled == self.teleop_enabled:
-	    return
+        # Ignore repeated messages with no state change
+        if self.teleop_enabled is not None and new_enabled == self.teleop_enabled:
+            return
 
         # Update teleop state (on/off)
         self.teleop_enabled = new_enabled
