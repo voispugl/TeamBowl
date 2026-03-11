@@ -45,7 +45,7 @@ class VelCmdMuxNode(Node):
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('output_topic', '/cmd_vel_selected')
         # Cmd timeout topics for safety
-        self.declare_parameter('teleop_timeout_s', 0.1)
+        self.declare_parameter('teleop_timeout_s', 0.5)
         self.declare_parameter('auto_timeout_s', 0.5)
         self.declare_parameter('publish_rate_hz', 30.)
 
