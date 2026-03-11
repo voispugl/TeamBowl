@@ -206,6 +206,7 @@ class CmdVelToVescNode(Node):
             self.get_logger().error(f'Failed sending stop to {side} VESC: {e}')
 
     def _send_erpm(self, left_erpm: int, right_erpm: int):
+        self.get_logger().info(f"send left={left_erpm} right={right_erpm}")
         self._write_erpm(self.left_ser, left_erpm, 'left')
         self._write_erpm(self.right_ser, right_erpm, 'right')
 
