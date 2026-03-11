@@ -51,6 +51,7 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('right_port', '/dev/ttyACM1')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('serial_timeout_s', 0.05)
+        self.declare_parameter('max_erpm_step_per_tick', 200)
 
         # Wheel sign convention
         # Set one of these to -1 if that motor is mounted reversed
@@ -77,6 +78,8 @@ class CmdVelToVescNode(Node):
         self.left_sign = int(self.get_parameter('left_sign').value)
         self.right_sign = int(self.get_parameter('right_sign').value)
 
+        self.max_erpm_step_per_tick = int(self.get_parameter('max_erpm_step_per_tick'))
+
         # State
         self.estop = False
         self.last_cmd_time = None
@@ -84,6 +87,11 @@ class CmdVelToVescNode(Node):
         self.right_ser = None
         self.last_left_erpm = None
         self.last_right_erpm = None
+
+        self.target_left_erpm = 0
+        self.target_right_erpm = 0
+        self.cmd_left_erpm = 0
+        self.cmd_right_erpm = 0
 
         # QoS
         qos = QoSProfile(
@@ -108,6 +116,13 @@ class CmdVelToVescNode(Node):
             f'wheel_radius={self.wheel_radius_m}, track_width={self.track_width_m}, '
             f'erpm_per_wheel_rpm={self.erpm_per_wheel_rpm}, max_erpm={self.max_erpm}'
         )
+
+    def _slew(self, current: int, target: int, step: int) -> int:
+        if target > current + step:
+            return current + step
+        if target < current - step:
+            return current - step
+        return target
 
     def _open_ports(self):
         try:
@@ -145,7 +160,8 @@ class CmdVelToVescNode(Node):
         self.last_cmd_time = self.get_clock().now()
 
         if self.estop:
-            self._send_stop()
+            self.target_left_erpm = 0
+            self.target_right_erpm = 0
             return
 
         v = msg.linear.x
@@ -171,21 +187,38 @@ class CmdVelToVescNode(Node):
         erpm_left = max(-self.max_erpm, min(self.max_erpm, erpm_left))
         erpm_right = max(-self.max_erpm, min(self.max_erpm, erpm_right))
 
-        self._send_erpm(erpm_left, erpm_right)
+        self.target_left_erpm = erpm_left
+        self.target_right_erpm = erpm_right
 
     def _tick(self):
         if self.estop:
-            self._send_stop()
+            self.target_left_erpm = 0
+            self.target_right_erpm = 0
             return
 
         if self.last_cmd_time is None:
-            self._send_stop()
+            self.target_left_erpm = 0
+            self.target_right_erpm = 0
             return
 
         if (self.get_clock().now() - self.last_cmd_time) > self.cmd_timeout:
+            self.target_left_erpm = 0
+            self.target_right_erpm = 0
             self.get_logger().warn('cmd_vel timeout. Stopping motors.')
-            self._send_stop()
             return
+        
+        self.cmd_left_erpm = self._slew(
+            self.cmd_left_erpm,
+            self.target_left_erpm,
+            self.max_erpm_step_per_tick
+        )
+        self.cmd_right_erpm = self._slew(
+            self.cmd_right_erpm,
+            self.target_right_erpm,
+            self.max_erpm_step_per_tick
+        )
+
+        self._send_erpm(self.cmd_left_erpm, self.cmd_right_erpm)
 
     def _write_erpm(self, ser, erpm: int, side: str):
         if ser is None:
@@ -214,11 +247,12 @@ class CmdVelToVescNode(Node):
         self.last_right_erpm = right_erpm
 
     def _send_stop(self):
-        self._write_stop(self.left_ser, 'left')
-        self._write_stop(self.right_ser, 'right')
-
-        self.last_left_erpm = 0
-        self.last_right_erpm = 0
+        self.target_left_erpm = 0
+        self.target_right_erpm = 0
+        self.cmd_left_erpm = 0
+        self.cmd_right_erpm = 0
+        self._write_erpm(self.left_ser, 0, 'left')
+        self._write_erpm(self.right_ser, 0, 'right')
 
     def destroy_node(self):
         # Stop motors before shutting down
