@@ -99,15 +99,15 @@ def generate_launch_description():
             ],
         ),
 
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(
-                    get_package_share_directory('depthai_ros_driver'), # Or your custom pkg name
-                    'launch', 
-                    'camera_setup.launch.py'
-                )
-            )
-        ),
+        # IncludeLaunchDescription(
+        #     PythonLaunchDescriptionSource(
+        #         os.path.join(
+        #             get_package_share_directory('depthai_ros_driver'), # Or your custom pkg name
+        #             'launch', 
+        #             'camera_setup.launch.py'
+        #         )
+        #     )
+        # ),
 
         # Node(
         #     package='perception',

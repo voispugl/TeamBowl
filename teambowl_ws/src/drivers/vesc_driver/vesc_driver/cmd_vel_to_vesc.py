@@ -3,7 +3,7 @@ import math
 import serial
 import pyvesc
 
-from pyvesc.VESC.messages import SetRPM, SetCurrent
+from pyvesc.VESC.messages import SetRPM, SetCurrent, SetDutyCycle
 
 import rclpy
 from rclpy.node import Node
