@@ -89,7 +89,7 @@ class CmdVelToVescNode(Node):
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=10,
+            depth=1,
         )
 
         # Subscribers
@@ -183,7 +183,7 @@ class CmdVelToVescNode(Node):
         if (self.get_clock().now() - self.last_cmd_time) > self.cmd_timeout:
             self.get_logger().warn('cmd_vel timeout. Stopping motors.')
             self._send_stop()
-            self.last_cmd_time = None
+            return
 
     def _write_erpm(self, ser, erpm: int, side: str):
         if ser is None:
