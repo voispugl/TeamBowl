@@ -45,8 +45,8 @@ class VelCmdMuxNode(Node):
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('output_topic', '/cmd_vel_selected')
         # Cmd timeout topics for safety
-        self.declare_parameter('teleop_timeout_s', 0.35)
-        self.declare_parameter('auto_timeout_s', 0.35)
+        self.declare_parameter('teleop_timeout_s', 0.5)
+        self.declare_parameter('auto_timeout_s', 0.5)
         self.declare_parameter('publish_rate_hz', 30.)
 
         # Read all topics
@@ -121,44 +121,16 @@ class VelCmdMuxNode(Node):
         return (self.get_clock().now() - last_time) <= timeout
 
     def _tick(self):
-        now = self.get_clock().now()
-
-        teleop_fresh = self._fresh(self.last_teleop_time, self.teleop_timeout)
-        auto_fresh = self._fresh(self.last_auto_time, self.auto_timeout)
-
-        teleop_age = None
-        auto_age = None
-
-        if self.last_teleop_time is not None:
-            teleop_age = (now - self.last_teleop_time).nanoseconds / 1e9
-        if self.last_auto_time is not None:
-            auto_age = (now - self.last_auto_time).nanoseconds / 1e9
-
         if self.estop:
-            self.get_logger().info('MUX -> ZERO (reason: estop)')
             self.pub_out.publish(zero_twist())
             return
 
-        if self.teleop_enabled and teleop_fresh:
-            self.get_logger().info(
-                f'MUX -> TELEOP  teleop_enabled={self.teleop_enabled}, '
-                f'teleop_fresh={teleop_fresh}, teleop_age={teleop_age}'
-            )
-            self.pub_out.publish(self.last_teleop)
-
-        elif auto_fresh:
-            self.get_logger().info(
-                f'MUX -> AUTO  teleop_enabled={self.teleop_enabled}, '
-                f'teleop_fresh={teleop_fresh}, teleop_age={teleop_age}, auto_age={auto_age}'
-            )
-            self.pub_out.publish(self.last_auto)
-
+        if self.teleop_enabled:
+            if not self._fresh(self.last_teleop_time, self.teleop_timeout):
+                self.pub_out.publish(zero_twist())
         else:
-            self.get_logger().warn(
-                f'MUX -> ZERO  teleop_enabled={self.teleop_enabled}, '
-                f'teleop_fresh={teleop_fresh}, teleop_age={teleop_age}, auto_fresh={auto_fresh}'
-            )
-            self.pub_out.publish(zero_twist())
+            if not self._fresh(self.last_auto_time, self.auto_timeout):
+                self.pub_out.publish(zero_twist())
 
 def main():
     rclpy.init()
