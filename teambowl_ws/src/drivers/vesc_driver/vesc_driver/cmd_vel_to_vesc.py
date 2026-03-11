@@ -51,7 +51,7 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('right_port', '/dev/ttyACM1')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('serial_timeout_s', 0.05)
-        self.declare_parameter('max_erpm_step_per_tick', 500)
+        self.declare_parameter('max_erpm_step_per_tick', 2000)
 
         # Wheel sign convention
         # Set one of these to -1 if that motor is mounted reversed
@@ -225,7 +225,11 @@ class CmdVelToVescNode(Node):
             return
 
         try:
-            ser.write(pyvesc.encode(SetRPM(erpm)))
+            if abs(erpm) < 300:
+                ser.write(pyvesc.encode(SetDutyCycle(0)))
+            else:
+                ser.write(pyvesc.encode(SetRPM(erpm)))
+            
         except Exception as e:
             self.get_logger().error(f'Failed sending SetRPM to {side} VESC: {e}')
 
