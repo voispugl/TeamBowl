@@ -53,7 +53,7 @@ def generate_launch_description():
                 {'auto_topic': '/cmd_vel_auto'},
                 {'estop_topic': '/estop'},
                 {'output_topic': '/cmd_vel_selected'},
-                {'teleop_timeout_s': 0.5},
+                {'teleop_timeout_s': 0.1},
                 {'auto_timeout_s': 0.5},
                 {'publish_rate_hz': 30.0},
             ],
