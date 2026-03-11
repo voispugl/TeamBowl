@@ -199,7 +199,7 @@ class CmdVelToVescNode(Node):
             return
 
         try:
-            ser.write(pyvesc.encode(SetCurrent(0)))
+            ser.write(pyvesc.encode(SetRPM(0)))
         except Exception as e:
             self.get_logger().error(f'Failed sending stop to {side} VESC: {e}')
 
