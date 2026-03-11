@@ -32,7 +32,7 @@ class CmdVelToVescNode(Node):
         super().__init__('cmd_vel_to_vesc')
 
         # Topics
-        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel_selected')
         self.declare_parameter('estop_topic', '/estop')
 
         # Robot geometry
@@ -175,9 +175,11 @@ class CmdVelToVescNode(Node):
 
     def _tick(self):
         if self.estop:
+            self._send_stop()
             return
 
         if self.last_cmd_time is None:
+            self._send_stop()
             return
 
         if (self.get_clock().now() - self.last_cmd_time) > self.cmd_timeout:

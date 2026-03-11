@@ -79,7 +79,7 @@ def generate_launch_description():
             name='cmd_vel_to_vesc',
             output='screen',
             parameters=[
-                {'cmd_vel_topic': '/cmd_vel'},
+                {'cmd_vel_topic': '/cmd_vel_selected'},
                 {'left_port': '/dev/ttyACM0'},
                 {'right_port': '/dev/ttyACM1'},
                 {'estop_topic': '/estop'},
