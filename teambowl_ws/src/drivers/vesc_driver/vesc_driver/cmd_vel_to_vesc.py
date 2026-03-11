@@ -51,7 +51,7 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('right_port', '/dev/ttyACM1')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('serial_timeout_s', 0.05)
-        self.declare_parameter('max_erpm_step_per_tick', 200)
+        self.declare_parameter('max_erpm_step_per_tick', 1000)
 
         # Wheel sign convention
         # Set one of these to -1 if that motor is mounted reversed
