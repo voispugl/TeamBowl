@@ -71,7 +71,7 @@ class VelCmdMuxNode(Node):
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=10,
+            depth=1,
         )
 
         # Subscribe to topics
