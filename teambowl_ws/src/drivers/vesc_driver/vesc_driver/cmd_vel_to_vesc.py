@@ -36,12 +36,12 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('estop_topic', '/estop')
 
         # Robot geometry
-        self.declare_parameter('wheel_radius_m', 0.10)
-        self.declare_parameter('track_width_m', 0.45)
+        self.declare_parameter('wheel_radius_m', 0.307975)
+        self.declare_parameter('track_width_m', 0.5588)
 
         # Conversion / limits
-        self.declare_parameter('erpm_per_wheel_rpm', 1000.0)
-        self.declare_parameter('max_erpm', 30000)
+        self.declare_parameter('erpm_per_wheel_rpm', 500.0)
+        self.declare_parameter('max_erpm', 20000)
 
         # Command timeout
         self.declare_parameter('cmd_timeout_s', 0.5)
@@ -55,7 +55,7 @@ class CmdVelToVescNode(Node):
         # Wheel sign convention
         # Set one of these to -1 if that motor is mounted reversed
         self.declare_parameter('left_sign', 1)
-        self.declare_parameter('right_sign', 1)
+        self.declare_parameter('right_sign', -1)
 
         # Read parameters
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').value

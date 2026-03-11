@@ -121,24 +121,43 @@ class VelCmdMuxNode(Node):
         return (self.get_clock().now() - last_time) <= timeout
 
     def _tick(self):
-        # Ticking forward in time
+        now = self.get_clock().now()
 
-        # Estop -> publish zero twist
-        if self.estop:
-            self.pub_out.publish(zero_twist())
-            return
-
-        # Check freshness of velocity commands
         teleop_fresh = self._fresh(self.last_teleop_time, self.teleop_timeout)
         auto_fresh = self._fresh(self.last_auto_time, self.auto_timeout)
 
-        # Choose a velocity command to output
+        teleop_age = None
+        auto_age = None
+
+        if self.last_teleop_time is not None:
+            teleop_age = (now - self.last_teleop_time).nanoseconds / 1e9
+        if self.last_auto_time is not None:
+            auto_age = (now - self.last_auto_time).nanoseconds / 1e9
+
+        if self.estop:
+            self.get_logger().info('MUX -> ZERO (reason: estop)')
+            self.pub_out.publish(zero_twist())
+            return
+
         if self.teleop_enabled and teleop_fresh:
+            self.get_logger().info(
+                f'MUX -> TELEOP  teleop_enabled={self.teleop_enabled}, '
+                f'teleop_fresh={teleop_fresh}, teleop_age={teleop_age}'
+            )
             self.pub_out.publish(self.last_teleop)
+
         elif auto_fresh:
+            self.get_logger().info(
+                f'MUX -> AUTO  teleop_enabled={self.teleop_enabled}, '
+                f'teleop_fresh={teleop_fresh}, teleop_age={teleop_age}, auto_age={auto_age}'
+            )
             self.pub_out.publish(self.last_auto)
+
         else:
-            # No fresh command source -> probably error -> stop
+            self.get_logger().warn(
+                f'MUX -> ZERO  teleop_enabled={self.teleop_enabled}, '
+                f'teleop_fresh={teleop_fresh}, teleop_age={teleop_age}, auto_fresh={auto_fresh}'
+            )
             self.pub_out.publish(zero_twist())
 
 def main():
