@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+	    'cam_ops = perception.cam_ops:main'
         ],
     },
 )

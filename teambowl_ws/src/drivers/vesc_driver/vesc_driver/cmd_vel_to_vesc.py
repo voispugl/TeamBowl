@@ -57,6 +57,9 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('left_sign', 1)
         self.declare_parameter('right_sign', -1)
 
+	# Debugging options
+	self.declare_parameter('print_RPM_cmds', False)
+
         # Read parameters
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').value
         self.estop_topic = self.get_parameter('estop_topic').value
@@ -77,6 +80,8 @@ class CmdVelToVescNode(Node):
 
         self.left_sign = int(self.get_parameter('left_sign').value)
         self.right_sign = int(self.get_parameter('right_sign').value)
+
+	self.print_RPM_cmds = bool(self.get_parameter('print_RPM_cmds').value)
 
         # State
         self.estop = False
@@ -241,7 +246,8 @@ class CmdVelToVescNode(Node):
             self.get_logger().error(f'Failed sending stop to {side} VESC: {e}')
 
     def _send_erpm(self, left_erpm: int, right_erpm: int):
-        self.get_logger().info(f"send left={left_erpm} right={right_erpm}")
+	if self.print_RPM_cmds:
+            self.get_logger().info(f"send left={left_erpm} right={right_erpm}")
         self._write_erpm(self.left_ser, left_erpm, 'left')
         self._write_erpm(self.right_ser, right_erpm, 'right')
 

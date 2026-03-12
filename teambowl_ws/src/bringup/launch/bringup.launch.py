@@ -113,6 +113,7 @@ def generate_launch_description():
                 {'serial_timeout_s': 0.05},
                 {'left_sign': 1},
                 {'right_sign': -1},
+		{'print_RPM_cmds': False},
             ],
         ),
 
