@@ -128,6 +128,10 @@ class CamOpsNode(Node):
         x, y, w, h = cv2.boundingRect(c)
         cx = x + w // 2
         cy = y + h // 2
+
+        # debugging pink detection
+        self.get_logger().info(f"Pink Area: {area} px")
+        
         return cx, cy, area, (x, y, w, h)
 
     def update_intrinsics(self, info_msg: CameraInfo):
