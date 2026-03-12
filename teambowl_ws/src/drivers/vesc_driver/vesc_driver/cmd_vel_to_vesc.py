@@ -17,7 +17,7 @@ class CmdVelToVescNode(Node):
     """
     Differential-drive motor driver for two USB VESCs.
 
-    Subscribes:
+    Subscribes to:
       - /cmd_vel         geometry_msgs/Twist
       - /estop           std_msgs/Bool
 
@@ -25,14 +25,14 @@ class CmdVelToVescNode(Node):
       - converts linear.x and angular.z into left/right wheel RPM
       - converts wheel RPM into VESC ERPM using erpm_per_wheel_rpm
       - sends SetRPM(...) to left and right VESCs
-      - sends zero current on estop, timeout, and shutdown
+      - sends zero on estop, timeout, and shutdown
     """
 
     def __init__(self):
         super().__init__('cmd_vel_to_vesc')
 
         # Topics
-        self.declare_parameter('cmd_vel_topic', '/cmd_vel_selected')
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('estop_topic', '/estop')
 
         # Robot geometry
@@ -41,6 +41,7 @@ class CmdVelToVescNode(Node):
 
         # Conversion / limits
         self.declare_parameter('erpm_per_wheel_rpm', 500.0)
+        self.declare_parameter('max_erpm_step_per_tick', 2000)
         self.declare_parameter('max_erpm', 20000)
 
         # Command timeout
@@ -51,10 +52,8 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('right_port', '/dev/ttyACM1')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('serial_timeout_s', 0.05)
-        self.declare_parameter('max_erpm_step_per_tick', 2000)
 
         # Wheel sign convention
-        # Set one of these to -1 if that motor is mounted reversed
         self.declare_parameter('left_sign', 1)
         self.declare_parameter('right_sign', -1)
 
@@ -66,6 +65,7 @@ class CmdVelToVescNode(Node):
         self.track_width_m = float(self.get_parameter('track_width_m').value)
 
         self.erpm_per_wheel_rpm = float(self.get_parameter('erpm_per_wheel_rpm').value)
+        self.max_erpm_step_per_tick = int(self.get_parameter('max_erpm_step_per_tick').value)
         self.max_erpm = int(self.get_parameter('max_erpm').value)
 
         self.cmd_timeout = Duration(seconds=float(self.get_parameter('cmd_timeout_s').value))
@@ -77,8 +77,6 @@ class CmdVelToVescNode(Node):
 
         self.left_sign = int(self.get_parameter('left_sign').value)
         self.right_sign = int(self.get_parameter('right_sign').value)
-
-        self.max_erpm_step_per_tick = int(self.get_parameter('max_erpm_step_per_tick').value)
 
         # State
         self.estop = False

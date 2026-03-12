@@ -7,7 +7,23 @@ from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
+    oak_camera = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('depthai_ros_driver'),
+                'launch',
+                'camera.launch.py'
+            )
+        ),
+        launch_arguments={
+            'name': 'oak'
+        }.items()
+    )
+    
     return LaunchDescription([
+
+        oak_camera,
+        
         Node(
             package='management',
             executable='mode_manager',
@@ -83,13 +99,14 @@ def generate_launch_description():
             name='cmd_vel_to_vesc',
             output='screen',
             parameters=[
-                {'cmd_vel_topic': '/cmd_vel_selected'},
+                {'cmd_vel_topic': '/cmd_vel'},
                 {'left_port': '/dev/ttyACM0'},
                 {'right_port': '/dev/ttyACM1'},
                 {'estop_topic': '/estop'},
                 {'wheel_radius_m': 0.307975},
                 {'track_width_m': 0.5588},
                 {'erpm_per_wheel_rpm': 500.0},
+                {'max_erpm_step_per_tick': 2000},
                 {'max_erpm': 20000},
                 {'cmd_timeout_s': 0.5},
                 {'baud': 115200},
@@ -99,22 +116,29 @@ def generate_launch_description():
             ],
         ),
 
-        # IncludeLaunchDescription(
-        #     PythonLaunchDescriptionSource(
-        #         os.path.join(
-        #             get_package_share_directory('depthai_ros_driver'), # Or your custom pkg name
-        #             'launch', 
-        #             'camera_setup.launch.py'
-        #         )
-        #     )
-        # ),
+        Node(
+            package='perception',
+            executable='cam_ops',
+            name='cam_ops_node',
+            output='screen',
+            parameters=[
+                {'image_topic': '/oak/rgb/image_raw'},
+                {'depth_topic': '/oak/stereo/image_raw'},
+                {'camera_info_topic': '/oak/stereo/camera_info'},
+                {'detections_topic': '/oak/nn/spatial_detections'},
+                {'target_topic': '/robot/target_person_pos'},
+                {'target_valid_topic': '/robot/target_valid'},
+                {'sync_slop_s': 0.2},
+                {'min_pink_area_px': 300},
+                {'lost_max': 20},
+                {'relock_cooldown': 0},
+                {'min_depth_m': 0.2},
+                {'max_depth_m': 8.0},
+                {'depth_window_radius_px': 2},
+                {'pink_match_max_dist_m': 1.0},
+                {'reacquire_max_dist_m': 1.0},
+            ],
+        ),
 
-        # Node(
-        #     package='perception',
-        #     executable='cam_ops',
-        #     name='cam_ops_node',
-        #     output='screen'
-        #     parameters=[
-        #     ],
-        # )
+        
     ])
