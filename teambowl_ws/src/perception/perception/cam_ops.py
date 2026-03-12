@@ -307,7 +307,7 @@ class CamOpsNode(Node):
         if self.cooldown > 0:
             self.cooldown -= 1
 
-	self.get_logger().info(f'Num dets: {len(det_msg.detections)}')
+        self.get_logger().info(f'Num dets: {len(det_msg.detections)}')
         for det in det_msg.detections:
             if not det.results:
                 continue
