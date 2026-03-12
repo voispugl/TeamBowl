@@ -307,6 +307,26 @@ class CamOpsNode(Node):
         if self.cooldown > 0:
             self.cooldown -= 1
 
+        for det in det_msg.detections:
+            if not det.results:
+                continue
+
+            cls = str(det.results[0].hypothesis.class_id)
+            score = float(det.results[0].hypothesis.score)
+            pos = det.results[0].pose.pose.position
+            self.get_logger().info(
+                f'det id={det.id} class={cls} score={score:.3f} '
+                f'xyz=({pos.x:.3f}, {pos.y:.3f}, {pos.z:.3f})'
+            )
+
+            if pink_xyz_m is not None:
+                self.get_logger().info(
+                    f'pink xyz: ({pink_xyz_m[0]:.3f}, {pink_xyz_m[1]:.3f}, {pink_xyz_m[2]:.3f})'
+                )
+                det_pos = np.array([pos.x, pos.y, pos.z], dtype=np.float64)
+                d = np.linalg.norm(det_pos - pink_xyz_m)
+                self.get_logger().info(f'  dist_to_pink={d:.3f} m')
+
         chosen_det = None
 
         # Primary lock source: pink blob -> 3D pink point -> nearest person detection
