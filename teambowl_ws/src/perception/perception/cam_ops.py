@@ -129,8 +129,8 @@ class CamOpsNode(Node):
         cx = x + w // 2
         cy = y + h // 2
 
-        # debugging pink detection
-        self.get_logger().info(f"Pink Area: {area} px")
+        # [debugging] pink detection
+        # self.get_logger().info(f"Pink Area: {area} px")
         
         return cx, cy, area, (x, y, w, h)
 
@@ -308,6 +308,10 @@ class CamOpsNode(Node):
             self.cooldown -= 1
 
         chosen_det = None
+
+        # [debugging] check pink location
+        if pink_xyz_m is not None:
+            self.get_logger().info(f"Pink XYZ: {pink_xyz_m}")
 
         # Primary lock source: pink blob -> 3D pink point -> nearest person detection
         if pink_xyz_m is not None and self.cooldown == 0:
