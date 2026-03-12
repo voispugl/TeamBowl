@@ -78,8 +78,8 @@ class CamOpsNode(Node):
         self.target_valid_pub = self.create_publisher(Bool, self.target_valid_topic, 10)
 
         # Pink HSV thresholds
-        self.lower_pink = np.array([150, 0, 130], dtype=np.uint8)
-        self.upper_pink = np.array([179, 120, 255], dtype=np.uint8)
+        self.lower_pink = np.array([140, 150, 120], dtype=np.uint8)
+        self.upper_pink = np.array([175, 255, 220], dtype=np.uint8)
 
         # Camera intrinsics
         self.fx = None
