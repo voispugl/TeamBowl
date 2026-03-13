@@ -123,7 +123,7 @@ def generate_launch_description():
             name='cam_ops_node',
             output='screen',
             parameters=[
-                {'image_topic': '/oak/rgb/image_raw'},
+                {'image_topic': '/oak/rgb/image_rect'},
                 {'depth_topic': '/oak/stereo/image_raw'},
                 {'camera_info_topic': '/oak/stereo/camera_info'},
                 {'detections_topic': '/oak/nn/spatial_detections'},
