@@ -1,490 +1,342 @@
-#!/usr/bin/env python3
+import os
 
-import cv2
-import message_filters
-import numpy as np
-import rclpy
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import ComposableNodeContainer, LoadComposableNodes, Node
+from launch_ros.descriptions import ComposableNode, ParameterFile
 
-from cv_bridge import CvBridge
-from geometry_msgs.msg import PointStamped
-from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import CameraInfo, Image
-from std_msgs.msg import Bool
-from vision_msgs.msg import Detection2DArray
+
+def is_launch_config_true(context, name):
+    return LaunchConfiguration(name).perform(context) == "true"
 
 
-class CamOpsNode(Node):
-    """
-    Clean version:
-      - Draws detections directly on /oak/nn/passthrough/image_raw
-      - Uses /oak/nn/detections (Detection2DArray)
-      - Detects pink pants in the same image frame
-      - Chooses target person by nearest bbox center to pink center
-      - Publishes 3D target position by sampling depth at detection center
+def setup_launch_prefix(context, *args, **kwargs):
+    use_gdb = LaunchConfiguration("use_gdb", default="false")
+    use_valgrind = LaunchConfiguration("use_valgrind", default="false")
+    use_perf = LaunchConfiguration("use_perf", default="false")
 
-    Subscribes to:
-      - /oak/nn/passthrough/image_raw
-      - /oak/stereo/image_raw
-      - /oak/nn/passthrough/camera_info
-      - /oak/nn/detections
+    launch_prefix = ""
 
-    Publishes:
-      - /robot/target_person_pos   (PointStamped, meters, camera optical frame)
-      - /robot/target_valid        (Bool)
-      - /robot/debug/cam_ops_image (Image)
-    """
-
-    def __init__(self):
-        super().__init__('cam_ops_node')
-        self.bridge = CvBridge()
-
-        # Topics
-        self.declare_parameter('image_topic', '/oak/nn/passthrough/image_raw')
-        self.declare_parameter('depth_topic', '/oak/stereo/image_raw')
-        self.declare_parameter('camera_info_topic', '/oak/nn/passthrough/camera_info')
-        self.declare_parameter('detections_topic', '/oak/nn/detections')
-        self.declare_parameter('target_topic', '/robot/target_person_pos')
-        self.declare_parameter('target_valid_topic', '/robot/target_valid')
-        self.declare_parameter('debug_image_topic', '/robot/debug/cam_ops_image')
-
-        # Timing / behavior
-        self.declare_parameter('sync_slop_s', 0.15)
-        self.declare_parameter('min_pink_area_px', 300)
-        self.declare_parameter('lost_max', 20)
-
-        # Depth filtering
-        self.declare_parameter('min_depth_m', 0.2)
-        self.declare_parameter('max_depth_m', 8.0)
-        self.declare_parameter('depth_window_radius_px', 2)
-
-        # Matching thresholds
-        self.declare_parameter('pink_match_max_dist_px', 120.0)
-        self.declare_parameter('reacquire_max_dist_px', 140.0)
-
-        # Read parameters
-        self.image_topic = self.get_parameter('image_topic').value
-        self.depth_topic = self.get_parameter('depth_topic').value
-        self.camera_info_topic = self.get_parameter('camera_info_topic').value
-        self.detections_topic = self.get_parameter('detections_topic').value
-        self.target_topic = self.get_parameter('target_topic').value
-        self.target_valid_topic = self.get_parameter('target_valid_topic').value
-        self.debug_image_topic = self.get_parameter('debug_image_topic').value
-
-        self.sync_slop_s = float(self.get_parameter('sync_slop_s').value)
-        self.min_pink_area_px = int(self.get_parameter('min_pink_area_px').value)
-        self.lost_max = int(self.get_parameter('lost_max').value)
-
-        self.min_depth_m = float(self.get_parameter('min_depth_m').value)
-        self.max_depth_m = float(self.get_parameter('max_depth_m').value)
-        self.depth_window_radius_px = int(self.get_parameter('depth_window_radius_px').value)
-
-        self.pink_match_max_dist_px = float(self.get_parameter('pink_match_max_dist_px').value)
-        self.reacquire_max_dist_px = float(self.get_parameter('reacquire_max_dist_px').value)
-
-        # Publishers
-        self.target_pub = self.create_publisher(PointStamped, self.target_topic, 10)
-        self.target_valid_pub = self.create_publisher(Bool, self.target_valid_topic, 10)
-        self.debug_image_pub = self.create_publisher(Image, self.debug_image_topic, 10)
-
-        # Pink HSV thresholds
-        self.lower_pink = np.array([140, 150, 120], dtype=np.uint8)
-        self.upper_pink = np.array([175, 255, 220], dtype=np.uint8)
-
-        # Camera intrinsics
-        self.fx = None
-        self.fy = None
-        self.cx = None
-        self.cy = None
-
-        # Tracking state
-        self.target_center_uv = None
-        self.target_pos_xyz = None
-        self.lost_frames = 0
-
-        # Camera info
-        self.info_sub = self.create_subscription(
-            CameraInfo,
-            self.camera_info_topic,
-            self.camera_info_callback,
-            qos_profile_sensor_data
+    if use_gdb.perform(context) == "true":
+        launch_prefix += "xterm -e gdb -ex run --args"
+    if use_valgrind.perform(context) == "true":
+        launch_prefix += "valgrind --tool=callgrind"
+    if use_perf.perform(context) == "true":
+        launch_prefix += (
+            "perf record -g --call-graph dwarf --output=perf.out.node_name.data --"
         )
 
-        # Synced subscribers
-        self.image_sub = message_filters.Subscriber(
-            self, Image, self.image_topic, qos_profile=qos_profile_sensor_data
+    return launch_prefix
+
+
+def launch_setup(context, *args, **kwargs):
+    log_level = "info"
+    if context.environment.get("DEPTHAI_DEBUG") == "1":
+        log_level = "debug"
+
+    urdf_launch_dir = os.path.join(
+        get_package_share_directory("depthai_descriptions"), "launch"
+    )
+
+    parent_frame = LaunchConfiguration(
+        "parent_frame", default="oak-d-base-frame"
+    ).perform(context)
+    cam_pos_x = LaunchConfiguration("cam_pos_x", default="0.0")
+    cam_pos_y = LaunchConfiguration("cam_pos_y", default="0.0")
+    cam_pos_z = LaunchConfiguration("cam_pos_z", default="0.0")
+    cam_roll = LaunchConfiguration("cam_roll", default="0.0")
+    cam_pitch = LaunchConfiguration("cam_pitch", default="0.0")
+    cam_yaw = LaunchConfiguration("cam_yaw", default="0.0")
+    use_composition = LaunchConfiguration("rsp_use_composition", default="true")
+    imu_from_descr = LaunchConfiguration("imu_from_descr", default="false")
+    publish_tf_from_calibration = LaunchConfiguration(
+        "publish_tf_from_calibration", default="false"
+    )
+    override_cam_model = LaunchConfiguration("override_cam_model", default="false")
+    params_file = ParameterFile(LaunchConfiguration("params_file"), allow_substs=True)
+    camera_model = LaunchConfiguration("camera_model", default="OAK-D")
+    rs_compat = LaunchConfiguration("rs_compat", default="false")
+    pointcloud_enable = LaunchConfiguration("pointcloud.enable", default="false")
+    rectify_rgb = LaunchConfiguration("rectify_rgb", default="true")
+    namespace = LaunchConfiguration("namespace", default="").perform(context)
+    name = LaunchConfiguration("name").perform(context)
+
+    # If RealSense compatibility is enabled, we need to override some parameters, topics and node names
+    parameter_overrides = {}
+    color_sens_name = "rgb"
+    stereo_sens_name = "stereo"
+    points_topic_name = f"{name}/points"
+    if pointcloud_enable.perform(context) == "true":
+        parameter_overrides = {
+            "pipeline_gen": {"i_enable_sync": True},
+            "rgb": {"i_synced": True},
+            "stereo": {"i_synced": True},
+        }
+    depth_topic_suffix = "image_raw"
+    if rs_compat.perform(context) == "true":
+        depth_topic_suffix = "image_rect_raw"
+        depth_profile = LaunchConfiguration("depth_module.depth_profile").perform(
+            context
         )
-        self.depth_sub = message_filters.Subscriber(
-            self, Image, self.depth_topic, qos_profile=qos_profile_sensor_data
+        color_profile = LaunchConfiguration("rgb_camera.color_profile").perform(context)
+        infra_profile = LaunchConfiguration("depth_module.infra_profile").perform(
+            context
         )
-        self.det_sub = message_filters.Subscriber(
-            self, Detection2DArray, self.detections_topic, qos_profile=qos_profile_sensor_data
-        )
+        # split profile string (0,0,0 or 0x0x0 or 0X0X0) into with (int) height(int) and fps(double)
+        # find delimiter
+        delimiter = ","
+        if "x" in depth_profile:
+            delimiter = "x"
+        elif "X" in depth_profile:
+            delimiter = "X"
+        depth_profile = depth_profile.split(delimiter)
+        color_profile = color_profile.split(delimiter)
+        infra_profile = infra_profile.split(delimiter)
 
-        self.ts = message_filters.ApproximateTimeSynchronizer(
-            [self.image_sub, self.depth_sub, self.det_sub],
-            queue_size=10,
-            slop=self.sync_slop_s
-        )
-        self.ts.registerCallback(self.synchronized_callback)
+        color_sens_name = "color"
+        stereo_sens_name = "depth"
+        if name == "oak":
+            name = "camera"
+        points_topic_name = f"{name}/depth/color/points"
+        if namespace == "":
+            namespace = "camera"
+        if parent_frame == "oak-d-base-frame":
+            parent_frame = f"{name}_link"
+        parameter_overrides = {
+            "camera": {
+                "i_rs_compat": True,
+            },
+            "pipeline_gen": {
+                "i_enable_sync": True,
+            },
+            "color": {
+                "i_publish_topic": is_launch_config_true(context, "enable_color"),
+                "i_synced": True,
+                "i_width": int(color_profile[0]),
+                "i_height": int(color_profile[1]),
+                "i_fps": float(color_profile[2]),
+            },
+            "depth": {
+                "i_publish_topic": is_launch_config_true(context, "enable_depth"),
+                "i_synced": True,
+                "i_width": int(depth_profile[0]),
+                "i_height": int(depth_profile[1]),
+                "i_fps": float(depth_profile[2]),
+            },
+            "infra1": {
+                "i_width": int(infra_profile[0]),
+                "i_height": int(infra_profile[1]),
+                "i_fps": float(infra_profile[2]),
+            },
+            "infra2": {
+                "i_width": int(infra_profile[0]),
+                "i_height": int(infra_profile[1]),
+                "i_fps": float(infra_profile[2]),
+            },
+        }
+        parameter_overrides["depth"] = {
+            "i_left_rect_publish_topic": True,
+            "i_right_rect_publish_topic": True,
+        }
 
-        self.get_logger().info('cam_ops_node started with passthrough image + 2D detections')
+    tf_params = {}
+    if publish_tf_from_calibration.perform(context) == "true":
+        cam_model = ""
+        if override_cam_model.perform(context) == "true":
+            cam_model = camera_model.perform(context)
+        tf_params = {
+            "camera": {
+                "i_publish_tf_from_calibration": True,
+                "i_tf_tf_prefix": name,
+                "i_tf_camera_model": cam_model,
+                "i_tf_base_frame": name,
+                "i_tf_parent_frame": parent_frame,
+                "i_tf_cam_pos_x": cam_pos_x.perform(context),
+                "i_tf_cam_pos_y": cam_pos_y.perform(context),
+                "i_tf_cam_pos_z": cam_pos_z.perform(context),
+                "i_tf_cam_roll": cam_roll.perform(context),
+                "i_tf_cam_pitch": cam_pitch.perform(context),
+                "i_tf_cam_yaw": cam_yaw.perform(context),
+                "i_tf_imu_from_descr": imu_from_descr.perform(context),
+            }
+        }
 
-    def camera_info_callback(self, info_msg: CameraInfo):
-        self.fx = float(info_msg.k[0])
-        self.fy = float(info_msg.k[4])
-        self.cx = float(info_msg.k[2])
-        self.cy = float(info_msg.k[5])
+    launch_prefix = setup_launch_prefix(context)
 
-    def publish_target_valid(self, valid: bool):
-        msg = Bool()
-        msg.data = valid
-        self.target_valid_pub.publish(msg)
-
-    def publish_target_position(self, pos_xyz_m, header):
-        msg = PointStamped()
-        msg.header = header
-        msg.point.x = float(pos_xyz_m[0])
-        msg.point.y = float(pos_xyz_m[1])
-        msg.point.z = float(pos_xyz_m[2])
-        self.target_pub.publish(msg)
-
-        self.target_pos_xyz = np.array(pos_xyz_m, dtype=np.float64)
-        self.publish_target_valid(True)
-
-    def publish_debug_image(self, frame_bgr, header):
-        msg = self.bridge.cv2_to_imgmsg(frame_bgr, encoding='bgr8')
-        msg.header = header
-        self.debug_image_pub.publish(msg)
-
-    def find_pink_center(self, frame_bgr):
-        hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, self.lower_pink, self.upper_pink)
-
-        kernel = np.ones((5, 5), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return None, None, 0, None, mask
-
-        contour = max(contours, key=cv2.contourArea)
-        area = cv2.contourArea(contour)
-        if area < self.min_pink_area_px:
-            return None, None, area, None, mask
-
-        x, y, w, h = cv2.boundingRect(contour)
-        u = x + w // 2
-        v = y + h // 2
-        return u, v, area, (x, y, w, h), mask
-
-    def get_depth_m(self, depth_img, u, v):
-        h, w = depth_img.shape[:2]
-        if not (0 <= u < w and 0 <= v < h):
-            return None
-
-        r = self.depth_window_radius_px
-        u0 = max(0, u - r)
-        u1 = min(w, u + r + 1)
-        v0 = max(0, v - r)
-        v1 = min(h, v + r + 1)
-
-        patch = depth_img[v0:v1, u0:u1]
-        valid = patch[patch > 0]
-        if valid.size == 0:
-            return None
-
-        depth_m = float(np.median(valid)) / 1000.0
-        if depth_m < self.min_depth_m or depth_m > self.max_depth_m:
-            return None
-
-        return depth_m
-
-    def pixel_to_3d(self, u, v, z_m):
-        if self.fx is None or self.fy is None or self.cx is None or self.cy is None:
-            return None
-
-        x_m = (float(u) - self.cx) * z_m / self.fx
-        y_m = (float(v) - self.cy) * z_m / self.fy
-        return np.array([x_m, y_m, z_m], dtype=np.float64)
-
-    def detection_is_person(self, det):
-        if not det.results:
-            return False
-        class_id = str(det.results[0].hypothesis.class_id).strip().lower()
-        return class_id in ('person', '15')
-
-    def detection_score(self, det):
-        if not det.results:
-            return 0.0
-        return float(det.results[0].hypothesis.score)
-
-    def detection_center_uv(self, det):
-        try:
-            u = int(round(float(det.bbox.center.position.x)))
-            v = int(round(float(det.bbox.center.position.y)))
-            return (u, v)
-        except Exception:
-            return None
-
-    def detection_rect(self, det, img_shape):
-        try:
-            u = float(det.bbox.center.position.x)
-            v = float(det.bbox.center.position.y)
-            w = float(det.bbox.size_x)
-            h = float(det.bbox.size_y)
-        except Exception:
-            return None
-
-        img_h, img_w = img_shape[:2]
-
-        x = int(round(u - w / 2.0))
-        y = int(round(v - h / 2.0))
-        w = int(round(w))
-        h = int(round(h))
-
-        x = max(0, x)
-        y = max(0, y)
-        w = min(w, img_w - x)
-        h = min(h, img_h - y)
-
-        return x, y, w, h
-
-    def dist2(self, a_uv, b_uv):
-        a = np.array(a_uv, dtype=np.float64)
-        b = np.array(b_uv, dtype=np.float64)
-        return float(np.linalg.norm(a - b))
-
-    def synchronized_callback(self, img_msg, depth_msg, det_msg):
-        try:
-            frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
-            debug_frame = frame.copy()
-
-            if self.fx is None:
-                cv2.putText(
-                    debug_frame,
-                    'Waiting for camera intrinsics...',
-                    (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 255),
-                    2
+    return [
+        Node(
+            condition=IfCondition(LaunchConfiguration("use_rviz").perform(context)),
+            package="rviz2",
+            executable="rviz2",
+            name="rviz2",
+            output="log",
+            arguments=["-d", LaunchConfiguration("rviz_config")],
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(urdf_launch_dir, "urdf_launch.py")
+            ),
+            launch_arguments={
+                "namespace": namespace,
+                "tf_prefix": name,
+                "camera_model": camera_model,
+                "base_frame": name,
+                "parent_frame": parent_frame,
+                "cam_pos_x": cam_pos_x,
+                "cam_pos_y": cam_pos_y,
+                "cam_pos_z": cam_pos_z,
+                "cam_roll": cam_roll,
+                "cam_pitch": cam_pitch,
+                "cam_yaw": cam_yaw,
+                "use_composition": use_composition,
+                "use_base_descr": publish_tf_from_calibration,
+                "rs_compat": rs_compat,
+            }.items(),
+        ),
+        ComposableNodeContainer(
+            name=f"{name}_container",
+            namespace=namespace,
+            package="rclcpp_components",
+            executable="component_container",
+            composable_node_descriptions=[
+                ComposableNode(
+                    package="depthai_ros_driver",
+                    plugin="depthai_ros_driver::Camera",
+                    name=name,
+                    namespace=namespace,
+                    parameters=[
+                        params_file,
+                        tf_params,
+                        parameter_overrides,
+                    ],
                 )
-                self.publish_target_valid(False)
-                self.publish_debug_image(debug_frame, img_msg.header)
-                return
-
-            if depth_msg.encoding != '16UC1':
-                cv2.putText(
-                    debug_frame,
-                    f'Bad depth encoding: {depth_msg.encoding}',
-                    (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 255),
-                    2
+            ],
+            arguments=["--ros-args", "--log-level", log_level],
+            prefix=[launch_prefix],
+            output="both",
+        ),
+        LoadComposableNodes(
+            condition=IfCondition(rectify_rgb),
+            target_container=f"{namespace}/{name}_container",
+            composable_node_descriptions=[
+                ComposableNode(
+                    package="image_proc",
+                    plugin="image_proc::RectifyNode",
+                    name="rectify_color_node",
+                    namespace=namespace,
+                    remappings=[
+                        ("image", f"{name}/{color_sens_name}/image_raw"),
+                        ("camera_info", f"{name}/{color_sens_name}/camera_info"),
+                        ("image_rect", f"{name}/{color_sens_name}/image_rect"),
+                        (
+                            "image_rect/compressed",
+                            f"{name}/{color_sens_name}/image_rect/compressed",
+                        ),
+                        (
+                            "image_rect/compressedDepth",
+                            f"{name}/{color_sens_name}/image_rect/compressedDepth",
+                        ),
+                        (
+                            "image_rect/theora",
+                            f"{name}/{color_sens_name}/image_rect/theora",
+                        ),
+                    ],
                 )
-                self.publish_target_valid(False)
-                self.publish_debug_image(debug_frame, img_msg.header)
-                return
-
-            depth_img = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
-
-            # Pink detection
-            pink_u, pink_v, pink_area, pink_bbox, _ = self.find_pink_center(frame)
-            pink_uv = (pink_u, pink_v) if pink_u is not None and pink_v is not None else None
-
-            if pink_bbox is not None:
-                x, y, w, h = pink_bbox
-                cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
-                cv2.circle(debug_frame, pink_uv, 5, (255, 255, 255), -1)
-                cv2.putText(
-                    debug_frame,
-                    f'pink area={int(pink_area)}',
-                    (20, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (255, 255, 255),
-                    2
-                )
-
-            # Build person list
-            persons = []
-            for i, det in enumerate(det_msg.detections):
-                if not self.detection_is_person(det):
-                    continue
-
-                uv = self.detection_center_uv(det)
-                rect = self.detection_rect(det, frame.shape)
-                if uv is None or rect is None:
-                    continue
-
-                z_m = self.get_depth_m(depth_img, uv[0], uv[1])
-                pos_xyz = self.pixel_to_3d(uv[0], uv[1], z_m) if z_m is not None else None
-                score = self.detection_score(det)
-
-                persons.append({
-                    'index': i,
-                    'uv': uv,
-                    'rect': rect,
-                    'score': score,
-                    'z_m': z_m,
-                    'pos_xyz': pos_xyz,
-                })
-
-            # Draw all persons
-            for j, p in enumerate(persons):
-                x, y, w, h = p['rect']
-                u, v = p['uv']
-                cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
-                cv2.circle(debug_frame, (u, v), 5, (255, 0, 0), -1)
-
-                label = f'person {p["index"]} s={p["score"]:.2f}'
-                if p['pos_xyz'] is not None:
-                    px, py, pz = p['pos_xyz']
-                    label += f' xyz=({px:.2f},{py:.2f},{pz:.2f})'
-                elif p['z_m'] is not None:
-                    label += f' z={p["z_m"]:.2f}m'
-                else:
-                    label += ' no_depth'
-
-                cv2.putText(
-                    debug_frame,
-                    label,
-                    (20, 70 + 30 * j),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.55,
-                    (255, 0, 0),
-                    2
-                )
-
-                if pink_uv is not None:
-                    dpx = self.dist2(pink_uv, p['uv'])
-                    cv2.putText(
-                        debug_frame,
-                        f'dpx={dpx:.1f}',
-                        (max(0, x), max(20, y - 8)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (255, 0, 0),
-                        2
-                    )
-
-            chosen = None
-            chosen_dpx = None
-
-            # 1) Primary: nearest person to pink center in image pixels
-            if pink_uv is not None:
-                best = None
-                best_d = None
-                for p in persons:
-                    d = self.dist2(pink_uv, p['uv'])
-                    if d > self.pink_match_max_dist_px:
-                        continue
-                    if best is None or d < best_d:
-                        best = p
-                        best_d = d
-                chosen = best
-                chosen_dpx = best_d
-
-            # 2) Fallback: nearest to previous target center
-            if chosen is None and self.target_center_uv is not None:
-                best = None
-                best_d = None
-                for p in persons:
-                    d = self.dist2(self.target_center_uv, p['uv'])
-                    if d > self.reacquire_max_dist_px:
-                        continue
-                    if best is None or d < best_d:
-                        best = p
-                        best_d = d
-                chosen = best
-                chosen_dpx = best_d
-
-            # Publish chosen target
-            if chosen is not None:
-                self.target_center_uv = chosen['uv']
-                self.lost_frames = 0
-
-                x, y, w, h = chosen['rect']
-                u, v = chosen['uv']
-
-                cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
-                cv2.circle(debug_frame, (u, v), 6, (0, 255, 0), -1)
-
-                if chosen['pos_xyz'] is not None:
-                    self.publish_target_position(chosen['pos_xyz'], img_msg.header)
-                    px, py, pz = chosen['pos_xyz']
-                    cv2.putText(
-                        debug_frame,
-                        f'TARGET xyz=({px:.2f}, {py:.2f}, {pz:.2f})',
-                        (20, debug_frame.shape[0] - 50),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0),
-                        2
-                    )
-                else:
-                    self.publish_target_valid(False)
-                    cv2.putText(
-                        debug_frame,
-                        'TARGET chosen but no valid depth',
-                        (20, debug_frame.shape[0] - 50),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 255),
-                        2
-                    )
-
-                if chosen_dpx is not None:
-                    cv2.putText(
-                        debug_frame,
-                        f'target dist to pink = {chosen_dpx:.1f} px',
-                        (20, debug_frame.shape[0] - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0),
-                        2
-                    )
-
-                self.publish_debug_image(debug_frame, img_msg.header)
-                return
-
-            # No target
-            if self.target_center_uv is not None:
-                self.lost_frames += 1
-                if self.lost_frames >= self.lost_max:
-                    self.target_center_uv = None
-                    self.target_pos_xyz = None
-                    self.lost_frames = 0
-
-            cv2.putText(
-                debug_frame,
-                'TARGET: none',
-                (20, debug_frame.shape[0] - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 0, 255),
-                2
-            )
-
-            self.publish_target_valid(False)
-            self.publish_debug_image(debug_frame, img_msg.header)
-
-        except Exception as e:
-            self.get_logger().error(f'synchronized_callback failed: {e}')
+            ],
+        ),
+        LoadComposableNodes(
+            condition=IfCondition(pointcloud_enable),
+            target_container=f"{namespace}/{name}_container",
+            composable_node_descriptions=[
+                ComposableNode(
+                    package="depth_image_proc",
+                    plugin="depth_image_proc::PointCloudXyzrgbNode",
+                    name="point_cloud_xyzrgb_node",
+                    namespace=namespace,
+                    remappings=[
+                        (
+                            "depth_registered/image_rect",
+                            f"{name}/{stereo_sens_name}/{depth_topic_suffix}",
+                        ),
+                        (
+                            "rgb/image_rect_color",
+                            f"{name}/{color_sens_name}/image_rect",
+                        ),
+                        ("rgb/camera_info", f"{name}/{color_sens_name}/camera_info"),
+                        ("points", points_topic_name),
+                    ],
+                ),
+            ],
+        ),
+    ]
 
 
-def main():
-    rclpy.init()
-    node = CamOpsNode()
-    try:
-        rclpy.spin(node)
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+def generate_launch_description():
+    depthai_prefix = get_package_share_directory("depthai_ros_driver")
 
+    declared_arguments = [
+        DeclareLaunchArgument("name", default_value="oak"),
+        DeclareLaunchArgument("namespace", default_value=""),
+        DeclareLaunchArgument("parent_frame", default_value="oak-d-base-frame"),
+        DeclareLaunchArgument("camera_model", default_value="OAK-D-PRO"),
+        DeclareLaunchArgument("cam_pos_x", default_value="0.0"),
+        DeclareLaunchArgument("cam_pos_y", default_value="0.0"),
+        DeclareLaunchArgument("cam_pos_z", default_value="0.0"),
+        DeclareLaunchArgument("cam_roll", default_value="0.0"),
+        DeclareLaunchArgument("cam_pitch", default_value="0.0"),
+        DeclareLaunchArgument("cam_yaw", default_value="0.0"),
+        DeclareLaunchArgument(
+            "params_file",
+            default_value=os.path.join(depthai_prefix, "config", "camera.yaml"),
+        ),
+        DeclareLaunchArgument("use_rviz", default_value="false"),
+        DeclareLaunchArgument(
+            "rviz_config",
+            default_value=os.path.join(depthai_prefix, "config", "rviz", "rgbd.rviz"),
+        ),
+        DeclareLaunchArgument("rsp_use_composition", default_value="true"),
+        DeclareLaunchArgument(
+            "publish_tf_from_calibration",
+            default_value="false",
+            description="Enables TF publishing from camera calibration file.",
+        ),
+        DeclareLaunchArgument(
+            "imu_from_descr",
+            default_value="false",
+            description="Enables IMU publishing from URDF.",
+        ),
+        DeclareLaunchArgument(
+            "override_cam_model",
+            default_value="false",
+            description="Overrides camera model from calibration file.",
+        ),
+        DeclareLaunchArgument("use_gdb", default_value="false"),
+        DeclareLaunchArgument("use_valgrind", default_value="false"),
+        DeclareLaunchArgument("use_perf", default_value="false"),
+        DeclareLaunchArgument(
+            "rs_compat",
+            default_value="false",
+            description="Enables compatibility with RealSense nodes.",
+        ),
+        DeclareLaunchArgument("rectify_rgb", default_value="true"),
+        DeclareLaunchArgument("pointcloud.enable", default_value="false"),
+        DeclareLaunchArgument("enable_color", default_value="true"),
+        DeclareLaunchArgument("enable_depth", default_value="true"),
+        DeclareLaunchArgument("enable_infra1", default_value="false"),
+        DeclareLaunchArgument("enable_infra2", default_value="false"),
+        DeclareLaunchArgument("depth_module.depth_profile", default_value="1280,720,30"),
+        DeclareLaunchArgument("rgb_camera.color_profile", default_value="1280,720,30"),
+        DeclareLaunchArgument("depth_module.infra_profile", default_value="1280,720,30"),
+    ]
 
-if __name__ == '__main__':
-    main()
+    return LaunchDescription(
+        declared_arguments + [OpaqueFunction(function=launch_setup)]
+    )
