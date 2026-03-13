@@ -17,14 +17,14 @@ class CamOpsNode(Node):
     """
     Subscribes to:
       - /oak/rgb/image_rect
-      - /oak/stereo/image_raw
+      - /oak/stereo/image_raw        (16UC1 depth, mm)
       - /oak/rgb/camera_info
-      - /oak/nn/spatial_detections
+      - /oak/nn/spatial_detections   (Detection3DArray, but bbox center x/y are used as image pixels)
 
     Publishes:
-      - /robot/target_person_pos
-      - /robot/target_valid
-      - /robot/debug/cam_ops_image
+      - /robot/target_person_pos   (PointStamped, meters, camera optical frame)
+      - /robot/target_valid        (Bool)
+      - /robot/debug/cam_ops_image (Image)
     """
 
     def __init__(self):
@@ -55,12 +55,6 @@ class CamOpsNode(Node):
         self.declare_parameter('pink_match_max_dist_m', 1.0)
         self.declare_parameter('reacquire_max_dist_m', 1.0)
 
-        # Optional: if detections are from a resized NN input, provide its size here
-        # Set these to your NN input size if needed, e.g. 300x300 or 416x416.
-        # If left at 0, the code assumes detections are already in RGB image pixel coordinates.
-        self.declare_parameter('nn_input_width', 0)
-        self.declare_parameter('nn_input_height', 0)
-
         # Read parameters
         self.image_topic = self.get_parameter('image_topic').value
         self.depth_topic = self.get_parameter('depth_topic').value
@@ -81,9 +75,6 @@ class CamOpsNode(Node):
 
         self.pink_match_max_dist_m = float(self.get_parameter('pink_match_max_dist_m').value)
         self.reacquire_max_dist_m = float(self.get_parameter('reacquire_max_dist_m').value)
-
-        self.nn_input_width = int(self.get_parameter('nn_input_width').value)
-        self.nn_input_height = int(self.get_parameter('nn_input_height').value)
 
         # Publishers
         self.target_pub = self.create_publisher(PointStamped, self.target_topic, 10)
@@ -106,7 +97,7 @@ class CamOpsNode(Node):
         self.lost_frames = 0
         self.cooldown = 0
 
-        # Normal camera info subscription
+        # Camera info is not synced; just cache most recent intrinsics
         self.info_sub = self.create_subscription(
             CameraInfo,
             self.camera_info_topic,
@@ -167,6 +158,23 @@ class CamOpsNode(Node):
         msg.header = header
         self.debug_image_pub.publish(msg)
 
+    def publish_target_valid(self, valid: bool):
+        msg = Bool()
+        msg.data = valid
+        self.target_valid_pub.publish(msg)
+
+    def publish_target_position(self, pos_xyz_m, header, det_id=None):
+        msg = PointStamped()
+        msg.header = header
+        msg.point.x = float(pos_xyz_m[0])
+        msg.point.y = float(pos_xyz_m[1])
+        msg.point.z = float(pos_xyz_m[2])
+        self.target_pub.publish(msg)
+
+        self.target_pos = np.array(pos_xyz_m, dtype=np.float64)
+        self.target_id = det_id
+        self.publish_target_valid(True)
+
     def get_depth_m(self, depth_img, u, v):
         h, w = depth_img.shape[:2]
         if not (0 <= u < w and 0 <= v < h):
@@ -197,47 +205,6 @@ class CamOpsNode(Node):
         y_m = (float(v) - self.cy) * z_m / self.fy
         return np.array([x_m, y_m, z_m], dtype=np.float64)
 
-    def scale_nn_to_rgb(self, u_nn, v_nn, rgb_shape):
-        rgb_h, rgb_w = rgb_shape[:2]
-
-        if self.nn_input_width <= 0 or self.nn_input_height <= 0:
-            # Assume detections are already in RGB coordinates
-            u_rgb = int(round(u_nn))
-            v_rgb = int(round(v_nn))
-        else:
-            u_rgb = int(round(float(u_nn) * rgb_w / self.nn_input_width))
-            v_rgb = int(round(float(v_nn) * rgb_h / self.nn_input_height))
-
-        u_rgb = max(0, min(rgb_w - 1, u_rgb))
-        v_rgb = max(0, min(rgb_h - 1, v_rgb))
-        return u_rgb, v_rgb
-
-    def detection_rect_scaled(self, det, rgb_shape):
-        try:
-            u_nn = float(det.bbox.center.position.x)
-            v_nn = float(det.bbox.center.position.y)
-            w_nn = float(det.bbox.size.x)
-            h_nn = float(det.bbox.size.y)
-        except Exception:
-            return None
-
-        rgb_h, rgb_w = rgb_shape[:2]
-
-        if self.nn_input_width > 0 and self.nn_input_height > 0:
-            u = int(round(u_nn * rgb_w / self.nn_input_width))
-            v = int(round(v_nn * rgb_h / self.nn_input_height))
-            w = int(round(w_nn * rgb_w / self.nn_input_width))
-            h = int(round(h_nn * rgb_h / self.nn_input_height))
-        else:
-            u = int(round(u_nn))
-            v = int(round(v_nn))
-            w = int(round(w_nn))
-            h = int(round(h_nn))
-
-        x = u - w // 2
-        y = v - h // 2
-        return x, y, w, h
-
     def detection_is_person(self, det):
         if not det.results:
             return False
@@ -250,55 +217,51 @@ class CamOpsNode(Node):
             return 0.0
         return float(det.results[0].hypothesis.score)
 
-    def detection_center_uv_rgb(self, det, rgb_shape):
+    def detection_center_uv(self, det):
         try:
-            u_nn = float(det.bbox.center.position.x)
-            v_nn = float(det.bbox.center.position.y)
-            return self.scale_nn_to_rgb(u_nn, v_nn, rgb_shape)
+            u = int(round(float(det.bbox.center.position.x)))
+            v = int(round(float(det.bbox.center.position.y)))
+            return u, v
         except Exception:
             return None
 
-    def detection_position_from_bbox(self, det, depth_img, rgb_shape):
+    def detection_rect(self, det):
+        uv = self.detection_center_uv(det)
+        if uv is None:
+            return None
+
         try:
-            u_nn = float(det.bbox.center.position.x)
-            v_nn = float(det.bbox.center.position.y)
+            w = int(round(float(det.bbox.size.x)))
+            h = int(round(float(det.bbox.size.y)))
         except Exception:
             return None
 
-        u_rgb, v_rgb = self.scale_nn_to_rgb(u_nn, v_nn, rgb_shape)
+        u, v = uv
+        x = u - w // 2
+        y = v - h // 2
+        return x, y, w, h
 
-        z_m = self.get_depth_m(depth_img, u_rgb, v_rgb)
+    def detection_position_from_bbox(self, det, depth_img):
+        uv = self.detection_center_uv(det)
+        if uv is None:
+            return None
+
+        u, v = uv
+        z_m = self.get_depth_m(depth_img, u, v)
         if z_m is None:
             return None
 
-        return self.pixel_to_3d(u_rgb, v_rgb, z_m)
+        return self.pixel_to_3d(u, v, z_m)
 
     def dist3(self, a, b):
         return float(np.linalg.norm(a - b))
-
-    def publish_target_valid(self, valid: bool):
-        msg = Bool()
-        msg.data = valid
-        self.target_valid_pub.publish(msg)
-
-    def publish_target_position(self, pos_xyz_m, header, det_id=None):
-        msg = PointStamped()
-        msg.header = header
-        msg.point.x = float(pos_xyz_m[0])
-        msg.point.y = float(pos_xyz_m[1])
-        msg.point.z = float(pos_xyz_m[2])
-        self.target_pub.publish(msg)
-
-        self.target_pos = np.array(pos_xyz_m, dtype=np.float64)
-        self.target_id = det_id
-        self.publish_target_valid(True)
 
     def synchronized_callback(self, img_msg, depth_msg, det_msg):
         try:
             frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
             debug_frame = frame.copy()
 
-            if self.fx is None:
+            if self.fx is None or self.fy is None or self.cx is None or self.cy is None:
                 cv2.putText(
                     debug_frame,
                     'Waiting for camera intrinsics...',
@@ -360,12 +323,12 @@ class CamOpsNode(Node):
                 if not self.detection_is_person(det):
                     continue
 
-                det_pos = self.detection_position_from_bbox(det, depth_img, frame.shape)
+                det_pos = self.detection_position_from_bbox(det, depth_img)
                 if det_pos is None:
                     continue
 
-                rect = self.detection_rect_scaled(det, frame.shape)
-                uv = self.detection_center_uv_rgb(det, frame.shape)
+                rect = self.detection_rect(det)
+                uv = self.detection_center_uv(det)
                 score = self.detection_score(det)
 
                 detections_3d.append({
