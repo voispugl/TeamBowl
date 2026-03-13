@@ -38,26 +38,6 @@ def generate_launch_description():
         ),
 
         Node(
-            package='management',
-            executable='keyboard_operator',
-            name='keyboard_operator',
-            output='screen',
-            parameters=[
-                {'teleop_topic': '/cmd_vel_teleop'},
-                {'mode_set_topic': '/robot_mode_set'},
-                {'publish_rate_hz': 20.0},
-                {'linear_speed': 0.35},
-                {'angular_speed': 0.9},
-                {'linear_speed_step': 0.05},
-                {'angular_speed_step': 0.10},
-                {'linear_speed_min': 0.0},
-                {'linear_speed_max': 1.0},
-                {'angular_speed_min': 0.0},
-                {'angular_speed_max': 2.5},
-            ],
-        ),
-
-        Node(
             package='safety',
             executable='heartbeat_publisher',
             name='heartbeat_publisher',
