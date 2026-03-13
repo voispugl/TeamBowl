@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'mode_manager = management.mode_manager:main',
+            'keyboard_operator = management.keyboard_operator:main',
         ],
     },
 )

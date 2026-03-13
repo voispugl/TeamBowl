@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from rclpy.duration import Duration
 
 # Helpers
@@ -22,11 +22,11 @@ class VelCmdMuxNode(Node):
     """
     Publishes /cmd_vel_selected based on:
       - /estop (Bool): forces zero output
-      - /teleop_enable (Bool): if true, choose teleop vel cmd
+      - /robot_mode (String): "off", "teleop", "auton"
       - freshness of /cmd_vel_teleop and /cmd_vel_auto
 
     Subscribes to:
-      - /teleop_enable
+      - /robot_mode
       - /cmd_vel_teleop
       - /cmd_vel_auto
       - /estop
@@ -35,22 +35,25 @@ class VelCmdMuxNode(Node):
       - /cmd_vel_selected (teleop cmd, auto cmd, or zero cmd)
     """
 
+    VALID_MODES = {'off', 'teleop', 'auton'}
+
     def __init__(self):
         super().__init__('vel_cmd_mux')
 
-        # Topics for velocity selection
-        self.declare_parameter('teleop_enable_topic', '/teleop_enable')
+        # Declare parameters for velocity selection
+        self.declare_parameter('mode_topic', '/robot_mode')
         self.declare_parameter('teleop_topic', '/cmd_vel_teleop')
         self.declare_parameter('auto_topic', '/cmd_vel_auto')
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('output_topic', '/cmd_vel_selected')
-        # Cmd timeout topics for safety
+
+        # Declare parameters for freshness checks
         self.declare_parameter('teleop_timeout_s', 0.5)
         self.declare_parameter('auto_timeout_s', 0.5)
-        self.declare_parameter('publish_rate_hz', 30.)
+        self.declare_parameter('publish_rate_hz', 30.0)
 
-        # Read all topics
-        self.teleop_enable_topic = self.get_parameter('teleop_enable_topic').value
+        # Read/store all values from input parameters
+        self.mode_topic = self.get_parameter('mode_topic').value
         self.teleop_topic = self.get_parameter('teleop_topic').value
         self.auto_topic = self.get_parameter('auto_topic').value
         self.estop_topic = self.get_parameter('estop_topic').value
@@ -59,8 +62,8 @@ class VelCmdMuxNode(Node):
         self.auto_timeout = Duration(seconds=float(self.get_parameter('auto_timeout_s').value))
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
 
-        # State variabels
-        self.teleop_enabled = None
+        # Init state variabels
+        self.robot_mode = None
         self.estop = False
         self.last_teleop = zero_twist()
         self.last_auto = zero_twist()
@@ -73,11 +76,17 @@ class VelCmdMuxNode(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
+        mode_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
 
-        # Subscribe to topics
+        # Subscribe to input topics
         self.sub_teleop = self.create_subscription(Twist, self.teleop_topic, self._teleop_reader, qos)
         self.sub_auto = self.create_subscription(Twist, self.auto_topic, self._auto_reader, qos)
-        self.sub_enable = self.create_subscription(Bool, self.teleop_enable_topic, self._enable_reader, qos)
+        self.sub_mode = self.create_subscription(String, self.mode_topic, self._mode_reader, qos)
         self.sub_estop = self.create_subscription(Bool, self.estop_topic, self._estop_reader, qos)
 
         # Publish selected velocity
@@ -89,15 +98,9 @@ class VelCmdMuxNode(Node):
 
         # Logging for debugging
         self.get_logger().info(
-            f'CmdMux up. teleop={self.teleop_topic}, auto={self.auto_topic}, out={self.output_topic}, '
-            f'enable={self.teleop_enable_topic}, estop={self.estop_topic}'
+            f'CmdMux up. mode={self.mode_topic}, teleop={self.teleop_topic}, '
+            f'auto={self.auto_topic}, out={self.output_topic}, estop={self.estop_topic}'
         )
-
-    def _publish_selected(self, msg: Twist):
-        if self.estop:
-            self.pub_out.publish(zero_twist())
-            return
-        self.pub_out.publish(msg)
 
     def _teleop_reader(self, msg: Twist):
         # Teleop msg arrived -> update twist, get time
@@ -109,33 +112,31 @@ class VelCmdMuxNode(Node):
         self.last_auto = msg
         self.last_auto_time = self.get_clock().now()
 
-    def _enable_reader(self, msg: Bool):
-        # Get teleop state
-        new_enabled = bool(msg.data)
+    def _mode_reader(self, msg: String):
+        # Get new mode message
+        new_mode = msg.data.strip().lower()
 
-        # Ignore repeated messages with no state change
-        if self.teleop_enabled is not None and new_enabled == self.teleop_enabled:
+        # Ignore invalid mode commands
+        if new_mode not in self.VALID_MODES:
+            self.get_logger().warn(f'Ignoring invalid robot_mode "{msg.data}"')
             return
 
-        # Update teleop state (on/off)
-        self.teleop_enabled = new_enabled
+        # Ignore same mode commands
+        if self.robot_mode == new_mode:
+            return
+        
+        # Update new mode
+        self.robot_mode = new_mode
+        self.get_logger().info(f'robot_mode -> {self.robot_mode}')
 
-        if self.teleop_enabled:
-            if self._fresh(self.last_teleop_time, self.teleop_timeout):
-                self._publish_selected(self.last_teleop)
-            else:
-                self._publish_selected(zero_twist())
-        else:
-            if self._fresh(self.last_auto_time, self.auto_timeout):
-                self._publish_selected(self.last_auto)
-            else:
-                self._publish_selected(zero_twist())
+        # For safety, zero once immediately on mode switch
+        self.pub_out.publish(zero_twist())
 
     def _estop_reader(self, msg: Bool):
         # Update estop state (on/off)
         new_estop = bool(msg.data)
         if new_estop and not self.estop:
-            self._publish_selected(zero_twist())
+            self.pub_out.publish(zero_twist())
         self.estop = new_estop
 
     def _fresh(self, last_time, timeout: Duration) -> bool:
@@ -145,24 +146,34 @@ class VelCmdMuxNode(Node):
         return (self.get_clock().now() - last_time) <= timeout
 
     def _tick(self):
+        # Zero output if estop
         if self.estop:
-            self._publish_selected(zero_twist())
+            self.pub_out.publish(zero_twist())
+            return
+        
+        # Zero output if off
+        if self.robot_mode == 'off':
+            self.pub_out.publish(zero_twist())
             return
 
-        if self.teleop_enabled is True:
+        # Handle teleop mode
+        if self.robot_mode == 'teleop':
             if self._fresh(self.last_teleop_time, self.teleop_timeout):
                 self.pub_out.publish(self.last_teleop)
             else:
                 self.pub_out.publish(zero_twist())
+            return
 
-        elif self.teleop_enabled is False:
+        # Hande auton mode
+        if self.robot_mode == 'auton':
             if self._fresh(self.last_auto_time, self.auto_timeout):
                 self.pub_out.publish(self.last_auto)
             else:
                 self.pub_out.publish(zero_twist())
+            return
 
-        else:
-            self.pub_out.publish(zero_twist())
+        # No valid mode -> zero output
+        self.pub_out.publish(zero_twist())
 
 def main():
     rclpy.init()

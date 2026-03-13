@@ -30,10 +30,30 @@ def generate_launch_description():
             name='mode_manager',
             output='screen',
             parameters=[
-                {'teleop_enable_topic': '/teleop_enable'},
-                {'teleop_enable_set_topic': '/teleop_enable_set'},
-                {'start_teleop_enabled': False},
+                {'mode_topic': '/robot_mode'},
+                {'mode_set_topic': '/robot_mode_set'},
+                {'start_mode': 'off'},
                 {'publish_rate_hz': 5.0},
+            ],
+        ),
+
+        Node(
+            package='management',
+            executable='keyboard_operator',
+            name='keyboard_operator',
+            output='screen',
+            parameters=[
+                {'teleop_topic': '/cmd_vel_teleop'},
+                {'mode_set_topic': '/robot_mode_set'},
+                {'publish_rate_hz': 20.0},
+                {'linear_speed': 0.35},
+                {'angular_speed': 0.9},
+                {'linear_speed_step': 0.05},
+                {'angular_speed_step': 0.10},
+                {'linear_speed_min': 0.0},
+                {'linear_speed_max': 1.0},
+                {'angular_speed_min': 0.0},
+                {'angular_speed_max': 2.5},
             ],
         ),
 
@@ -68,7 +88,7 @@ def generate_launch_description():
             name='vel_cmd_mux',
             output='screen',
             parameters=[
-                {'teleop_enable_topic': '/teleop_enable'},
+                {'mode_topic': '/robot_mode'},
                 {'teleop_topic': '/cmd_vel_teleop'},
                 {'auto_topic': '/cmd_vel_auto'},
                 {'estop_topic': '/estop'},
