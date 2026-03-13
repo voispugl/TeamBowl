@@ -35,6 +35,7 @@ class CamOpsNode(Node):
         self.declare_parameter('depth_topic', '/oak/stereo/image_raw')
         self.declare_parameter('camera_info_topic', '/oak/rgb/camera_info')
         self.declare_parameter('detections_topic', '/oak/nn/spatial_detections')
+        self.declare_parameter('nn_image_topic', '/oak/nn/passthrough/image_raw')
         self.declare_parameter('target_topic', '/robot/target_person_pos')
         self.declare_parameter('target_valid_topic', '/robot/target_valid')
         self.declare_parameter('debug_image_topic', '/robot/debug/cam_ops_image')
@@ -59,6 +60,7 @@ class CamOpsNode(Node):
         self.depth_topic = self.get_parameter('depth_topic').value
         self.camera_info_topic = self.get_parameter('camera_info_topic').value
         self.detections_topic = self.get_parameter('detections_topic').value
+        self.nn_image_topic = self.get_parameter('nn_image_topic').value
         self.target_topic = self.get_parameter('target_topic').value
         self.target_valid_topic = self.get_parameter('target_valid_topic').value
         self.debug_image_topic = self.get_parameter('debug_image_topic').value
@@ -101,9 +103,10 @@ class CamOpsNode(Node):
         self.depth_sub = message_filters.Subscriber(self, Image, self.depth_topic)
         self.info_sub = message_filters.Subscriber(self, CameraInfo, self.camera_info_topic)
         self.det_sub = message_filters.Subscriber(self, Detection3DArray, self.detections_topic)
+        self.nn_image_sub = message_filters.Subscriber(self, Image, self.nn_image_topic)
 
         self.ts = message_filters.ApproximateTimeSynchronizer(
-            [self.image_sub, self.depth_sub, self.info_sub, self.det_sub],
+            [self.image_sub, self.depth_sub, self.info_sub, self.det_sub, self.nn_image_sub],
             queue_size=10,
             slop=self.sync_slop_s
         )
@@ -173,6 +176,44 @@ class CamOpsNode(Node):
         x_m = (float(u) - self.cx) * z_m / self.fx
         y_m = (float(v) - self.cy) * z_m / self.fy
         return np.array([x_m, y_m, z_m], dtype=np.float64)
+    
+    def scale_nn_to_rgb(self, u_nn, v_nn, rgb_shape, nn_shape):
+        rgb_h, rgb_w = rgb_shape[:2]
+        nn_h, nn_w = nn_shape[:2]
+
+        if nn_w <= 0 or nn_h <= 0:
+            return None
+
+        u_rgb = int(round(float(u_nn) * rgb_w / nn_w))
+        v_rgb = int(round(float(v_nn) * rgb_h / nn_h))
+
+        u_rgb = max(0, min(rgb_w - 1, u_rgb))
+        v_rgb = max(0, min(rgb_h - 1, v_rgb))
+        return u_rgb, v_rgb
+    
+    def detection_rect_scaled(self, det, rgb_shape, nn_shape):
+        try:
+            u_nn = float(det.bbox.center.position.x)
+            v_nn = float(det.bbox.center.position.y)
+            w_nn = float(det.bbox.size.x)
+            h_nn = float(det.bbox.size.y)
+        except Exception:
+            return None
+
+        rgb_h, rgb_w = rgb_shape[:2]
+        nn_h, nn_w = nn_shape[:2]
+
+        if nn_w <= 0 or nn_h <= 0:
+            return None
+
+        u = int(round(u_nn * rgb_w / nn_w))
+        v = int(round(v_nn * rgb_h / nn_h))
+        w = int(round(w_nn * rgb_w / nn_w))
+        h = int(round(h_nn * rgb_h / nn_h))
+
+        x = u - w // 2
+        y = v - h // 2
+        return x, y, w, h, u, v
 
     def detection_is_person(self, det):
         if not det.results:
@@ -210,17 +251,23 @@ class CamOpsNode(Node):
         y = v - h // 2
         return x, y, w, h
 
-    def detection_position_from_bbox(self, det, depth_img):
-        uv = self.detection_center_uv(det)
-        if uv is None:
+    def detection_position_from_bbox(self, det, depth_img, rgb_shape, nn_shape):
+        try:
+            u_nn = float(det.bbox.center.position.x)
+            v_nn = float(det.bbox.center.position.y)
+        except Exception:
             return None
 
-        u, v = uv
-        z_m = self.get_depth_m(depth_img, u, v)
+        uv_rgb = self.scale_nn_to_rgb(u_nn, v_nn, rgb_shape, nn_shape)
+        if uv_rgb is None:
+            return None
+
+        u_rgb, v_rgb = uv_rgb
+        z_m = self.get_depth_m(depth_img, u_rgb, v_rgb)
         if z_m is None:
             return None
 
-        return self.pixel_to_3d(u, v, z_m)
+        return self.pixel_to_3d(u_rgb, v_rgb, z_m)
 
     def dist3(self, a, b):
         return float(np.linalg.norm(a - b))
@@ -242,11 +289,12 @@ class CamOpsNode(Node):
         self.target_id = det_id
         self.publish_target_valid(True)
 
-    def synchronized_callback(self, img_msg, depth_msg, info_msg, det_msg):
+    def synchronized_callback(self, img_msg, depth_msg, info_msg, det_msg, nn_img_msg):
         self.update_intrinsics(info_msg)
 
         frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
         debug_frame = frame.copy()
+        nn_frame = self.bridge.imgmsg_to_cv2(nn_img_msg, desired_encoding='bgr8')
 
         if depth_msg.encoding != '16UC1':
             self.publish_target_valid(False)
@@ -296,11 +344,11 @@ class CamOpsNode(Node):
             if not self.detection_is_person(det):
                 continue
 
-            det_pos = self.detection_position_from_bbox(det, depth_img)
+            det_pos = self.detection_position_from_bbox(det, depth_img, frame.shape, nn_frame.shape)
             if det_pos is None:
                 continue
 
-            rect = self.detection_rect(det)
+            rect = self.detection_rect_scaled(det, frame.shape, nn_frame.shape)
             uv = self.detection_center_uv(det)
             score = self.detection_score(det)
 
