@@ -76,9 +76,8 @@ class ModeManagerNode(Node):
         self.pub.publish(msg)
 
     def _mode_cmd_reader(self, msg: String):
-        self.get_logger().info(f'received mode request raw="{msg.data}"')
         # Requested mode change has arrived
-        requested = msg.data.strip.lower()
+        requested = msg.data.strip().lower()
 
         # If not a valid mode, reject
         if requested not in self.VALID_MODES:
