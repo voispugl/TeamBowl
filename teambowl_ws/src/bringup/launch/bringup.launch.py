@@ -12,7 +12,7 @@ def generate_launch_description():
             os.path.join(
                 get_package_share_directory('depthai_ros_driver'),
                 'launch',
-                'camera_as_part_of_a_robot.launch.py'
+                'camera.launch.py'
             )
         ),
         launch_arguments={
@@ -32,7 +32,7 @@ def generate_launch_description():
             parameters=[
                 {'teleop_enable_topic': '/teleop_enable'},
                 {'teleop_enable_set_topic': '/teleop_enable_set'},
-                {'start_teleop_enabled': True},
+                {'start_teleop_enabled': False},
                 {'publish_rate_hz': 5.0},
             ],
         ),
@@ -126,8 +126,8 @@ def generate_launch_description():
                 {'image_topic': '/oak/rgb/image_rect'},
                 {'depth_topic': '/oak/stereo/image_raw'},
                 {'camera_info_topic': '/oak/rgb/camera_info'},
-                {'target_topic': '/robot/target_person_pos'},
-                {'target_valid_topic': '/robot/target_valid'},
+                {'target_topic': '/user_pos'},
+                {'target_valid_topic': '/user_valid'},
                 {'debug_image_topic': '/robot/debug/cam_ops_image'},
                 {'sync_slop_s': 0.2},
                 {'min_pink_area_px': 300},
@@ -137,5 +137,30 @@ def generate_launch_description():
                 {'max_depth_m': 8.0},
                 {'depth_window_radius_px': 2},
             ],
-        ),    
+        ), 
+
+        Node(
+            package='planning',
+            executable='plan_wheels',
+            name='plan_wheels',
+            output='screen',
+            parameters=[
+                {'target_topic': '/user_pos'},
+                {'target_valid_topic': '/user_valid'},
+                {'cmd_vel_topic': '/cmd_vel_auto'},
+                {'target_timeout_s': 0.5},
+                {'publish_rate_hz': 20.0},
+                {'follow_distance_m': 1.5},
+                {'distance_deadband_m': 0.15},
+                {'lateral_deadband_m': 0.10},
+                {'k_linear': 0.8},
+                {'k_angular': 1.8},
+                {'max_linear_x': 0.8},
+                {'max_angular_z': 1.2},
+                {'allow_reverse': False},
+                {'max_reverse_x': 0.25},
+                {'turn_in_place_angle_only': True},
+                {'turn_only_lateral_threshold_m': 0.5},
+            ],
+        ),
     ])

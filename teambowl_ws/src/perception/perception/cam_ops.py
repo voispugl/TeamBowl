@@ -43,8 +43,8 @@ class CamOpsNode(Node):
         self.declare_parameter('image_topic', '/oak/rgb/image_rect')
         self.declare_parameter('depth_topic', '/oak/stereo/image_raw')
         self.declare_parameter('camera_info_topic', '/oak/rgb/camera_info')
-        self.declare_parameter('target_topic', '/robot/target_person_pos')
-        self.declare_parameter('target_valid_topic', '/robot/target_valid')
+        self.declare_parameter('target_topic', '/user_pos')
+        self.declare_parameter('target_valid_topic', '/user_valid')
         self.declare_parameter('debug_image_topic', '/robot/debug/cam_ops_image')
 
         # Sync

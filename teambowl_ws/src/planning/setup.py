@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'plan_wheels = planning.plan_wheels:main',
         ],
     },
 )
