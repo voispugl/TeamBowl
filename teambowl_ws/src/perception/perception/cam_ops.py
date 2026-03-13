@@ -17,14 +17,14 @@ class CamOpsNode(Node):
     """
     Subscribes to:
       - /oak/rgb/image_rect
-      - /oak/stereo/image_raw        (16UC1 depth, mm)
+      - /oak/stereo/image_raw
       - /oak/rgb/camera_info
-      - /oak/nn/spatial_detections   (Detection3DArray, but bbox center x/y are used as image pixels)
+      - /oak/nn/spatial_detections
 
     Publishes:
-      - /robot/target_person_pos   (PointStamped, meters, camera optical frame)
-      - /robot/target_valid        (Bool)
-      - /robot/debug/cam_ops_image (Image)
+      - /robot/target_person_pos
+      - /robot/target_valid
+      - /robot/debug/cam_ops_image
     """
 
     def __init__(self):
@@ -55,6 +55,12 @@ class CamOpsNode(Node):
         self.declare_parameter('pink_match_max_dist_m', 1.0)
         self.declare_parameter('reacquire_max_dist_m', 1.0)
 
+        # IMPORTANT:
+        # Set these to the neural network input size used by the detector.
+        # Common values are 300x300, 416x416, 640x640, etc.
+        self.declare_parameter('nn_width', 300)
+        self.declare_parameter('nn_height', 300)
+
         # Read parameters
         self.image_topic = self.get_parameter('image_topic').value
         self.depth_topic = self.get_parameter('depth_topic').value
@@ -76,6 +82,9 @@ class CamOpsNode(Node):
         self.pink_match_max_dist_m = float(self.get_parameter('pink_match_max_dist_m').value)
         self.reacquire_max_dist_m = float(self.get_parameter('reacquire_max_dist_m').value)
 
+        self.nn_width = int(self.get_parameter('nn_width').value)
+        self.nn_height = int(self.get_parameter('nn_height').value)
+
         # Publishers
         self.target_pub = self.create_publisher(PointStamped, self.target_topic, 10)
         self.target_valid_pub = self.create_publisher(Bool, self.target_valid_topic, 10)
@@ -93,11 +102,10 @@ class CamOpsNode(Node):
 
         # Tracking state
         self.target_id = None
-        self.target_pos = None  # np.array([x, y, z]) in meters
+        self.target_pos = None
         self.lost_frames = 0
         self.cooldown = 0
 
-        # Camera info is not synced; just cache most recent intrinsics
         self.info_sub = self.create_subscription(
             CameraInfo,
             self.camera_info_topic,
@@ -105,7 +113,6 @@ class CamOpsNode(Node):
             qos_profile_sensor_data
         )
 
-        # Synced subscribers: RGB + depth + detections
         self.image_sub = message_filters.Subscriber(
             self, Image, self.image_topic, qos_profile=qos_profile_sensor_data
         )
@@ -131,6 +138,28 @@ class CamOpsNode(Node):
         self.cx = float(info_msg.k[2])
         self.cy = float(info_msg.k[5])
 
+    def publish_target_valid(self, valid: bool):
+        msg = Bool()
+        msg.data = valid
+        self.target_valid_pub.publish(msg)
+
+    def publish_target_position(self, pos_xyz_m, header, det_id=None):
+        msg = PointStamped()
+        msg.header = header
+        msg.point.x = float(pos_xyz_m[0])
+        msg.point.y = float(pos_xyz_m[1])
+        msg.point.z = float(pos_xyz_m[2])
+        self.target_pub.publish(msg)
+
+        self.target_pos = np.array(pos_xyz_m, dtype=np.float64)
+        self.target_id = det_id
+        self.publish_target_valid(True)
+
+    def publish_debug_image(self, frame_bgr, header):
+        msg = self.bridge.cv2_to_imgmsg(frame_bgr, encoding='bgr8')
+        msg.header = header
+        self.debug_image_pub.publish(msg)
+
     def find_pink_center(self, frame_bgr):
         hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, self.lower_pink, self.upper_pink)
@@ -152,28 +181,6 @@ class CamOpsNode(Node):
         u = x + w // 2
         v = y + h // 2
         return u, v, area, (x, y, w, h)
-
-    def publish_debug_image(self, frame_bgr, header):
-        msg = self.bridge.cv2_to_imgmsg(frame_bgr, encoding='bgr8')
-        msg.header = header
-        self.debug_image_pub.publish(msg)
-
-    def publish_target_valid(self, valid: bool):
-        msg = Bool()
-        msg.data = valid
-        self.target_valid_pub.publish(msg)
-
-    def publish_target_position(self, pos_xyz_m, header, det_id=None):
-        msg = PointStamped()
-        msg.header = header
-        msg.point.x = float(pos_xyz_m[0])
-        msg.point.y = float(pos_xyz_m[1])
-        msg.point.z = float(pos_xyz_m[2])
-        self.target_pub.publish(msg)
-
-        self.target_pos = np.array(pos_xyz_m, dtype=np.float64)
-        self.target_id = det_id
-        self.publish_target_valid(True)
 
     def get_depth_m(self, depth_img, u, v):
         h, w = depth_img.shape[:2]
@@ -208,7 +215,6 @@ class CamOpsNode(Node):
     def detection_is_person(self, det):
         if not det.results:
             return False
-
         class_id = str(det.results[0].hypothesis.class_id).strip().lower()
         return class_id in ('person', '15')
 
@@ -217,32 +223,49 @@ class CamOpsNode(Node):
             return 0.0
         return float(det.results[0].hypothesis.score)
 
-    def detection_center_uv(self, det):
+    def det_uv_nn(self, det):
         try:
-            u = int(round(float(det.bbox.center.position.x)))
-            v = int(round(float(det.bbox.center.position.y)))
+            u = float(det.bbox.center.position.x)
+            v = float(det.bbox.center.position.y)
             return u, v
         except Exception:
             return None
 
-    def detection_rect(self, det):
-        uv = self.detection_center_uv(det)
-        if uv is None:
-            return None
+    def nn_to_rgb_uv(self, u_nn, v_nn, rgb_shape):
+        rgb_h, rgb_w = rgb_shape[:2]
+        u_rgb = int(round(u_nn * rgb_w / self.nn_width))
+        v_rgb = int(round(v_nn * rgb_h / self.nn_height))
+        u_rgb = max(0, min(rgb_w - 1, u_rgb))
+        v_rgb = max(0, min(rgb_h - 1, v_rgb))
+        return u_rgb, v_rgb
 
+    def detection_center_uv(self, det, rgb_shape):
+        uv_nn = self.det_uv_nn(det)
+        if uv_nn is None:
+            return None
+        return self.nn_to_rgb_uv(uv_nn[0], uv_nn[1], rgb_shape)
+
+    def detection_rect(self, det, rgb_shape):
         try:
-            w = int(round(float(det.bbox.size.x)))
-            h = int(round(float(det.bbox.size.y)))
+            u_nn = float(det.bbox.center.position.x)
+            v_nn = float(det.bbox.center.position.y)
+            w_nn = float(det.bbox.size.x)
+            h_nn = float(det.bbox.size.y)
         except Exception:
             return None
 
-        u, v = uv
+        rgb_h, rgb_w = rgb_shape[:2]
+        u = int(round(u_nn * rgb_w / self.nn_width))
+        v = int(round(v_nn * rgb_h / self.nn_height))
+        w = int(round(w_nn * rgb_w / self.nn_width))
+        h = int(round(h_nn * rgb_h / self.nn_height))
+
         x = u - w // 2
         y = v - h // 2
         return x, y, w, h
 
-    def detection_position_from_bbox(self, det, depth_img):
-        uv = self.detection_center_uv(det)
+    def detection_position_from_bbox(self, det, depth_img, rgb_shape):
+        uv = self.detection_center_uv(det, rgb_shape)
         if uv is None:
             return None
 
@@ -261,59 +284,38 @@ class CamOpsNode(Node):
             frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
             debug_frame = frame.copy()
 
-            if self.fx is None or self.fy is None or self.cx is None or self.cy is None:
-                cv2.putText(
-                    debug_frame,
-                    'Waiting for camera intrinsics...',
-                    (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 255),
-                    2
-                )
+            if self.fx is None:
+                cv2.putText(debug_frame, 'Waiting for camera intrinsics...', (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                 self.publish_target_valid(False)
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
 
             if depth_msg.encoding != '16UC1':
-                cv2.putText(
-                    debug_frame,
-                    f'Bad depth encoding: {depth_msg.encoding}',
-                    (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 255),
-                    2
-                )
+                cv2.putText(debug_frame, f'Bad depth encoding: {depth_msg.encoding}', (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                 self.publish_target_valid(False)
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
 
             depth_img = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
 
-            # Pink detection
-            pink_u, pink_v, pink_area, pink_bbox = self.find_pink_center(frame)
+            # Pink detection in RGB frame
+            pink_u, pink_v, _, pink_bbox = self.find_pink_center(frame)
             pink_xyz_m = None
             if pink_u is not None and pink_v is not None:
                 pink_z_m = self.get_depth_m(depth_img, pink_u, pink_v)
                 if pink_z_m is not None:
                     pink_xyz_m = self.pixel_to_3d(pink_u, pink_v, pink_z_m)
 
-            # Draw pink detection
             if pink_bbox is not None:
                 x, y, w, h = pink_bbox
                 cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
                 cv2.circle(debug_frame, (pink_u, pink_v), 5, (255, 255, 255), -1)
                 if pink_xyz_m is not None:
-                    cv2.putText(
-                        debug_frame,
-                        f'pink xyz=({pink_xyz_m[0]:.2f}, {pink_xyz_m[1]:.2f}, {pink_xyz_m[2]:.2f})',
-                        (20, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (255, 255, 255),
-                        2
-                    )
+                    cv2.putText(debug_frame,
+                                f'pink xyz=({pink_xyz_m[0]:.2f}, {pink_xyz_m[1]:.2f}, {pink_xyz_m[2]:.2f})',
+                                (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
             if self.cooldown > 0:
                 self.cooldown -= 1
@@ -323,12 +325,12 @@ class CamOpsNode(Node):
                 if not self.detection_is_person(det):
                     continue
 
-                det_pos = self.detection_position_from_bbox(det, depth_img)
+                det_pos = self.detection_position_from_bbox(det, depth_img, frame.shape)
                 if det_pos is None:
                     continue
 
-                rect = self.detection_rect(det)
-                uv = self.detection_center_uv(det)
+                rect = self.detection_rect(det, frame.shape)
+                uv = self.detection_center_uv(det, frame.shape)
                 score = self.detection_score(det)
 
                 detections_3d.append({
@@ -340,7 +342,6 @@ class CamOpsNode(Node):
                     'score': score,
                 })
 
-            # Draw person detections
             for draw_idx, item in enumerate(detections_3d):
                 rect = item['rect']
                 uv = item['uv']
@@ -366,58 +367,41 @@ class CamOpsNode(Node):
 
                 if pink_xyz_m is not None:
                     d = self.dist3(pink_xyz_m, pos)
-                    cv2.putText(
-                        debug_frame,
-                        f'd={d:.2f}m',
-                        (900, 70 + 30 * draw_idx),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.55,
-                        (255, 0, 0),
-                        2
-                    )
+                    cv2.putText(debug_frame, f'd={d:.2f}m', (1150, 70 + 30 * draw_idx),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 0, 0), 2)
 
             chosen_item = None
             chosen_dist = None
 
-            # Primary lock: nearest person to pink point
             if pink_xyz_m is not None and self.cooldown == 0:
                 best_item = None
                 best_dist = None
-
                 for item in detections_3d:
                     d = self.dist3(pink_xyz_m, item['pos'])
                     if d > self.pink_match_max_dist_m:
                         continue
-
                     if best_item is None or d < best_dist:
                         best_item = item
                         best_dist = d
-
                 chosen_item = best_item
                 chosen_dist = best_dist
-
                 if chosen_item is not None:
                     self.lost_frames = 0
                     self.cooldown = self.relock_cooldown
 
-            # Fallback reacquire: nearest to previous target
             if chosen_item is None and self.target_pos is not None:
                 best_item = None
                 best_dist = None
-
                 for item in detections_3d:
                     d = self.dist3(self.target_pos, item['pos'])
                     if d > self.reacquire_max_dist_m:
                         continue
-
                     if best_item is None or d < best_dist:
                         best_item = item
                         best_dist = d
-
                 chosen_item = best_item
                 chosen_dist = best_dist
 
-            # Publish chosen target
             if chosen_item is not None:
                 det = chosen_item['det']
                 det_pos = chosen_item['pos']
@@ -439,31 +423,20 @@ class CamOpsNode(Node):
                 if chosen_item['uv'] is not None:
                     cv2.circle(debug_frame, chosen_item['uv'], 6, (0, 255, 0), -1)
 
-                cv2.putText(
-                    debug_frame,
-                    f'TARGET xyz=({det_pos[0]:.2f}, {det_pos[1]:.2f}, {det_pos[2]:.2f})',
-                    (20, debug_frame.shape[0] - 50),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2
-                )
+                cv2.putText(debug_frame,
+                            f'TARGET xyz=({det_pos[0]:.2f}, {det_pos[1]:.2f}, {det_pos[2]:.2f})',
+                            (20, debug_frame.shape[0] - 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                 if chosen_dist is not None:
-                    cv2.putText(
-                        debug_frame,
-                        f'target dist to pink = {chosen_dist:.2f} m',
-                        (20, debug_frame.shape[0] - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0),
-                        2
-                    )
+                    cv2.putText(debug_frame,
+                                f'target dist to pink = {chosen_dist:.2f} m',
+                                (20, debug_frame.shape[0] - 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
 
-            # No target chosen
             if self.target_pos is not None or self.target_id is not None:
                 self.lost_frames += 1
                 if self.lost_frames >= self.lost_max:
@@ -471,15 +444,8 @@ class CamOpsNode(Node):
                     self.target_id = None
                     self.lost_frames = 0
 
-            cv2.putText(
-                debug_frame,
-                'TARGET: none',
-                (20, debug_frame.shape[0] - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 0, 255),
-                2
-            )
+            cv2.putText(debug_frame, 'TARGET: none', (20, debug_frame.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
             self.publish_target_valid(False)
             self.publish_debug_image(debug_frame, img_msg.header)
