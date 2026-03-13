@@ -17,14 +17,14 @@ class CamOpsNode(Node):
     """
     Subscribes to:
       - /oak/rgb/image_rect
-      - /oak/stereo/image_raw
+      - /oak/stereo/image_raw        (16UC1 depth, mm)
       - /oak/rgb/camera_info
-      - /oak/nn/spatial_detections
+      - /oak/nn/spatial_detections   (Detection3DArray; bbox center/size assumed in NN image coords)
 
     Publishes:
-      - /robot/target_person_pos
-      - /robot/target_valid
-      - /robot/debug/cam_ops_image
+      - /robot/target_person_pos   (PointStamped, meters, camera optical frame)
+      - /robot/target_valid        (Bool)
+      - /robot/debug/cam_ops_image (Image)
     """
 
     def __init__(self):
@@ -55,11 +55,12 @@ class CamOpsNode(Node):
         self.declare_parameter('pink_match_max_dist_m', 1.0)
         self.declare_parameter('reacquire_max_dist_m', 1.0)
 
-        # IMPORTANT:
-        # Set these to the neural network input size used by the detector.
-        # Common values are 300x300, 416x416, 640x640, etc.
+        # NN geometry / mapping
         self.declare_parameter('nn_width', 300)
         self.declare_parameter('nn_height', 300)
+        self.declare_parameter('nn_mapping_mode', 'letterbox')  # 'letterbox' or 'stretch'
+        self.declare_parameter('bbox_shrink_x', 1.0)
+        self.declare_parameter('bbox_shrink_y', 1.0)
 
         # Read parameters
         self.image_topic = self.get_parameter('image_topic').value
@@ -84,6 +85,9 @@ class CamOpsNode(Node):
 
         self.nn_width = int(self.get_parameter('nn_width').value)
         self.nn_height = int(self.get_parameter('nn_height').value)
+        self.nn_mapping_mode = str(self.get_parameter('nn_mapping_mode').value).strip().lower()
+        self.bbox_shrink_x = float(self.get_parameter('bbox_shrink_x').value)
+        self.bbox_shrink_y = float(self.get_parameter('bbox_shrink_y').value)
 
         # Publishers
         self.target_pub = self.create_publisher(PointStamped, self.target_topic, 10)
@@ -106,6 +110,7 @@ class CamOpsNode(Node):
         self.lost_frames = 0
         self.cooldown = 0
 
+        # Camera info cached separately
         self.info_sub = self.create_subscription(
             CameraInfo,
             self.camera_info_topic,
@@ -113,6 +118,7 @@ class CamOpsNode(Node):
             qos_profile_sensor_data
         )
 
+        # Synced subscribers: RGB + depth + detections
         self.image_sub = message_filters.Subscriber(
             self, Image, self.image_topic, qos_profile=qos_profile_sensor_data
         )
@@ -130,7 +136,10 @@ class CamOpsNode(Node):
         )
         self.ts.registerCallback(self.synchronized_callback)
 
-        self.get_logger().info('cam_ops_node started')
+        self.get_logger().info(
+            f'cam_ops_node started | nn={self.nn_width}x{self.nn_height} | '
+            f'mapping={self.nn_mapping_mode} | shrink=({self.bbox_shrink_x:.2f}, {self.bbox_shrink_y:.2f})'
+        )
 
     def camera_info_callback(self, info_msg: CameraInfo):
         self.fx = float(info_msg.k[0])
@@ -223,27 +232,36 @@ class CamOpsNode(Node):
             return 0.0
         return float(det.results[0].hypothesis.score)
 
-    def det_uv_nn(self, det):
-        try:
-            u = float(det.bbox.center.position.x)
-            v = float(det.bbox.center.position.y)
-            return u, v
-        except Exception:
-            return None
-
-    def nn_to_rgb_uv(self, u_nn, v_nn, rgb_shape):
+    def map_nn_to_rgb(self, u_nn, v_nn, rgb_shape):
         rgb_h, rgb_w = rgb_shape[:2]
-        u_rgb = int(round(u_nn * rgb_w / self.nn_width))
-        v_rgb = int(round(v_nn * rgb_h / self.nn_height))
-        u_rgb = max(0, min(rgb_w - 1, u_rgb))
-        v_rgb = max(0, min(rgb_h - 1, v_rgb))
+
+        if self.nn_mapping_mode == 'stretch':
+            u_rgb = u_nn * rgb_w / self.nn_width
+            v_rgb = v_nn * rgb_h / self.nn_height
+        else:
+            # letterbox inverse mapping
+            scale = min(self.nn_width / rgb_w, self.nn_height / rgb_h)
+            resized_w = rgb_w * scale
+            resized_h = rgb_h * scale
+
+            pad_x = (self.nn_width - resized_w) / 2.0
+            pad_y = (self.nn_height - resized_h) / 2.0
+
+            u_rgb = (u_nn - pad_x) / scale
+            v_rgb = (v_nn - pad_y) / scale
+
+        u_rgb = int(round(max(0, min(rgb_w - 1, u_rgb))))
+        v_rgb = int(round(max(0, min(rgb_h - 1, v_rgb))))
         return u_rgb, v_rgb
 
     def detection_center_uv(self, det, rgb_shape):
-        uv_nn = self.det_uv_nn(det)
-        if uv_nn is None:
+        try:
+            u_nn = float(det.bbox.center.position.x)
+            v_nn = float(det.bbox.center.position.y)
+        except Exception:
             return None
-        return self.nn_to_rgb_uv(uv_nn[0], uv_nn[1], rgb_shape)
+
+        return self.map_nn_to_rgb(u_nn, v_nn, rgb_shape)
 
     def detection_rect(self, det, rgb_shape):
         try:
@@ -255,13 +273,41 @@ class CamOpsNode(Node):
             return None
 
         rgb_h, rgb_w = rgb_shape[:2]
-        u = int(round(u_nn * rgb_w / self.nn_width))
-        v = int(round(v_nn * rgb_h / self.nn_height))
-        w = int(round(w_nn * rgb_w / self.nn_width))
-        h = int(round(h_nn * rgb_h / self.nn_height))
+
+        if self.nn_mapping_mode == 'stretch':
+            u = u_nn * rgb_w / self.nn_width
+            v = v_nn * rgb_h / self.nn_height
+            w = w_nn * rgb_w / self.nn_width
+            h = h_nn * rgb_h / self.nn_height
+        else:
+            scale = min(self.nn_width / rgb_w, self.nn_height / rgb_h)
+            resized_w = rgb_w * scale
+            resized_h = rgb_h * scale
+
+            pad_x = (self.nn_width - resized_w) / 2.0
+            pad_y = (self.nn_height - resized_h) / 2.0
+
+            u = (u_nn - pad_x) / scale
+            v = (v_nn - pad_y) / scale
+            w = w_nn / scale
+            h = h_nn / scale
+
+        w *= self.bbox_shrink_x
+        h *= self.bbox_shrink_y
+
+        u = int(round(u))
+        v = int(round(v))
+        w = int(round(w))
+        h = int(round(h))
 
         x = u - w // 2
         y = v - h // 2
+
+        x = max(0, x)
+        y = max(0, y)
+        w = min(w, rgb_w - x)
+        h = min(h, rgb_h - y)
+
         return x, y, w, h
 
     def detection_position_from_bbox(self, det, depth_img, rgb_shape):
@@ -284,16 +330,30 @@ class CamOpsNode(Node):
             frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
             debug_frame = frame.copy()
 
-            if self.fx is None:
-                cv2.putText(debug_frame, 'Waiting for camera intrinsics...', (20, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            if self.fx is None or self.fy is None or self.cx is None or self.cy is None:
+                cv2.putText(
+                    debug_frame,
+                    'Waiting for camera intrinsics...',
+                    (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2
+                )
                 self.publish_target_valid(False)
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
 
             if depth_msg.encoding != '16UC1':
-                cv2.putText(debug_frame, f'Bad depth encoding: {depth_msg.encoding}', (20, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                cv2.putText(
+                    debug_frame,
+                    f'Bad depth encoding: {depth_msg.encoding}',
+                    (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2
+                )
                 self.publish_target_valid(False)
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
@@ -313,9 +373,15 @@ class CamOpsNode(Node):
                 cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
                 cv2.circle(debug_frame, (pink_u, pink_v), 5, (255, 255, 255), -1)
                 if pink_xyz_m is not None:
-                    cv2.putText(debug_frame,
-                                f'pink xyz=({pink_xyz_m[0]:.2f}, {pink_xyz_m[1]:.2f}, {pink_xyz_m[2]:.2f})',
-                                (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                    cv2.putText(
+                        debug_frame,
+                        f'pink xyz=({pink_xyz_m[0]:.2f}, {pink_xyz_m[1]:.2f}, {pink_xyz_m[2]:.2f})',
+                        (20, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 255),
+                        2
+                    )
 
             if self.cooldown > 0:
                 self.cooldown -= 1
@@ -342,6 +408,7 @@ class CamOpsNode(Node):
                     'score': score,
                 })
 
+            # Draw person detections
             for draw_idx, item in enumerate(detections_3d):
                 rect = item['rect']
                 uv = item['uv']
@@ -367,12 +434,20 @@ class CamOpsNode(Node):
 
                 if pink_xyz_m is not None:
                     d = self.dist3(pink_xyz_m, pos)
-                    cv2.putText(debug_frame, f'd={d:.2f}m', (1150, 70 + 30 * draw_idx),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 0, 0), 2)
+                    cv2.putText(
+                        debug_frame,
+                        f'd={d:.2f}m',
+                        (1150, 70 + 30 * draw_idx),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (255, 0, 0),
+                        2
+                    )
 
             chosen_item = None
             chosen_dist = None
 
+            # Primary lock: nearest person to pink point
             if pink_xyz_m is not None and self.cooldown == 0:
                 best_item = None
                 best_dist = None
@@ -389,6 +464,7 @@ class CamOpsNode(Node):
                     self.lost_frames = 0
                     self.cooldown = self.relock_cooldown
 
+            # Fallback reacquire: nearest to previous target
             if chosen_item is None and self.target_pos is not None:
                 best_item = None
                 best_dist = None
@@ -402,6 +478,7 @@ class CamOpsNode(Node):
                 chosen_item = best_item
                 chosen_dist = best_dist
 
+            # Publish chosen target
             if chosen_item is not None:
                 det = chosen_item['det']
                 det_pos = chosen_item['pos']
@@ -423,20 +500,31 @@ class CamOpsNode(Node):
                 if chosen_item['uv'] is not None:
                     cv2.circle(debug_frame, chosen_item['uv'], 6, (0, 255, 0), -1)
 
-                cv2.putText(debug_frame,
-                            f'TARGET xyz=({det_pos[0]:.2f}, {det_pos[1]:.2f}, {det_pos[2]:.2f})',
-                            (20, debug_frame.shape[0] - 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.putText(
+                    debug_frame,
+                    f'TARGET xyz=({det_pos[0]:.2f}, {det_pos[1]:.2f}, {det_pos[2]:.2f})',
+                    (20, debug_frame.shape[0] - 50),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2
+                )
 
                 if chosen_dist is not None:
-                    cv2.putText(debug_frame,
-                                f'target dist to pink = {chosen_dist:.2f} m',
-                                (20, debug_frame.shape[0] - 20),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    cv2.putText(
+                        debug_frame,
+                        f'target dist to pink = {chosen_dist:.2f} m',
+                        (20, debug_frame.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2
+                    )
 
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
 
+            # No target chosen
             if self.target_pos is not None or self.target_id is not None:
                 self.lost_frames += 1
                 if self.lost_frames >= self.lost_max:
@@ -444,8 +532,15 @@ class CamOpsNode(Node):
                     self.target_id = None
                     self.lost_frames = 0
 
-            cv2.putText(debug_frame, 'TARGET: none', (20, debug_frame.shape[0] - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(
+                debug_frame,
+                'TARGET: none',
+                (20, debug_frame.shape[0] - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2
+            )
 
             self.publish_target_valid(False)
             self.publish_debug_image(debug_frame, img_msg.header)
