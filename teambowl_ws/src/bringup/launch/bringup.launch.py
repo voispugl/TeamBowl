@@ -10,9 +10,9 @@ def generate_launch_description():
     oak_camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('depthai_ros_driver'),
+                get_package_share_directory('depthai_filters'),
                 'launch',
-                'camera.launch.py'
+                'example_det2d_overlay.launch.py'
             )
         ),
         launch_arguments={
