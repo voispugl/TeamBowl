@@ -47,10 +47,11 @@ class VelCmdMuxNode(Node):
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('output_topic', '/cmd_vel_selected')
 
-        # Declare parameters for freshness checks
+        # Declare parameters for freshness checks & debugging
         self.declare_parameter('teleop_timeout_s', 0.5)
         self.declare_parameter('auto_timeout_s', 0.5)
         self.declare_parameter('publish_rate_hz', 30.0)
+        self.declare_parameter('debug', False)
 
         # Read/store all values from input parameters
         self.mode_topic = self.get_parameter('mode_topic').value
@@ -61,6 +62,7 @@ class VelCmdMuxNode(Node):
         self.teleop_timeout = Duration(seconds=float(self.get_parameter('teleop_timeout_s').value))
         self.auto_timeout = Duration(seconds=float(self.get_parameter('auto_timeout_s').value))
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
+        self.debug = bool(self.get_parameter('debug').value)
 
         # Init state variabels
         self.robot_mode = None
@@ -148,31 +150,38 @@ class VelCmdMuxNode(Node):
     def _tick(self):
         # Zero output if estop
         if self.estop:
+            if self.debug: self.get_logger().info('MUX: estop active -> zero')
             self.pub_out.publish(zero_twist())
             return
         
         # Zero output if off
         if self.robot_mode == 'off':
+            if self.debug: self.get_logger().info('MUX: mode=off -> zero')
             self.pub_out.publish(zero_twist())
             return
 
         # Handle teleop mode
         if self.robot_mode == 'teleop':
             if self._fresh(self.last_teleop_time, self.teleop_timeout):
+                if self.debug: self.get_logger().info(f'MUX: mode=teleop, fresh -> cmd {self.last_teleop}')
                 self.pub_out.publish(self.last_teleop)
             else:
+                if self.debug: self.get_logger().info('MUX: mode=teleop, stale -> zero')
                 self.pub_out.publish(zero_twist())
             return
 
         # Hande auton mode
         if self.robot_mode == 'auton':
             if self._fresh(self.last_auto_time, self.auto_timeout):
+                if self.debug: self.get_logger().info(f'MUX: mode=auton, fresh -> cmd {self.last_auto}')
                 self.pub_out.publish(self.last_auto)
             else:
+                if self.debug: self.get_logger().info('MUX: mode=auton, auto stale -> zero')
                 self.pub_out.publish(zero_twist())
             return
 
         # No valid mode -> zero output
+        if self.debug: self.get_logger().info('MUX: no valid mode yet -> zero')
         self.pub_out.publish(zero_twist())
 
 def main():
