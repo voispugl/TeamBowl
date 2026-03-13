@@ -16,23 +16,23 @@ from vision_msgs.msg import Detection2DArray
 
 class CamOpsNode(Node):
     """
-    Clean version:
-      - Draws detections directly on /oak/nn/passthrough/image_raw
-      - Uses /oak/nn/detections (Detection2DArray)
-      - Detects pink pants in the same image frame
-      - Chooses target person by nearest bbox center to pink center
-      - Publishes 3D target position by sampling depth at detection center
-
     Subscribes to:
-      - /oak/nn/passthrough/image_raw
-      - /oak/stereo/image_raw
-      - /oak/nn/passthrough/camera_info
-      - /oak/nn/detections
+      - /oak/nn/passthrough/image_raw      (for overlay + pink detection)
+      - /oak/nn/passthrough/camera_info    (intrinsics for passthrough image)
+      - /oak/nn/detections                 (Detection2DArray)
+      - /oak/stereo/image_raw              (cached latest depth frame; NOT time-synced)
 
     Publishes:
       - /robot/target_person_pos   (PointStamped, meters, camera optical frame)
       - /robot/target_valid        (Bool)
       - /robot/debug/cam_ops_image (Image)
+
+    Behavior:
+      - Finds pink pants blob in passthrough image
+      - Finds all person detections in the same passthrough image
+      - Chooses the person nearest the pink blob in image space
+      - If no pink match, tries to reacquire nearest to previously chosen target center
+      - Uses latest cached depth frame to estimate XYZ at chosen detection center
     """
 
     def __init__(self):
@@ -48,8 +48,8 @@ class CamOpsNode(Node):
         self.declare_parameter('target_valid_topic', '/robot/target_valid')
         self.declare_parameter('debug_image_topic', '/robot/debug/cam_ops_image')
 
-        # Timing / behavior
-        self.declare_parameter('sync_slop_s', 0.5)
+        # Behavior
+        self.declare_parameter('sync_slop_s', 0.25)
         self.declare_parameter('min_pink_area_px', 300)
         self.declare_parameter('lost_max', 20)
 
@@ -58,7 +58,7 @@ class CamOpsNode(Node):
         self.declare_parameter('max_depth_m', 8.0)
         self.declare_parameter('depth_window_radius_px', 2)
 
-        # Matching thresholds
+        # Matching
         self.declare_parameter('pink_match_max_dist_px', 120.0)
         self.declare_parameter('reacquire_max_dist_px', 140.0)
 
@@ -97,6 +97,10 @@ class CamOpsNode(Node):
         self.cx = None
         self.cy = None
 
+        # Cached latest depth
+        self.latest_depth_img = None
+        self.latest_depth_header = None
+
         # Tracking state
         self.target_center_uv = None
         self.target_pos_xyz = None
@@ -110,31 +114,47 @@ class CamOpsNode(Node):
             qos_profile_sensor_data
         )
 
-        # Synced subscribers
+        # Depth cached separately: not in message_filters sync
+        self.depth_plain_sub = self.create_subscription(
+            Image,
+            self.depth_topic,
+            self.depth_callback,
+            qos_profile_sensor_data
+        )
+
+        # Only sync image + detections
         self.image_sub = message_filters.Subscriber(
             self, Image, self.image_topic, qos_profile=qos_profile_sensor_data
-        )
-        self.depth_sub = message_filters.Subscriber(
-            self, Image, self.depth_topic, qos_profile=qos_profile_sensor_data
         )
         self.det_sub = message_filters.Subscriber(
             self, Detection2DArray, self.detections_topic, qos_profile=qos_profile_sensor_data
         )
 
         self.ts = message_filters.ApproximateTimeSynchronizer(
-            [self.image_sub, self.depth_sub, self.det_sub],
-            queue_size=30,
+            [self.image_sub, self.det_sub],
+            queue_size=20,
             slop=self.sync_slop_s
         )
         self.ts.registerCallback(self.synchronized_callback)
 
-        self.get_logger().info('cam_ops_node started with passthrough image + 2D detections')
+        self.get_logger().info(
+            'cam_ops_node started | syncing passthrough image + detections, caching depth separately'
+        )
 
     def camera_info_callback(self, info_msg: CameraInfo):
         self.fx = float(info_msg.k[0])
         self.fy = float(info_msg.k[4])
         self.cx = float(info_msg.k[2])
         self.cy = float(info_msg.k[5])
+
+    def depth_callback(self, msg: Image):
+        try:
+            if msg.encoding != '16UC1':
+                return
+            self.latest_depth_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            self.latest_depth_header = msg.header
+        except Exception as e:
+            self.get_logger().error(f'depth_callback failed: {e}')
 
     def publish_target_valid(self, valid: bool):
         msg = Bool()
@@ -167,19 +187,22 @@ class CamOpsNode(Node):
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
-            return None, None, 0, None, mask
+            return None, None, 0, None
 
         contour = max(contours, key=cv2.contourArea)
         area = cv2.contourArea(contour)
         if area < self.min_pink_area_px:
-            return None, None, area, None, mask
+            return None, None, area, None
 
         x, y, w, h = cv2.boundingRect(contour)
         u = x + w // 2
         v = y + h // 2
-        return u, v, area, (x, y, w, h), mask
+        return u, v, area, (x, y, w, h)
 
     def get_depth_m(self, depth_img, u, v):
+        if depth_img is None:
+            return None
+
         h, w = depth_img.shape[:2]
         if not (0 <= u < w and 0 <= v < h):
             return None
@@ -212,6 +235,7 @@ class CamOpsNode(Node):
     def detection_is_person(self, det):
         if not det.results:
             return False
+
         class_id = str(det.results[0].hypothesis.class_id).strip().lower()
         return class_id in ('person', '15')
 
@@ -256,13 +280,12 @@ class CamOpsNode(Node):
         b = np.array(b_uv, dtype=np.float64)
         return float(np.linalg.norm(a - b))
 
-    def synchronized_callback(self, img_msg, depth_msg, det_msg):
-        self.get_logger().info('sync callback fired')
+    def synchronized_callback(self, img_msg, det_msg):
         try:
             frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
             debug_frame = frame.copy()
 
-            if self.fx is None:
+            if self.fx is None or self.fy is None or self.cx is None or self.cy is None:
                 cv2.putText(
                     debug_frame,
                     'Waiting for camera intrinsics...',
@@ -276,24 +299,11 @@ class CamOpsNode(Node):
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
 
-            if depth_msg.encoding != '16UC1':
-                cv2.putText(
-                    debug_frame,
-                    f'Bad depth encoding: {depth_msg.encoding}',
-                    (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 255),
-                    2
-                )
-                self.publish_target_valid(False)
-                self.publish_debug_image(debug_frame, img_msg.header)
-                return
+            depth_img = self.latest_depth_img
+            has_depth = depth_img is not None
 
-            depth_img = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
-
-            # Pink detection
-            pink_u, pink_v, pink_area, pink_bbox, _ = self.find_pink_center(frame)
+            # Pink detection in passthrough image frame
+            pink_u, pink_v, pink_area, pink_bbox = self.find_pink_center(frame)
             pink_uv = (pink_u, pink_v) if pink_u is not None and pink_v is not None else None
 
             if pink_bbox is not None:
@@ -309,8 +319,18 @@ class CamOpsNode(Node):
                     (255, 255, 255),
                     2
                 )
+            else:
+                cv2.putText(
+                    debug_frame,
+                    'pink: none',
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 255, 255),
+                    2
+                )
 
-            # Build person list
+            # Build list of person detections
             persons = []
             for i, det in enumerate(det_msg.detections):
                 if not self.detection_is_person(det):
@@ -321,8 +341,13 @@ class CamOpsNode(Node):
                 if uv is None or rect is None:
                     continue
 
-                z_m = self.get_depth_m(depth_img, uv[0], uv[1])
-                pos_xyz = self.pixel_to_3d(uv[0], uv[1], z_m) if z_m is not None else None
+                z_m = None
+                pos_xyz = None
+                if has_depth:
+                    z_m = self.get_depth_m(depth_img, uv[0], uv[1])
+                    if z_m is not None:
+                        pos_xyz = self.pixel_to_3d(uv[0], uv[1], z_m)
+
                 score = self.detection_score(det)
 
                 persons.append({
@@ -338,6 +363,7 @@ class CamOpsNode(Node):
             for j, p in enumerate(persons):
                 x, y, w, h = p['rect']
                 u, v = p['uv']
+
                 cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
                 cv2.circle(debug_frame, (u, v), 5, (255, 0, 0), -1)
 
@@ -375,7 +401,7 @@ class CamOpsNode(Node):
             chosen = None
             chosen_dpx = None
 
-            # 1) Primary: nearest person to pink center in image pixels
+            # Primary match: nearest person to pink blob in image space
             if pink_uv is not None:
                 best = None
                 best_d = None
@@ -389,7 +415,7 @@ class CamOpsNode(Node):
                 chosen = best
                 chosen_dpx = best_d
 
-            # 2) Fallback: nearest to previous target center
+            # Fallback reacquire: nearest to previous target center
             if chosen is None and self.target_center_uv is not None:
                 best = None
                 best_d = None
@@ -452,7 +478,7 @@ class CamOpsNode(Node):
                 self.publish_debug_image(debug_frame, img_msg.header)
                 return
 
-            # No target
+            # No target found
             if self.target_center_uv is not None:
                 self.lost_frames += 1
                 if self.lost_frames >= self.lost_max:
