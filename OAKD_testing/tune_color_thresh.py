@@ -39,30 +39,20 @@ if USE_OAKD:
     import depthai as dai
 
     pipeline = dai.Pipeline()
-    cam = pipeline.create(dai.node.ColorCamera)
-    cam.setPreviewSize(640, 480)
-    cam.setInterleaved(False)
-    cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
 
-    xout = pipeline.create(dai.node.XLinkOut)
-    xout.setStreamName("rgb")
-    cam.preview.link(xout.input)
+    cam = pipeline.create(dai.node.Camera).build()
 
-    device = dai.Device(pipeline)
-    q = device.getOutputQueue("rgb", 4, False)
+    rgb = cam.requestOutput(
+        size=(640, 480),
+        type=dai.ImgFrame.Type.BGR888p
+    )
+
+    q = rgb.createOutputQueue(maxSize=4, blocking=False)
+
+    pipeline.start()
 
     def get_frame():
         return q.get().getCvFrame()
-else:
-    cap = cv2.VideoCapture(CAMERA_INDEX)
-    if not cap.isOpened():
-        raise RuntimeError("Could not open camera")
-
-    def get_frame():
-        ret, frame = cap.read()
-        if not ret:
-            raise RuntimeError("Camera frame grab failed")
-        return frame
 
 # =========================
 # Main loop

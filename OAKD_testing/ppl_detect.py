@@ -1,43 +1,32 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
+import time
 import cv2
 import depthai as dai
 import numpy as np
-import time
-import argparse
 
-def find_pink_center_bgr(frame_bgr):
-    """
-    Returns (cx, cy, area, bbox) for the largest 'pink' blob, or (None, None, 0, None) if not found.
-    bbox is (x,y,w,h) in pixels.
-    """
+
+# ---------- Pink detection ----------
+def find_pink_center_bgr(frame_bgr, min_area_px=300):
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
 
-    # Pink/magenta usually lives near hue ~160-179 and also wraps near ~0-10 for some cameras.
-    # We'll use two ranges and combine. You MUST tune these for your lighting/vest.
-    lower1 = np.array([150, 0, 130], dtype=np.uint8)
-    upper1 = np.array([179, 120, 255], dtype=np.uint8)
-    lower2 = np.array([0,   80, 80], dtype=np.uint8)
-    upper2 = np.array([10, 255, 255], dtype=np.uint8)
+    lower_pink = np.array([140, 150, 120], dtype=np.uint8)
+    upper_pink = np.array([175, 255, 220], dtype=np.uint8)
 
-    mask1 = cv2.inRange(hsv, lower1, upper1)
-    mask2 = cv2.inRange(hsv, lower2, upper2)
-    mask = mask1 #cv2.bitwise_or(mask1, mask2)
+    mask = cv2.inRange(hsv, lower_pink, upper_pink)
 
-    # Clean up mask (reduce noise)
     kernel = np.ones((5, 5), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=5)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-    # Find largest blob
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None, None, 0, None, mask
 
     c = max(contours, key=cv2.contourArea)
     area = cv2.contourArea(c)
-    if area < 300:  # minimum blob area in px; tune
+    if area < min_area_px:
         return None, None, 0, None, mask
 
     x, y, w, h = cv2.boundingRect(c)
@@ -46,220 +35,247 @@ def find_pink_center_bgr(frame_bgr):
     return cx, cy, area, (x, y, w, h), mask
 
 
-def point_in_roi(px, py, roi_xyxy):
-    x1, y1, x2, y2 = roi_xyxy
-    return (x1 <= px <= x2) and (y1 <= py <= y2)
+def get_depth_m(depth_frame_mm, u, v, window_radius=2, min_depth_m=0.2, max_depth_m=8.0):
+    h, w = depth_frame_mm.shape[:2]
+    if not (0 <= u < w and 0 <= v < h):
+        return None
 
-labelMap = ["background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
-            "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+    u0 = max(0, u - window_radius)
+    u1 = min(w, u + window_radius + 1)
+    v0 = max(0, v - window_radius)
+    v1 = min(h, v + window_radius + 1)
 
-nnPathDefault = str((Path(__file__).parent / Path('./depthai-python/examples/models/mobilenet-ssd_openvino_2021.4_5shave.blob')).resolve().absolute())
-parser = argparse.ArgumentParser()
-parser.add_argument('nnPath', nargs='?', help="Path to mobilenet detection network blob", default=nnPathDefault)
-parser.add_argument('-ff', '--full_frame', action="store_true", help="Perform tracking on full RGB frame", default=False)
+    patch = depth_frame_mm[v0:v1, u0:u1]
+    valid = patch[patch > 0]
+    if valid.size == 0:
+        return None
 
-args = parser.parse_args()
+    depth_mm = float(np.median(valid))
+    depth_m = depth_mm / 1000.0
 
-fullFrameTracking = args.full_frame
+    if depth_m < min_depth_m or depth_m > max_depth_m:
+        return None
 
-# Create pipeline
+    return depth_m
+
+
+def pixel_to_3d(u, v, z_m, fx, fy, cx, cy):
+    x_m = (float(u) - cx) * z_m / fx
+    y_m = (float(v) - cy) * z_m / fy
+    return np.array([x_m, y_m, z_m], dtype=np.float64)
+
+
+def dist3(a, b):
+    return float(np.linalg.norm(a - b))
+
+
+# ---------- Build pipeline ----------
 pipeline = dai.Pipeline()
 
-# Define sources and outputs
-camRgb = pipeline.create(dai.node.ColorCamera)
-spatialDetectionNetwork = pipeline.create(dai.node.MobileNetSpatialDetectionNetwork)
-monoLeft = pipeline.create(dai.node.MonoCamera)
-monoRight = pipeline.create(dai.node.MonoCamera)
+cam_rgb = pipeline.create(dai.node.ColorCamera)
+mono_left = pipeline.create(dai.node.MonoCamera)
+mono_right = pipeline.create(dai.node.MonoCamera)
 stereo = pipeline.create(dai.node.StereoDepth)
-objectTracker = pipeline.create(dai.node.ObjectTracker)
+spatial_nn = pipeline.create(dai.node.MobileNetSpatialDetectionNetwork)
 
-xoutRgb = pipeline.create(dai.node.XLinkOut)
-trackerOut = pipeline.create(dai.node.XLinkOut)
+xout_rgb = pipeline.create(dai.node.XLinkOut)
+xout_depth = pipeline.create(dai.node.XLinkOut)
+xout_det = pipeline.create(dai.node.XLinkOut)
 
-xoutRgb.setStreamName("preview")
-trackerOut.setStreamName("tracklets")
+xout_rgb.setStreamName("rgb")
+xout_depth.setStreamName("depth")
+xout_det.setStreamName("detections")
 
-# Properties
-camRgb.setPreviewSize(300, 300)
-camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
-camRgb.setInterleaved(False)
-camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
+# Camera settings
+cam_rgb.setPreviewSize(300, 300)
+cam_rgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+cam_rgb.setInterleaved(False)
+cam_rgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
 
-monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-monoLeft.setCamera("left")
-monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-monoRight.setCamera("right")
+mono_left.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+mono_left.setCamera("left")
+mono_right.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+mono_right.setCamera("right")
 
-# setting node configs
+# Stereo settings
 stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
-# Align depth map to the perspective of RGB camera, on which inference is done
-stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
-stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
+stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)  # align depth to RGB
+stereo.setOutputSize(1280, 720)
 
-spatialDetectionNetwork.setBlobPath(args.nnPath)
-spatialDetectionNetwork.setConfidenceThreshold(0.5)
-spatialDetectionNetwork.input.setBlocking(False)
-spatialDetectionNetwork.setBoundingBoxScaleFactor(0.5)
-spatialDetectionNetwork.setDepthLowerThreshold(100)
-spatialDetectionNetwork.setDepthUpperThreshold(5000)
+# NN settings
+# Change this path if needed
+nn_blob = str(Path("./mobilenet-ssd_openvino_2021.4_5shave.blob").resolve())
+spatial_nn.setBlobPath(nn_blob)
+spatial_nn.setConfidenceThreshold(0.5)
+spatial_nn.input.setBlocking(False)
+spatial_nn.setBoundingBoxScaleFactor(0.5)
+spatial_nn.setDepthLowerThreshold(100)
+spatial_nn.setDepthUpperThreshold(8000)
 
-objectTracker.setDetectionLabelsToTrack([15])  # track only person
-# possible tracking types: ZERO_TERM_COLOR_HISTOGRAM, ZERO_TERM_IMAGELESS, SHORT_TERM_IMAGELESS, SHORT_TERM_KCF
-objectTracker.setTrackerType(dai.TrackerType.ZERO_TERM_COLOR_HISTOGRAM)
-# take the smallest ID when new object is tracked, possible options: SMALLEST_ID, UNIQUE_ID
-objectTracker.setTrackerIdAssignmentPolicy(dai.TrackerIdAssignmentPolicy.SMALLEST_ID)
+# Link pipeline
+mono_left.out.link(stereo.left)
+mono_right.out.link(stereo.right)
 
-# Linking
-monoLeft.out.link(stereo.left)
-monoRight.out.link(stereo.right)
+cam_rgb.video.link(xout_rgb.input)
+cam_rgb.preview.link(spatial_nn.input)
+stereo.depth.link(spatial_nn.inputDepth)
 
-camRgb.preview.link(spatialDetectionNetwork.input)
-objectTracker.passthroughTrackerFrame.link(xoutRgb.input)
-objectTracker.out.link(trackerOut.input)
+spatial_nn.out.link(xout_det.input)
+stereo.depth.link(xout_depth.input)
 
-if fullFrameTracking:
-    camRgb.setPreviewKeepAspectRatio(False)
-    camRgb.video.link(objectTracker.inputTrackerFrame)
-    objectTracker.inputTrackerFrame.setBlocking(False)
-    # do not block the pipeline if it's too slow on full frame
-    objectTracker.inputTrackerFrame.setQueueSize(2)
-else:
-    spatialDetectionNetwork.passthrough.link(objectTracker.inputTrackerFrame)
+label_map = [
+    "background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus",
+    "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike",
+    "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
+]
 
-spatialDetectionNetwork.passthrough.link(objectTracker.inputDetectionFrame)
-spatialDetectionNetwork.out.link(objectTracker.inputDetections)
-stereo.depth.link(spatialDetectionNetwork.inputDepth)
-
-# Connect to device and start pipeline
+# ---------- Run ----------
 with dai.Device(pipeline) as device:
+    q_rgb = device.getOutputQueue("rgb", maxSize=4, blocking=False)
+    q_depth = device.getOutputQueue("depth", maxSize=4, blocking=False)
+    q_det = device.getOutputQueue("detections", maxSize=4, blocking=False)
 
-    preview = device.getOutputQueue("preview", 4, False)
-    tracklets = device.getOutputQueue("tracklets", 4, False)
+    calib = device.readCalibration()
+    intrinsics = calib.getCameraIntrinsics(
+        dai.CameraBoardSocket.CAM_A,
+        1280, 720
+    )
+    fx = intrinsics[0][0]
+    fy = intrinsics[1][1]
+    cx = intrinsics[0][2]
+    cy = intrinsics[1][2]
 
-    startTime = time.monotonic()
+    print(f"fx={fx:.3f}, fy={fy:.3f}, cx={cx:.3f}, cy={cy:.3f}")
+
+    start_time = time.monotonic()
     counter = 0
-    fps = 0
-    color = (255, 255, 255)
-    target_id = None
-    lost_frames = 0
-    LOST_MAX = 20          # how long we tolerate losing the target tracklet
-    RELOCK_COOLDOWN = 0    # optional: frames to wait before allowing relock
-    cooldown = 0
+    fps = 0.0
 
+    last_target_xyz = None
 
-    while(True):
-        imgFrame = preview.get()
-        track = tracklets.get()
+    while True:
+        in_rgb = q_rgb.get()
+        in_depth = q_depth.get()
+        in_det = q_det.get()
 
-        counter+=1
-        current_time = time.monotonic()
-        if (current_time - startTime) > 1 :
-            fps = counter / (current_time - startTime)
+        frame = in_rgb.getCvFrame()
+        depth_frame = in_depth.getFrame()  # uint16 mm
+        detections = in_det.detections
+
+        counter += 1
+        now = time.monotonic()
+        if (now - start_time) > 1.0:
+            fps = counter / (now - start_time)
             counter = 0
-            startTime = current_time
-        
-        frame = imgFrame.getCvFrame()
-        trackletsData = track.tracklets
+            start_time = now
 
-        # --- Detect pink patch in the RGB frame ---
-        px, py, area, pbbox, mask = find_pink_center_bgr(frame)
+        # Pink detection
+        px, py, parea, pbbox, mask = find_pink_center_bgr(frame)
+        pink_xyz = None
+        if px is not None and py is not None:
+            z_m = get_depth_m(depth_frame, px, py)
+            if z_m is not None:
+                pink_xyz = pixel_to_3d(px, py, z_m, fx, fy, cx, cy)
 
-        # Visualize the mask if you want (super helpful while tuning):
-        # cv2.imshow("pink_mask", mask)
-
-        if cooldown > 0:
-            cooldown -= 1
-
-        # --- If we see the pink patch, choose the person tracklet that contains it ---
-        if px is not None and py is not None and cooldown == 0:
-            best_id = None
-            best_area = None
-
-            for t in trackletsData:
-                if t.label != 15:
-                    continue
-                if t.status.name not in ("TRACKED", "NEW"):
-                    continue
-
-                roi = t.roi.denormalize(frame.shape[1], frame.shape[0])
-                x1 = int(roi.topLeft().x)
-                y1 = int(roi.topLeft().y)
-                x2 = int(roi.bottomRight().x)
-                y2 = int(roi.bottomRight().y)
-
-                if point_in_roi(px, py, (x1, y1, x2, y2)):
-                    # If multiple people contain the point (rare), pick the smallest bbox area
-                    a = (x2 - x1) * (y2 - y1)
-                    if best_area is None or a < best_area:
-                        best_area = a
-                        best_id = int(t.id)
-
-            if best_id is not None:
-                target_id = best_id
-                lost_frames = 0
-                cooldown = RELOCK_COOLDOWN
-
-        # --- Decide if target is present this frame ---
-        target_tracklet = None
-        if target_id is not None:
-            for t in trackletsData:
-                if int(t.id) == int(target_id) and t.status.name in ("TRACKED", "NEW"):
-                    target_tracklet = t
-                    break
-
-            if target_tracklet is None:
-                lost_frames += 1
-                if lost_frames >= LOST_MAX:
-                    target_id = None
-                    lost_frames = 0
-        else:
-            lost_frames = 0
-
-        # --- Draw debug: pink patch box/center ---
+        # Draw pink blob
         if pbbox is not None:
             x, y, w, h = pbbox
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 255, 255), 2)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
             cv2.circle(frame, (px, py), 5, (255, 255, 255), -1)
-            cv2.putText(frame, f"pink area={int(area)}", (x, y-10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+            cv2.putText(frame, f"pink area={int(parea)}", (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-        # --- Draw people: target in green, others in blue (optional) ---
-        for t in trackletsData:
-            if t.label != 15:
-                continue
-            if t.status.name not in ("TRACKED", "NEW"):
+        if pink_xyz is not None:
+            cv2.putText(frame,
+                        f"pink xyz=({pink_xyz[0]:.2f},{pink_xyz[1]:.2f},{pink_xyz[2]:.2f})",
+                        (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # Choose person nearest to pink 3D point
+        chosen_idx = None
+        chosen_dist = None
+
+        for i, det in enumerate(detections):
+            label = label_map[det.label] if 0 <= det.label < len(label_map) else str(det.label)
+            if label != "person":
                 continue
 
-            roi = t.roi.denormalize(frame.shape[1], frame.shape[0])
+            roi = det.boundingBoxMapping.roi
+            roi = roi.denormalize(frame.shape[1], frame.shape[0])
             x1 = int(roi.topLeft().x)
             y1 = int(roi.topLeft().y)
             x2 = int(roi.bottomRight().x)
             y2 = int(roi.bottomRight().y)
 
-            is_target = (target_id is not None and int(t.id) == int(target_id))
-            box_color = (0, 255, 0) if is_target else (255, 0, 0)
-            thick = 3 if is_target else 1
+            det_xyz = np.array([
+                det.spatialCoordinates.x / 1000.0,
+                det.spatialCoordinates.y / 1000.0,
+                det.spatialCoordinates.z / 1000.0
+            ], dtype=np.float64)
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, thick)
-            cv2.putText(frame, f"ID:{int(t.id)} {t.status.name}", (x1 + 5, y1 + 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
+            score_text = f"{label} {det.confidence:.2f}"
+            xyz_text = f"xyz=({det_xyz[0]:.2f},{det_xyz[1]:.2f},{det_xyz[2]:.2f})"
 
-            if is_target:
-                cv2.putText(frame, f"X:{int(t.spatialCoordinates.x)} Y:{int(t.spatialCoordinates.y)} Z:{int(t.spatialCoordinates.z)} mm",
-                            (x1 + 5, y1 + 45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
+            color = (255, 0, 0)
+            thickness = 1
 
-        # --- Show target state ---
-        if target_id is None:
-            cv2.putText(frame, "TARGET: none", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
-        else:
-            cv2.putText(frame, f"TARGET: {target_id} (lost={lost_frames})", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
+            if pink_xyz is not None:
+                d = dist3(det_xyz, pink_xyz)
+                if chosen_dist is None or d < chosen_dist:
+                    chosen_dist = d
+                    chosen_idx = i
+                cv2.putText(frame, f"d_pink={d:.2f}m", (x1 + 5, y1 + 65),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+            cv2.putText(frame, score_text, (x1 + 5, y1 + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            cv2.putText(frame, xyz_text, (x1 + 5, y1 + 42),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-        cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
+        # Highlight chosen target
+        if chosen_idx is not None:
+            det = detections[chosen_idx]
+            roi = det.boundingBoxMapping.roi
+            roi = roi.denormalize(frame.shape[1], frame.shape[0])
+            x1 = int(roi.topLeft().x)
+            y1 = int(roi.topLeft().y)
+            x2 = int(roi.bottomRight().x)
+            y2 = int(roi.bottomRight().y)
 
-        cv2.imshow("tracker", frame)
+            det_xyz = np.array([
+                det.spatialCoordinates.x / 1000.0,
+                det.spatialCoordinates.y / 1000.0,
+                det.spatialCoordinates.z / 1000.0
+            ], dtype=np.float64)
+            last_target_xyz = det_xyz
 
-        if cv2.waitKey(1) == ord('q'):
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            cv2.putText(frame, f"TARGET d={chosen_dist:.2f}m", (x1 + 5, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        status = "TARGET: none"
+        if last_target_xyz is not None:
+            status = f"TARGET xyz=({last_target_xyz[0]:.2f},{last_target_xyz[1]:.2f},{last_target_xyz[2]:.2f})"
+
+        cv2.putText(frame, status, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(frame, f"FPS: {fps:.2f}", (10, frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # Depth visualization
+        depth_vis = cv2.normalize(depth_frame, None, 0, 255, cv2.NORM_MINMAX)
+        depth_vis = depth_vis.astype(np.uint8)
+        depth_vis = cv2.applyColorMap(depth_vis, cv2.COLORMAP_JET)
+
+        if px is not None and py is not None:
+            cv2.circle(depth_vis, (px, py), 5, (255, 255, 255), -1)
+
+        cv2.imshow("rgb_debug", frame)
+        cv2.imshow("pink_mask", mask)
+        cv2.imshow("depth_debug", depth_vis)
+
+        key = cv2.waitKey(1)
+        if key == ord('q'):
             break
+
+    cv2.destroyAllWindows()
