@@ -236,7 +236,7 @@ class CamOpsNode(Node):
 
         x = u - w // 2
         y = v - h // 2
-        return x, y, w, h, u, v
+        return x, y, w, h
 
     def detection_is_person(self, det):
         if not det.results:
