@@ -12,7 +12,7 @@ def generate_launch_description():
             os.path.join(
                 get_package_share_directory('depthai_ros_driver'),
                 'launch',
-                'camera.launch.py'
+                'camera_as_part_of_a_robot.launch.py'
             )
         ),
         launch_arguments={
@@ -129,9 +129,13 @@ def generate_launch_description():
                 {'target_topic': '/robot/target_person_pos'},
                 {'target_valid_topic': '/robot/target_valid'},
                 {'debug_image_topic': '/robot/debug/cam_ops_image'},
+                {'sync_slop_s': 0.2},
                 {'min_pink_area_px': 300},
+                {'enable_resize': True},
+                {'resize_scale': 0.5},
                 {'min_depth_m': 0.2},
                 {'max_depth_m': 8.0},
+                {'depth_window_radius_px': 2},
             ],
         ),    
     ])
