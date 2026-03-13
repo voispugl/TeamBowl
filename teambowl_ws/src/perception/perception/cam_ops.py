@@ -489,6 +489,10 @@ class CamOpsNode(Node):
                     (20, debug_frame.shape[0] - 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+        self.get_logger().info(f"u={u}, cx={self.cx}, u-cx={u-self.cx}")
+        self.get_logger().info(f"pink_xyz={pink_xyz_m}")
+        self.get_logger().info(f"img width={frame.shape[1]}")
+
         self.publish_target_valid(False)
         self.publish_debug_image(debug_frame, img_msg.header)
 
