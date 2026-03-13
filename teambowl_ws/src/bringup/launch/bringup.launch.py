@@ -10,9 +10,9 @@ def generate_launch_description():
     oak_camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('depthai_filters'),
+                get_package_share_directory('depthai_ros_driver'),
                 'launch',
-                'example_det2d_overlay.launch.py'
+                'camera.launch.py'
             )
         ),
         launch_arguments={
@@ -123,23 +123,15 @@ def generate_launch_description():
             name='cam_ops_node',
             output='screen',
             parameters=[
-                {'image_topic': '/oak/nn/passthrough/image_raw'},
+                {'image_topic': '/oak/rgb/image_rect'},
                 {'depth_topic': '/oak/stereo/image_raw'},
-                {'camera_info_topic': '/oak/nn/passthrough/camera_info'},
-                {'detections_topic': '/oak/nn/detections'},
+                {'camera_info_topic': '/oak/rgb/camera_info'},
                 {'target_topic': '/robot/target_person_pos'},
                 {'target_valid_topic': '/robot/target_valid'},
                 {'debug_image_topic': '/robot/debug/cam_ops_image'},
-                {'sync_slop_s': 0.25},
                 {'min_pink_area_px': 300},
-                {'lost_max': 20},
                 {'min_depth_m': 0.2},
                 {'max_depth_m': 8.0},
-                {'depth_window_radius_px': 2},
-                {'pink_match_max_dist_px': 120.0},
-                {'reacquire_max_dist_px': 140.0},
             ],
-        ),
-
-        
+        ),    
     ])
