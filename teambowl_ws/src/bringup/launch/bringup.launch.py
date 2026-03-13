@@ -76,7 +76,7 @@ def generate_launch_description():
                 {'teleop_timeout_s': 0.5},
                 {'auto_timeout_s': 0.5},
                 {'publish_rate_hz': 30.0},
-                {'debug': True},
+                {'debug': False},
             ],
         ),
 
