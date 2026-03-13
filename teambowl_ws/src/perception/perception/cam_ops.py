@@ -59,8 +59,8 @@ class CamOpsNode(Node):
         self.declare_parameter('nn_width', 300)
         self.declare_parameter('nn_height', 300)
         self.declare_parameter('nn_mapping_mode', 'letterbox')  # 'letterbox' or 'stretch'
-        self.declare_parameter('bbox_shrink_x', 1.0)
-        self.declare_parameter('bbox_shrink_y', 1.0)
+        self.declare_parameter('bbox_shrink_x', 0.8)
+        self.declare_parameter('bbox_shrink_y', 0.8)
 
         # Read parameters
         self.image_topic = self.get_parameter('image_topic').value
