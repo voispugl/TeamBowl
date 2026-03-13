@@ -32,9 +32,9 @@ class CamOpsNode(Node):
         self.bridge = CvBridge()
 
         # Topics
-        self.declare_parameter('image_topic', '/oak/rgb/image_raw')
+        self.declare_parameter('image_topic', '/oak/rgb/image_rect')
         self.declare_parameter('depth_topic', '/oak/stereo/image_raw')
-        self.declare_parameter('camera_info_topic', '/oak/stereo/camera_info')
+        self.declare_parameter('camera_info_topic', '/oak/rgb/camera_info')
         self.declare_parameter('detections_topic', '/oak/nn/spatial_detections')
         self.declare_parameter('target_topic', '/robot/target_person_pos')
         self.declare_parameter('target_valid_topic', '/robot/target_valid')
@@ -293,6 +293,11 @@ class CamOpsNode(Node):
         return best_det
 
     def synchronized_callback(self, img_msg, depth_msg, info_msg, det_msg):
+        self.get_logger().info(f'img frame_id:   {img_msg.header.frame_id}')
+        self.get_logger().info(f'depth frame_id: {depth_msg.header.frame_id}')
+        self.get_logger().info(f'info frame_id:  {info_msg.header.frame_id}')
+        self.get_logger().info(f'det frame_id:   {det_msg.header.frame_id}')
+        
         # Update camera intrinsics
         self.update_intrinsics(info_msg)
 
@@ -345,21 +350,21 @@ class CamOpsNode(Node):
             if not det.results:
                 continue
 
-            cls = str(det.results[0].hypothesis.class_id)
-            score = float(det.results[0].hypothesis.score)
+            if not self.detection_is_person(det):
+                continue
+
             pos = det.results[0].pose.pose.position
             self.get_logger().info(
-                f'det id={det.id} class={cls} score={score:.3f} '
-                f'xyz=({pos.x:.3f}, {pos.y:.3f}, {pos.z:.3f})'
+                f'PERSON det frame={det_msg.header.frame_id} x={pos.x:.3f} y={pos.y:.3f} z={pos.z:.3f}'
             )
 
-            if pink_xyz_m is not None:
-                self.get_logger().info(
-                    f'pink xyz: ({pink_xyz_m[0]:.3f}, {pink_xyz_m[1]:.3f}, {pink_xyz_m[2]:.3f})'
-                )
-                det_pos = np.array([pos.x, pos.y, pos.z], dtype=np.float64)
-                d = np.linalg.norm(det_pos - pink_xyz_m)
-                self.get_logger().info(f'  dist_to_pink={d:.3f} m')
+            # if pink_xyz_m is not None:
+            #     self.get_logger().info(
+            #         f'pink xyz: ({pink_xyz_m[0]:.3f}, {pink_xyz_m[1]:.3f}, {pink_xyz_m[2]:.3f})'
+            #     )
+            #     det_pos = np.array([pos.x, pos.y, pos.z], dtype=np.float64)
+            #     d = np.linalg.norm(det_pos - pink_xyz_m)
+            #     self.get_logger().info(f'  dist_to_pink={d:.3f} m')
         ## END DEBUGGING ##
 
         if self.cooldown > 0:
@@ -488,16 +493,6 @@ class CamOpsNode(Node):
         cv2.putText(debug_frame, 'TARGET: none',
                     (20, debug_frame.shape[0] - 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-        if u is not None:
-            self.get_logger().info(f"u={u}, cx={self.cx}, u-cx={u-self.cx}")
-        else:
-            self.get_logger().info("pink center: none")
-        if pink_xyz_m is not None:
-            self.get_logger().info(f"pink_xyz={pink_xyz_m}")
-        else:
-            self.get_logger().info("pink xyz: none")
-        self.get_logger().info(f"img width={frame.shape[1]}")
 
         self.publish_target_valid(False)
         self.publish_debug_image(debug_frame, img_msg.header)

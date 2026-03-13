@@ -125,7 +125,7 @@ def generate_launch_description():
             parameters=[
                 {'image_topic': '/oak/rgb/image_rect'},
                 {'depth_topic': '/oak/stereo/image_raw'},
-                {'camera_info_topic': '/oak/stereo/camera_info'},
+                {'camera_info_topic': '/oak/rgb/camera_info'},
                 {'detections_topic': '/oak/nn/spatial_detections'},
                 {'target_topic': '/robot/target_person_pos'},
                 {'target_valid_topic': '/robot/target_valid'},
