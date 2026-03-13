@@ -49,7 +49,7 @@ class CamOpsNode(Node):
         self.declare_parameter('debug_image_topic', '/robot/debug/cam_ops_image')
 
         # Timing / behavior
-        self.declare_parameter('sync_slop_s', 0.15)
+        self.declare_parameter('sync_slop_s', 0.5)
         self.declare_parameter('min_pink_area_px', 300)
         self.declare_parameter('lost_max', 20)
 
@@ -123,7 +123,7 @@ class CamOpsNode(Node):
 
         self.ts = message_filters.ApproximateTimeSynchronizer(
             [self.image_sub, self.depth_sub, self.det_sub],
-            queue_size=10,
+            queue_size=30,
             slop=self.sync_slop_s
         )
         self.ts.registerCallback(self.synchronized_callback)
@@ -257,6 +257,7 @@ class CamOpsNode(Node):
         return float(np.linalg.norm(a - b))
 
     def synchronized_callback(self, img_msg, depth_msg, det_msg):
+        self.get_logger().info('sync callback fired')
         try:
             frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
             debug_frame = frame.copy()
