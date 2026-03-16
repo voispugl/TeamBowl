@@ -1,0 +1,20 @@
+services:
+  teambowl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: teambowl:dev
+    container_name: teambowl_dev
+    network_mode: host
+    ipc: host
+    stdin_open: true
+    tty: true
+    privileged: true
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    volumes:
+      - /home/box/TeamBowl/teambowl_ws:/workspaces/teambowl_ws
+      - /dev:/dev
+    working_dir: /workspaces/teambowl_ws
+    command: bash

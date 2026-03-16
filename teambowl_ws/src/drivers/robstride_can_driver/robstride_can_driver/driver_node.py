@@ -30,7 +30,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 
 # Custom services
-from robstride_can_driver.srv import (
+from robstride_can_interfaces.srv import (
     SetGains,
     SetMotorId,
     SetZero,

@@ -1,0 +1,1 @@
+/workspaces/teambowl_ws/build/depthai_ros_msgs/rosidl_generator_c/depthai_ros_msgs/msg/imu_with_magnetic_field.h

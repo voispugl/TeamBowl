@@ -1,0 +1,1 @@
+/workspaces/teambowl_ws/build/depthai-ros/ament_cmake_core/depthai-rosConfig-version.cmake

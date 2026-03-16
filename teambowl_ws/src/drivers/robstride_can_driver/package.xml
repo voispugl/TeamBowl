@@ -3,29 +3,22 @@
 <package format="3">
   <name>robstride_can_driver</name>
   <version>0.1.0</version>
-  <description>
-    ROS2 Humble driver for RobStride RS04, RS00, and RS05 brushless actuators
-    over CAN 2.0 (SocketCAN) using the Private Protocol with 29-bit extended frames.
-    Supports Operation Control Mode (Type 1), active feedback reporting (Type 24),
-    and a standalone commissioning CLI for motor setup.
-  </description>
+  <description>ROS2 Humble driver for RobStride CAN actuators.</description>
   <maintainer email="placeholder@example.com">TeamBowl</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>diagnostic_msgs</depend>
-  <depend>rosidl_default_runtime</depend>
+  <depend>robstride_can_interfaces</depend>
 
   <exec_depend>python3-can</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
-
-  <member_of_group>rosidl_interface_packages</member_of_group>
 
   <export>
     <build_type>ament_cmake</build_type>
