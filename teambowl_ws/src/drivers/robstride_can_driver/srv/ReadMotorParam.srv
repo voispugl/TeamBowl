@@ -1,0 +1,8 @@
+# Read one parameter by index (Type 17).
+string joint_name
+uint16 param_index   # hex index from commands_reference.yaml, e.g. 0x701C
+---
+bool success
+string message
+float64 value_float  # decoded as float
+uint32 value_uint32  # decoded as uint32

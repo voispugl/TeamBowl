@@ -1,0 +1,146 @@
+# ==============================================================================
+# RobStride Motor Driver Configuration
+# ==============================================================================
+# All gains (default_kp, default_kd) are used ONLY in the Type 1 CAN command
+# frame. They are NOT written to the motor's internal registers unless you
+# explicitly call the /write_motor_param service or use commissioning.py.
+#
+# Startup modes:
+#   startup_safe : enable motors → read current mechPos → hold that position
+#   startup_home : enable motors → move to home_position_rad
+# ==============================================================================
+
+host_can_id: 0x1
+
+can_buses:
+  can0:
+    interface: "can0"
+  can1:
+    interface: "can1"
+
+# Physical limits per motor type.
+# These are used ONLY for scaling 16-bit raw CAN values to/from physical units.
+# Do not change unless RobStride releases a new hardware revision.
+motor_specs:
+  RS04:
+    torque:   [-120.0, 120.0]
+    velocity: [-15.0,   15.0]
+    kp:       [0.0,   5000.0]
+    kd:       [0.0,    100.0]
+    position: [-12.566371, 12.566371]   # -4π ~ +4π rad
+  RS00:
+    torque:   [-14.0,  14.0]
+    velocity: [-33.0,  33.0]
+    kp:       [0.0,   500.0]
+    kd:       [0.0,     5.0]
+    position: [-12.566371, 12.566371]
+  RS05:
+    torque:   [-5.5,   5.5]
+    velocity: [-50.0,  50.0]
+    kp:       [0.0,   500.0]
+    kd:       [0.0,     5.0]
+    position: [-12.566371, 12.566371]
+
+# ==============================================================================
+# Motor definitions
+# Replace can_id placeholders with your actual motor CAN IDs.
+# Replace joint names (e.g. joint_rs04_1) with your robot's joint names.
+# ==============================================================================
+motors:
+  # --- CAN Bus 0: 6 × RS04 ---
+  joint_rs04_1:
+    type: RS04
+    bus: can0
+    can_id: 0x0A          # PLACEHOLDER — set to your actual CAN ID
+    default_kp: 100.0     # Kp used in Type 1 control frame (NOT written to motor flash)
+    default_kd: 2.0       # Kd used in Type 1 control frame (NOT written to motor flash)
+    default_torque_ff: 0.0
+    home_position_rad: 0.0   # Target position for startup_home mode
+
+  joint_rs04_2:
+    type: RS04
+    bus: can0
+    can_id: 0x0B
+    default_kp: 100.0
+    default_kd: 2.0
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+  joint_rs04_3:
+    type: RS04
+    bus: can0
+    can_id: 0x0C
+    default_kp: 100.0
+    default_kd: 2.0
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+  joint_rs04_4:
+    type: RS04
+    bus: can0
+    can_id: 0x14
+    default_kp: 100.0
+    default_kd: 2.0
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+  joint_rs04_5:
+    type: RS04
+    bus: can0
+    can_id: 0x15
+    default_kp: 100.0
+    default_kd: 2.0
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+  joint_rs04_6:
+    type: RS04
+    bus: can0
+    can_id: 0x16
+    default_kp: 100.0
+    default_kd: 2.0
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+  # --- CAN Bus 1: 2 × RS00 + 1 × RS05 ---
+  joint_rs00_1:
+    type: RS00
+    bus: can1
+    can_id: 0x0D
+    default_kp: 80.0
+    default_kd: 1.5
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+  joint_rs00_2:
+    type: RS00
+    bus: can1
+    can_id: 0x17
+    default_kp: 80.0
+    default_kd: 1.5
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+  joint_rs05_1:
+    type: RS05
+    bus: can1
+    can_id: 0x1E
+    default_kp: 60.0
+    default_kd: 1.0
+    default_torque_ff: 0.0
+    home_position_rad: 0.0
+
+# ==============================================================================
+# Control loop settings
+# ==============================================================================
+control:
+  loop_rate_hz: 100
+  active_reporting_interval: 1  # EPScan_time: 1 = 10 ms, each +1 adds 5 ms
+
+  # Set to true to write Kp/Kd to actuator registers at startup (Type 18).
+  # Default false — motors use their own stored gains; node gains only affect Type 1 frames.
+  setup_pids_on_startup: false
+
+  # startup_safe : enable → read mechPos → hold current position (no snap on enable)
+  # startup_home : enable → move to home_position_rad defined per joint above
+  startup_mode: "startup_safe"

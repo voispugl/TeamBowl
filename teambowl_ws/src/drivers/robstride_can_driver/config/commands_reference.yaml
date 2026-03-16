@@ -1,0 +1,331 @@
+# ==============================================================================
+# RobStride Private Protocol — Complete Command & Parameter Reference
+# Used by commissioning.py for input validation and help text.
+# ==============================================================================
+
+command_types:
+  - id: 0x00
+    name: get_device_id
+    description: "Request the motor's 64-bit MCU unique identifier."
+    data_bytes: "all zeros"
+    response: "Type 0 reply with 64-bit UID in data bytes"
+
+  - id: 0x01
+    name: operation_ctrl
+    description: "MIT-style motion control. Sends target pos/vel/Kp/Kd/torque_ff in one frame. Motor must be enabled first (Type 3)."
+    data_bytes: "Byte0-1: angle_raw BE uint16 | Byte2-3: vel_raw BE uint16 | Byte4-5: kp_raw BE uint16 | Byte6-7: kd_raw BE uint16"
+    can_id_note: "Bits 23-8 carry torque_ff_raw (16-bit)"
+    response: "Type 2 feedback frame"
+
+  - id: 0x02
+    name: motor_feedback
+    description: "Feedback frame sent by motor in response to most commands. Contains pos/vel/torque/temp and fault/mode flags."
+    direction: motor_to_host
+    data_bytes: "Byte0-1: angle_raw | Byte2-3: vel_raw | Byte4-5: torque_raw | Byte6-7: temp * 10"
+
+  - id: 0x03
+    name: motor_enable
+    description: "Enable the motor for operation. Must be sent before Type 1 motion commands."
+    data_bytes: "all zeros"
+    response: "Type 2 feedback frame"
+
+  - id: 0x04
+    name: motor_stop
+    description: "Stop the motor. Byte0=0x00 for normal stop; Byte0=0x01 to clear faults and stop."
+    data_bytes: "Byte0: 0x00=stop | 0x01=clear_fault_and_stop. Byte1-7 must be zero."
+    response: "Type 2 feedback frame"
+
+  - id: 0x06
+    name: set_mech_zero
+    description: "Set the current motor position as the new mechanical zero. Not available in PP position mode."
+    data_bytes: "Byte0=0x01, Byte1-7 unused"
+    response: "Type 2 feedback frame"
+
+  - id: 0x07
+    name: set_can_id
+    description: "Change the motor's CAN ID. Takes effect immediately, no reboot required."
+    data_bytes: "all zeros (new ID and host ID are encoded in the CAN ID itself)"
+    can_id_note: "Bits 23-16 = new CAN ID, Bits 15-8 = host ID, Bits 7-0 = current motor ID"
+    response: "Type 0 broadcast reply"
+
+  - id: 0x11
+    name: read_param
+    description: "Read one parameter from the motor's parameter table by index."
+    data_bytes: "Byte0-1: param_index (little-endian), Byte2-7: zeros"
+    response: "Type 0x11 reply with value in Byte4-7 (little-endian)"
+
+  - id: 0x12
+    name: write_param
+    description: "Write one parameter (volatile — lost on power-off unless saved with Type 22)."
+    data_bytes: "Byte0-1: param_index (LE), Byte2-3: 0x0000, Byte4-7: value (LE float or int)"
+    response: "Type 2 feedback frame"
+
+  - id: 0x15
+    name: fault_feedback
+    description: "Fault/warning report frame sent by the motor. Byte0-3: fault bits, Byte4-7: warning bits."
+    direction: motor_to_host
+
+  - id: 0x16
+    name: save_params
+    description: "Persist all parameters written via Type 18 to non-volatile flash."
+    data_bytes: "fixed: 01 02 03 04 05 06 07 08"
+    response: "Type 2 feedback frame"
+
+  - id: 0x17
+    name: set_baud
+    description: "Change CAN baud rate. Takes effect after power cycle."
+    data_bytes: "Byte0-5: 01 02 03 04 05 06 (padding), Byte6: 0x01=1M 0x02=500K 0x03=250K 0x04=125K"
+    response: "Type 0 broadcast reply"
+
+  - id: 0x18
+    name: active_report
+    description: "Enable or disable periodic unsolicited Type 2 feedback from the motor."
+    data_bytes: "Byte0-5: 01 02 03 04 05 06 (padding), Byte6: 0x01=enable 0x00=disable"
+    interval_note: "Default interval 10 ms. Adjust via EPScan_time parameter (index 0x7026)."
+    response: "Periodic Type 24 (0x18) feedback frames"
+
+  - id: 0x19
+    name: set_protocol
+    description: "Switch the motor's communication protocol. Takes effect after power cycle."
+    data_bytes: "Byte0-5: 01 02 03 04 05 06 (padding), Byte6: 0x00=Private 0x01=CANopen 0x02=MIT"
+    response: "Type 0 broadcast reply"
+
+# ==============================================================================
+# Parameter Index Table (used with Type 17 read / Type 18 write)
+# All indices are 16-bit, sent little-endian in data bytes.
+# ==============================================================================
+parameter_indices:
+  - index: "0x7005"
+    name: run_mode
+    type: uint8
+    rw: W/R
+    rs00_range: "0/1/2/3/5"
+    rs04_range: "0/1/2/3/5"
+    rs05_range: "0/1/2/3/5"
+    description: "Operating mode: 0=Operation ctrl, 1=PP position, 2=Velocity, 3=Current, 5=CSP position"
+
+  - index: "0x7006"
+    name: iq_ref
+    type: float
+    rw: W/R
+    rs00_range: "-16 ~ +16 A"
+    rs04_range: "-90 ~ +90 A"
+    rs05_range: "-11 ~ +11 A"
+    description: "Current mode Iq command (A). Only effective when run_mode=3."
+
+  - index: "0x700A"
+    name: spd_ref
+    type: float
+    rw: W/R
+    rs00_range: "-33 ~ +33 rad/s"
+    rs04_range: "-20 ~ +20 rad/s"
+    rs05_range: "-50 ~ +50 rad/s"
+    description: "Velocity mode speed command (rad/s). Only effective when run_mode=2."
+
+  - index: "0x700B"
+    name: limit_torque
+    type: float
+    rw: W/R
+    rs00_range: "0 ~ 14 Nm"
+    rs04_range: "0 ~ 120 Nm"
+    rs05_range: "0 ~ 5.5 Nm"
+    description: "Torque limit (Nm)."
+
+  - index: "0x7010"
+    name: cur_kp
+    type: float
+    rw: W/R
+    default: 0.17
+    description: "Current loop proportional gain. Default 0.17 for all models."
+
+  - index: "0x7011"
+    name: cur_ki
+    type: float
+    rw: W/R
+    default: 0.012
+    description: "Current loop integral gain. Default 0.012 for all models."
+
+  - index: "0x7014"
+    name: cur_filt_gain
+    type: float
+    rw: W/R
+    range: "0.0 ~ 1.0"
+    default: 0.1
+    description: "Current loop filter gain."
+
+  - index: "0x7016"
+    name: loc_ref
+    type: float
+    rw: W/R
+    description: "Position mode target angle (rad). Used in PP (run_mode=1) and CSP (run_mode=5)."
+
+  - index: "0x7017"
+    name: limit_spd
+    type: float
+    rw: W/R
+    rs00_range: "0 ~ 33 rad/s"
+    rs04_range: "0 ~ 20 rad/s"
+    rs05_range: "0 ~ 50 rad/s"
+    description: "Speed limit for CSP position mode."
+
+  - index: "0x7018"
+    name: limit_cur
+    type: float
+    rw: W/R
+    rs00_range: "0 ~ 16 A"
+    rs04_range: "0 ~ 90 A"
+    rs05_range: "0 ~ 11 A"
+    description: "Current limit for velocity and position modes."
+
+  - index: "0x7019"
+    name: mechPos
+    type: float
+    rw: R
+    description: "Mechanical angle of the load shaft (rad). Read-only. Used by startup_safe mode to read initial position."
+
+  - index: "0x701A"
+    name: iqf
+    type: float
+    rw: R
+    description: "Filtered Iq current (A). Read-only."
+
+  - index: "0x701B"
+    name: mechVel
+    type: float
+    rw: R
+    rs00_range: "-33 ~ +33 rad/s"
+    rs04_range: "-15 ~ +15 rad/s"
+    rs05_range: "-50 ~ +50 rad/s"
+    description: "Load shaft velocity (rad/s). Read-only."
+
+  - index: "0x701C"
+    name: VBUS
+    type: float
+    rw: R
+    description: "Bus voltage (V). Read-only."
+
+  - index: "0x701E"
+    name: loc_kp
+    type: float
+    rw: W/R
+    rs00_default: 40.0
+    rs04_default: 60.0
+    rs05_default: 40.0
+    description: "Position loop proportional gain (stored on motor)."
+
+  - index: "0x701F"
+    name: spd_kp
+    type: float
+    rw: W/R
+    default: 6.0
+    description: "Velocity loop proportional gain. Default 6.0 for all models."
+
+  - index: "0x7020"
+    name: spd_ki
+    type: float
+    rw: W/R
+    default: 0.02
+    description: "Velocity loop integral gain. Default 0.02 for all models."
+
+  - index: "0x7021"
+    name: spd_filt_gain
+    type: float
+    rw: W/R
+    default: 0.1
+    description: "Velocity filter gain. Default 0.1. RS05: write-only."
+
+  - index: "0x7022"
+    name: acc_rad
+    type: float
+    rw: W/R
+    rs00_default: 20.0
+    rs04_default: 15.0
+    rs05_default: 20.0
+    description: "Velocity mode acceleration (rad/s²). RS05: write-only."
+
+  - index: "0x7024"
+    name: vel_max
+    type: float
+    rw: W/R
+    default: 10.0
+    description: "PP position mode maximum speed (rad/s). RS05: write-only."
+
+  - index: "0x7025"
+    name: acc_set
+    type: float
+    rw: W/R
+    default: 10.0
+    description: "PP position mode acceleration (rad/s²). RS05: write-only."
+
+  - index: "0x7026"
+    name: EPScan_time
+    type: uint16
+    rw: W/R
+    default: 1
+    description: "Active reporting interval. 1 = 10 ms. Each additional count adds 5 ms. (RS05: write-only)"
+
+  - index: "0x7028"
+    name: canTimeout
+    type: uint32
+    rw: W/R
+    default: 0
+    description: "CAN communication timeout threshold. 20000 = 1 second. 0 = disabled."
+
+  - index: "0x7029"
+    name: zero_sta
+    type: uint8
+    rw: W
+    description: "Zero position range: 0 = 0 ~ 2π (default), 1 = -π ~ +π."
+
+  - index: "0x702A"
+    name: damper
+    type: uint8
+    rw: W/R
+    availability: "RS00 and RS04 only"
+    description: "Post-power-off anti-backdrive damping: 0 = enabled (default), 1 = disabled."
+
+  - index: "0x702B"
+    name: add_offset
+    type: float
+    rw: W/R
+    description: "Position zero offset (rad). Shifts the zero point by this value. Used by shift_zero and set_zero_offset services."
+
+fault_bits:
+  - bit: 16
+    name: overcurrent_a
+    description: "A-phase current sampling overcurrent"
+  - bit: 14
+    name: stall_overload
+    description: "Motor stall / I²t overload protection"
+  - bit: 9
+    name: pos_init_fault
+    description: "Position initialization fault"
+  - bit: 8
+    name: hw_id_fault
+    description: "Hardware identification fault"
+  - bit: 7
+    name: encoder_uncal
+    description: "Encoder uncalibrated"
+  - bit: 5
+    name: overcurrent_c
+    description: "C-phase current sampling overcurrent"
+  - bit: 4
+    name: overcurrent_b
+    description: "B-phase current sampling overcurrent"
+  - bit: 3
+    name: overvoltage
+    description: "Overvoltage fault"
+  - bit: 2
+    name: undervoltage
+    description: "Undervoltage fault"
+  - bit: 1
+    name: driver_chip_fault
+    description: "Driver chip fault"
+  - bit: 0
+    name: overtemperature
+    description: "Motor overtemperature (RS00/RS05: 135°C, RS04: 145°C)"
+
+warning_bits:
+  - bit: 0
+    name: overtemp_warning
+    description: "Motor overtemperature warning (default 135°C)"

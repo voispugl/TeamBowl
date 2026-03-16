@@ -1,0 +1,6 @@
+# Write absolute offset to add_offset parameter (Type 18, index 0x702B).
+string joint_name   # joint name, or "all"
+float64 offset_rad
+---
+bool success
+string message

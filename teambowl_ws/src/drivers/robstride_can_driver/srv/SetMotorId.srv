@@ -1,0 +1,6 @@
+# Change a motor's CAN ID (Type 7 command). Updates motor config in node state too.
+string joint_name    # current joint name in motors.yaml
+uint8 new_can_id
+---
+bool success
+string message

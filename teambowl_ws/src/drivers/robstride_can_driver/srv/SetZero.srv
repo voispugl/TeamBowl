@@ -1,0 +1,5 @@
+# Set current position as mechanical zero (Type 6).
+string joint_name   # joint name, or "all"
+---
+bool success
+string message

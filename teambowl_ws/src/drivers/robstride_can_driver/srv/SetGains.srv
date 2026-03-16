@@ -1,0 +1,7 @@
+# Update Kp/Kd for one or more joints in node state. No CAN write.
+string joint_name   # joint name from motors.yaml, or "all" for all joints
+float64 kp
+float64 kd
+---
+bool success
+string message

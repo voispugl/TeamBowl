@@ -1,0 +1,7 @@
+# Add delta_rad to add_offset parameter (Type 18, index 0x702B).
+string joint_name   # joint name, or "all"
+float64 delta_rad
+---
+bool success
+string message
+float64 new_offset  # resulting offset value that was written

@@ -1,0 +1,8 @@
+# Write one parameter (Type 18, volatile until save).
+string joint_name
+uint16 param_index
+float64 value
+string value_type   # "float", "uint8", "uint16", "uint32"
+---
+bool success
+string message
