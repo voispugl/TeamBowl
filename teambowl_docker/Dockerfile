@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     iputils-ping \
     net-tools \
     can-utils \
+    libopencv-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Helpful ROS packages commonly useful in your stack
@@ -32,10 +33,13 @@ RUN apt-get update && apt-get install -y \
     ros-humble-twist-mux \
     ros-humble-robot-state-publisher \
     ros-humble-joint-state-publisher \
+    ros-humble-camera-info-manager \
     ros-humble-xacro \
     ros-humble-rviz2 \
     ros-humble-foxglove-bridge \
     ros-humble-vision-msgs \
+    ros-humble-nmea-msgs \
+    ros-humble-cv-bridge \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps that are commonly useful for your project
