@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/src/drivers/depthai-ros/depthai_ros_driver/include/depthai_ros_driver/param_handlers/sync_param_handler.hpp

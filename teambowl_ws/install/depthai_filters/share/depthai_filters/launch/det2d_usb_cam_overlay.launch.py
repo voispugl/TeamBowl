@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/src/drivers/depthai-ros/depthai_filters/launch/det2d_usb_cam_overlay.launch.py

@@ -1,0 +1,9 @@
+# Target positions (rad) for RS04 leg joints in driving configuration.
+# Commanded via MIT mode: torque_ff = 1.0 Nm, velocity = 0.0 rad/s.
+joints:
+  joint_rs04_1:  0.048576
+  joint_rs04_2:  0.012357
+  joint_rs04_3:  2.627965
+  joint_rs04_4: -0.231418
+  joint_rs04_5:  0.311953
+  joint_rs04_6:  1.108131

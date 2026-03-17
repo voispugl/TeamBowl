@@ -13,6 +13,7 @@ Run this before the ROS2 driver to set motor CAN IDs, mechanical zeros, and zero
 
 All CAN frames use Extended 29-bit IDs (is_extended_id=True) at 1 Mbps.
 The `shift-zero` command reads the current add_offset, adds the delta, then writes back.
+The `get-pos` command reads 0x7019 (mechPos) and prints the result in both radians and degrees.
 
 ### diagnose.py
 Standalone pre-flight diagnostic tool. No ROS2 required — only `python-can`, `pyyaml`, and stdlib.

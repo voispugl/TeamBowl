@@ -17,4 +17,4 @@ services:
       - /home/box/TeamBowl/teambowl_ws:/workspaces/teambowl_ws
       - /dev:/dev
     working_dir: /workspaces/teambowl_ws
-    command: bash
+    command: ros2 launch bringup bringup.launch.py

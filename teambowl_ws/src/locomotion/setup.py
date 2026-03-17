@@ -10,6 +10,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name, ['locomotion/driving_leg_pos.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -26,6 +27,8 @@ setup(
         'console_scripts': [
             'vel_cmd_mux = locomotion.vel_cmd_mux:main',
             'collision_guard = locomotion.collision_guard:main',
+            'driving_leg_controller = locomotion.driving_leg_controller:main',
+            'hold_position_controller = locomotion.hold_position_controller:main',
         ],
     },
 )

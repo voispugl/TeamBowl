@@ -1,8 +1,9 @@
-source;share/robstride_can_driver/hook/cmake_prefix_path.ps1
-source;share/robstride_can_driver/hook/cmake_prefix_path.dsv
-source;share/robstride_can_driver/hook/cmake_prefix_path.sh
-source;share/robstride_can_driver/local_setup.bash
-source;share/robstride_can_driver/local_setup.dsv
-source;share/robstride_can_driver/local_setup.ps1
-source;share/robstride_can_driver/local_setup.sh
-source;share/robstride_can_driver/local_setup.zsh
+source;share/robstride_can_driver/hook/pythonpath.ps1
+source;share/robstride_can_driver/hook/pythonpath.dsv
+source;share/robstride_can_driver/hook/pythonpath.sh
+source;share/robstride_can_driver/hook/ament_prefix_path.ps1
+source;share/robstride_can_driver/hook/ament_prefix_path.dsv
+source;share/robstride_can_driver/hook/ament_prefix_path.sh
+source;../../build/robstride_can_driver/share/robstride_can_driver/hook/pythonpath_develop.ps1
+source;../../build/robstride_can_driver/share/robstride_can_driver/hook/pythonpath_develop.dsv
+source;../../build/robstride_can_driver/share/robstride_can_driver/hook/pythonpath_develop.sh

@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/src/drivers/depthai-ros/depthai_ros_msgs/msg/AutoFocusCtrl.msg

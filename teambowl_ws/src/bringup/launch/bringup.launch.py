@@ -16,13 +16,25 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            'name': 'oak'
+            'name': 'oak',
+            'rectify_rgb': 'false'
         }.items()
     )
-    
+
+    robstride_driver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('robstride_can_driver'),
+                'launch',
+                'driver.launch.py'
+            )
+        ),
+    )
+
     return LaunchDescription([
 
         oak_camera,
+        robstride_driver,
 
         Node(
             package='management',
@@ -59,6 +71,21 @@ def generate_launch_description():
                 {'timeout_s': 1.0},
                 {'publish_rate_hz': 10.0},
                 {'start_estop_true': False},
+            ],
+        ),
+
+        Node(
+            package='locomotion',
+            executable='hold_position_controller',
+            name='hold_position_controller',
+            output='screen',
+            parameters=[
+                {'mode_topic': '/robot_mode'},
+                {'estop_topic': '/estop'},
+                {'joint_commands_topic': '/joint_commands'},
+                {'torque_ff': 1.0},
+                {'publish_rate_hz': 50.0},
+                {'rs00_joints': ['joint_rs00_1', 'joint_rs00_2']},
             ],
         ),
 
@@ -124,7 +151,7 @@ def generate_launch_description():
             name='cam_ops_node',
             output='screen',
             parameters=[
-                {'image_topic': '/oak/rgb/image_rect'},
+                {'image_topic': '/oak/rgb/image_raw'},
                 {'depth_topic': '/oak/stereo/image_raw'},
                 {'camera_info_topic': '/oak/rgb/camera_info'},
                 {'target_topic': '/user_pos'},

@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/src/drivers/robstride_ros_sample/include/motor_ros2/motor_cfg.h

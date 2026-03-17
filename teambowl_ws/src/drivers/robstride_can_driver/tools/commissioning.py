@@ -23,7 +23,7 @@ Basic usage examples:
   python commissioning.py --bus can0 set-id 0x01 0x03
   python commissioning.py --bus can0 enable 0x03
   python commissioning.py --bus can0 set-zero 0x03
-  python commissioning.py --bus can0 shift-zero 0x03 0.05
+  python commissioning.py --bus can0 shift-zero 0x03 2.87
   python commissioning.py --bus can0 set-offset 0x03 1.5708
   python commissioning.py --bus can0 read 0x03 0x702B
   python commissioning.py --bus can0 write 0x03 0x702B 1.5708
@@ -345,14 +345,15 @@ def cmd_set_zero(args):
 
 
 def cmd_shift_zero(args):
+    import math
     motor_id = args.motor_id
-    delta = args.delta_rad
+    delta = math.radians(args.delta_deg)
 
     read_frame = frame_read_param(args.host_id, motor_id, 0x702B)
     print_frame(read_frame, label="TX (read add_offset)")
 
     if args.dry_run:
-        print(f"  Would read 0x702B, add delta={delta} rad, then write back.")
+        print(f"  Would read 0x702B, add delta={args.delta_deg}\u00b0 ({delta:.6f} rad), then write back.")
         write_frame = frame_write_param_float(args.host_id, motor_id, 0x702B, 0.0 + delta)
         print_frame(write_frame, label="TX (write add_offset, example with current=0.0)")
         return
@@ -365,9 +366,9 @@ def cmd_shift_zero(args):
         if not ok or current_val is None:
             print("ERROR: Could not read current add_offset (0x702B).", file=sys.stderr)
             sys.exit(1)
-        print(f"  Current add_offset: {current_val:.6f} rad")
+        print(f"  Current add_offset: {math.degrees(current_val):.3f}\u00b0 ({current_val:.6f} rad)")
         new_val = current_val + delta
-        print(f"  New add_offset:     {new_val:.6f} rad  (delta={delta:+.6f})")
+        print(f"  New add_offset:     {math.degrees(new_val):.3f}\u00b0 ({new_val:.6f} rad)  (delta={args.delta_deg:+.3f}\u00b0)")
         write_frame = frame_write_param_float(args.host_id, motor_id, 0x702B, new_val)
         print_frame(write_frame, label="TX (write add_offset)")
         resp2 = send_and_recv(bus, write_frame)
@@ -418,6 +419,32 @@ def cmd_read(args):
                     ["As float",     f"{float_val}"],
                     ["As uint32",    f"{uint_val}  (0x{uint_val:08X})"],
                     ["Raw bytes",    " ".join(f"{b:02X}" for b in resp.data[4:8])],
+                ],
+                ["Field", "Value"],
+            )
+    finally:
+        bus.shutdown()
+
+
+def cmd_get_pos(args):
+    import math
+    frame = frame_read_param(args.host_id, args.motor_id, 0x7019)
+    print_frame(frame)
+    if args.dry_run:
+        return
+    bus = open_bus(args.bus, args.bitrate)
+    try:
+        resp = send_and_recv(bus, frame)
+        print_response(resp)
+        ok, float_val, _ = parse_read_param_reply(resp)
+        if resp and len(resp.data) >= 8:
+            deg = math.degrees(float_val) if float_val is not None else None
+            print()
+            print_table(
+                [
+                    ["Status",   "OK" if ok else "FAULT"],
+                    ["Radians",  f"{float_val:.6f}"],
+                    ["Degrees",  f"{deg:.3f}\u00b0" if deg is not None else "N/A"],
                 ],
                 ["Field", "Value"],
             )
@@ -658,10 +685,10 @@ def build_parser():
     # shift-zero
     p = sub.add_parser(
         "shift-zero",
-        help="Add delta_rad to current add_offset (reads 0x702B then writes 0x702B += delta)",
+        help="Add delta_deg to current add_offset (reads 0x702B then writes 0x702B += delta)",
     )
     p.add_argument("motor_id", type=auto_int, help="Motor CAN ID")
-    p.add_argument("delta_rad", type=float, help="Offset delta in radians (can be negative)")
+    p.add_argument("delta_deg", type=float, help="Offset delta in degrees (can be negative)")
 
     # set-offset
     p = sub.add_parser("set-offset", help="Write absolute zero offset in radians (Type 18, index 0x702B)")
@@ -675,6 +702,10 @@ def build_parser():
     )
     p.add_argument("motor_id", type=auto_int, help="Motor CAN ID")
     p.add_argument("index", type=auto_int, help="Parameter index e.g. 0x701C")
+
+    # get-pos
+    p = sub.add_parser("get-pos", help="Read current mechanical position (0x7019 mechPos) in degrees")
+    p.add_argument("motor_id", type=auto_int, help="Motor CAN ID")
 
     # write
     p = sub.add_parser("write", help="Write float parameter (Type 18, volatile — use save to persist)")
@@ -742,6 +773,7 @@ COMMANDS = {
     "shift-zero":     cmd_shift_zero,
     "set-offset":     cmd_set_offset,
     "read":           cmd_read,
+    "get-pos":        cmd_get_pos,
     "write":          cmd_write,
     "write-int":      cmd_write_int,
     "save":           cmd_save,

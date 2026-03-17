@@ -61,8 +61,8 @@ class KeyboardOperatorNode(Node):
         self.declare_parameter('mode_set_topic', '/robot_mode_set')
         self.declare_parameter('publish_rate_hz', 20.0)
 
-        self.declare_parameter('linear_speed', 0.35)
-        self.declare_parameter('angular_speed', 0.9)
+        self.declare_parameter('linear_speed', 0.15)
+        self.declare_parameter('angular_speed', 0.40)
 
         self.declare_parameter('linear_speed_step', 0.05)
         self.declare_parameter('angular_speed_step', 0.10)

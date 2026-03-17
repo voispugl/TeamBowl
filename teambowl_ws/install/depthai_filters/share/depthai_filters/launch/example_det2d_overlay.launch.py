@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/src/drivers/depthai-ros/depthai_filters/launch/example_det2d_overlay.launch.py

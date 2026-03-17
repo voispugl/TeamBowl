@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/build/xsens_mti_ros2_driver/ament_cmake_core/xsens_mti_ros2_driverConfig-version.cmake

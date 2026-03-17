@@ -1,1 +1,1 @@
-/workspaces/teambowl_ws/build/robstride_can_interfaces/rosidl_generator_cpp/robstride_can_interfaces/srv/read_motor_param.hpp
+/home/box/TeamBowl/teambowl_ws/build/robstride_can_interfaces/rosidl_generator_cpp/robstride_can_interfaces/srv/read_motor_param.hpp

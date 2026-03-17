@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/build/xsens_mti_ros2_driver/rosidl_typesupport_introspection_c/xsens_mti_ros2_driver/msg/detail/ship_motion__rosidl_typesupport_introspection_c.h

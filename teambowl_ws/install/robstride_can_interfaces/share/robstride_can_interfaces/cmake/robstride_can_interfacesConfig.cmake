@@ -1,1 +1,1 @@
-/workspaces/teambowl_ws/build/robstride_can_interfaces/ament_cmake_core/robstride_can_interfacesConfig.cmake
+/home/box/TeamBowl/teambowl_ws/build/robstride_can_interfaces/ament_cmake_core/robstride_can_interfacesConfig.cmake
