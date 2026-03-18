@@ -1,0 +1,18 @@
+plan_wheels:
+  ros__parameters:
+    target_topic: /user_pos
+    target_valid_topic: /user_valid
+    cmd_vel_topic: /cmd_vel_auto
+    target_timeout_s: 0.5
+    publish_rate_hz: 20.0
+    follow_distance_m: 1.5
+    distance_deadband_m: 0.15
+    lateral_deadband_m: 0.10
+    k_linear: 0.8
+    k_angular: 1.8
+    max_linear_x: 0.15
+    max_angular_z: 0.4
+    allow_reverse: false
+    max_reverse_x: 0.15
+    turn_in_place_angle_only: true
+    turn_only_lateral_threshold_m: 0.5

@@ -1,0 +1,28 @@
+hold_position_controller:
+  ros__parameters:
+    mode_topic: /robot_mode
+    estop_topic: /estop
+    joint_commands_topic: /joint_commands
+    torque_ff: 1.0
+    publish_rate_hz: 50.0
+    rs00_joints: [joint_rs00_1, joint_rs00_2]
+
+vel_cmd_mux:
+  ros__parameters:
+    mode_topic: /robot_mode
+    teleop_topic: /cmd_vel_teleop
+    auto_topic: /cmd_vel_auto
+    estop_topic: /estop
+    output_topic: /cmd_vel_selected
+    teleop_timeout_s: 0.5
+    auto_timeout_s: 0.5
+    publish_rate_hz: 30.0
+    debug: false
+
+collision_guard:
+  ros__parameters:
+    input_topic: /cmd_vel_selected
+    estop_topic: /estop
+    output_topic: /cmd_vel
+    max_linear_x: 0.15
+    max_angular_z: 0.4

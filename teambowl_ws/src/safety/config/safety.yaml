@@ -1,0 +1,12 @@
+heartbeat_publisher:
+  ros__parameters:
+    heartbeat_topic: /heartbeat
+    publish_rate_hz: 10.0
+
+system_health:
+  ros__parameters:
+    heartbeat_topic: /heartbeat
+    estop_topic: /estop
+    timeout_s: 1.0
+    publish_rate_hz: 10.0
+    start_estop_true: false

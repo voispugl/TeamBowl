@@ -12,6 +12,24 @@
 
 ---
 
+## 2026-03-18 — Fixed pyvesc/PyCRC version conflict and removed depthai pip install
+
+### What changed
+- **`Dockerfile`**: Pinned `pyvesc==0.2.2` and removed the explicit `PyCRC` line.
+  - `pyvesc` declares `PyCRC` in its own `install_requires` — having `PyCRC` listed
+    separately let pip resolve an incompatible version pair, crashing `cmd_vel_to_vesc`
+    at startup with an ImportError. Letting pyvesc install `PyCRC` itself at the
+    version it requires fixes this.
+  - Pinning `pyvesc==0.2.2` ensures a known-good version on aarch64 / Python 3.10.
+- **`Dockerfile`**: Removed `depthai` from the pip install entirely.
+  - `depthai` (pip) is the Luxonis **Python** SDK and bundles its own `libdepthai-core.so`.
+    No Python file in the workspace imports `depthai`; all camera I/O goes through the
+    C++ `depthai_ros_driver`. The pip wheel can fail on JetPack 6.1 aarch64, and even
+    when it succeeds the bundled library conflicts with `ros-humble-depthai` at runtime.
+  - Requires `./build.sh --clean` to take effect.
+
+---
+
 ## 2026-03-17 — Fixed PyCRC pip install casing
 
 ### What changed

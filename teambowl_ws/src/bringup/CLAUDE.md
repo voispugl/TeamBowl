@@ -1,5 +1,30 @@
 # bringup
 
+## 2026-03-18 — Pass oak_d_pro_w.yaml to camera launch
+
+- **`launch/bringup.launch.py`**: Added `params_file` pointing to
+  `depthai_ros_driver/config/oak_d_pro_w.yaml` in the `oak_camera` launch arguments.
+  Previously the camera defaulted to `camera.yaml`, which doesn't set `i_resolution: '720'`
+  for the OAK-D-W — causing the camera to run at full/default resolution. Now 720p is
+  correctly enforced.
+
+## 2026-03-18 — Added leg_controller launch argument + README
+
+- **`launch/bringup.launch.py`**: Added `leg_controller` launch argument (`hold`
+  default, options: `hold`, `driving`, `none`). Uses `IfCondition`/`PythonExpression`
+  to conditionally launch the selected controller. `hold` and `driving` cannot run
+  simultaneously. Pass as `ros2 launch bringup bringup.launch.py leg_controller:=driving`.
+- **`README.md`**: Created. Documents all launch arguments, node inventory, mode
+  setting, config file locations, and tuning workflow.
+
+## 2026-03-18 — Moved all inline node parameters to per-package YAML config files
+
+- **`launch/bringup.launch.py`**: Replaced all inline `parameters=[{...}]` dicts
+  with `parameters=[path_to_yaml]` loading from each package's installed
+  `config/<pkg>.yaml`. Uses `get_package_share_directory` to resolve paths.
+  No functional change — same parameter values, now editable per-package without
+  touching the launch file.
+
 ## 2026-03-17 — Switched default leg controller to hold_position_controller
 
 - **`launch/bringup.launch.py`**: Replaced `driving_leg_controller` with `hold_position_controller` as the default. Robot freezes at current joint positions on enable instead of snapping to calibrated YAML positions.

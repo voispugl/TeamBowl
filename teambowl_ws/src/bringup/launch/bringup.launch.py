@@ -1,7 +1,9 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PythonExpression
 import os
 from ament_index_python.packages import get_package_share_directory
 
@@ -17,7 +19,11 @@ def generate_launch_description():
         ),
         launch_arguments={
             'name': 'oak',
-            'rectify_rgb': 'false'
+            'rectify_rgb': 'false',
+            'params_file': os.path.join(
+                get_package_share_directory('depthai_ros_driver'),
+                'config', 'oak_d_pro_w.yaml'
+            ),
         }.items()
     )
 
@@ -31,7 +37,29 @@ def generate_launch_description():
         ),
     )
 
+    management_config = os.path.join(
+        get_package_share_directory('management'), 'config', 'management.yaml')
+    safety_config = os.path.join(
+        get_package_share_directory('safety'), 'config', 'safety.yaml')
+    locomotion_config = os.path.join(
+        get_package_share_directory('locomotion'), 'config', 'locomotion.yaml')
+    vesc_config = os.path.join(
+        get_package_share_directory('vesc_driver'), 'config', 'vesc_driver.yaml')
+    perception_config = os.path.join(
+        get_package_share_directory('perception'), 'config', 'perception.yaml')
+    planning_config = os.path.join(
+        get_package_share_directory('planning'), 'config', 'planning.yaml')
+
+    leg_controller_arg = DeclareLaunchArgument(
+        'leg_controller',
+        default_value='hold',
+        description='Leg controller to launch: hold (default), driving, or none. '
+                    'hold and driving cannot run simultaneously.')
+    leg_ctrl = LaunchConfiguration('leg_controller')
+
     return LaunchDescription([
+
+        leg_controller_arg,
 
         oak_camera,
         robstride_driver,
@@ -41,12 +69,7 @@ def generate_launch_description():
             executable='mode_manager',
             name='mode_manager',
             output='screen',
-            parameters=[
-                {'mode_topic': '/robot_mode'},
-                {'mode_set_topic': '/robot_mode_set'},
-                {'start_mode': 'off'},
-                {'publish_rate_hz': 5.0},
-            ],
+            parameters=[management_config],
         ),
 
         Node(
@@ -54,10 +77,7 @@ def generate_launch_description():
             executable='heartbeat_publisher',
             name='heartbeat_publisher',
             output='screen',
-            parameters=[
-                {'heartbeat_topic': '/heartbeat'},
-                {'publish_rate_hz': 10.0},
-            ],
+            parameters=[safety_config],
         ),
 
         Node(
@@ -65,28 +85,27 @@ def generate_launch_description():
             executable='system_health',
             name='system_health',
             output='screen',
-            parameters=[
-                {'heartbeat_topic': '/heartbeat'},
-                {'estop_topic': '/estop'},
-                {'timeout_s': 1.0},
-                {'publish_rate_hz': 10.0},
-                {'start_estop_true': False},
-            ],
+            parameters=[safety_config],
         ),
 
+        # driving and hold cannot run at the same time.
+        # Verify legs are in the correct position on startup if using driving mode.
         Node(
             package='locomotion',
             executable='hold_position_controller',
             name='hold_position_controller',
             output='screen',
-            parameters=[
-                {'mode_topic': '/robot_mode'},
-                {'estop_topic': '/estop'},
-                {'joint_commands_topic': '/joint_commands'},
-                {'torque_ff': 1.0},
-                {'publish_rate_hz': 50.0},
-                {'rs00_joints': ['joint_rs00_1', 'joint_rs00_2']},
-            ],
+            parameters=[locomotion_config],
+            condition=IfCondition(PythonExpression(["'", leg_ctrl, "' == 'hold'"])),
+        ),
+
+        Node(
+            package='locomotion',
+            executable='driving_leg_controller',
+            name='driving_leg_controller',
+            output='screen',
+            parameters=[locomotion_config],
+            condition=IfCondition(PythonExpression(["'", leg_ctrl, "' == 'driving'"])),
         ),
 
         Node(
@@ -94,17 +113,7 @@ def generate_launch_description():
             executable='vel_cmd_mux',
             name='vel_cmd_mux',
             output='screen',
-            parameters=[
-                {'mode_topic': '/robot_mode'},
-                {'teleop_topic': '/cmd_vel_teleop'},
-                {'auto_topic': '/cmd_vel_auto'},
-                {'estop_topic': '/estop'},
-                {'output_topic': '/cmd_vel_selected'},
-                {'teleop_timeout_s': 0.5},
-                {'auto_timeout_s': 0.5},
-                {'publish_rate_hz': 30.0},
-                {'debug': False},
-            ],
+            parameters=[locomotion_config],
         ),
 
         Node(
@@ -112,13 +121,7 @@ def generate_launch_description():
             executable='collision_guard',
             name='collision_guard',
             output='screen',
-            parameters=[
-                {'input_topic': '/cmd_vel_selected'},
-                {'estop_topic': '/estop'},
-                {'output_topic': '/cmd_vel'},
-                {'max_linear_x': 0.15},
-                {'max_angular_z': 0.4},
-            ],
+            parameters=[locomotion_config],
         ),
 
         Node(
@@ -126,23 +129,7 @@ def generate_launch_description():
             executable='cmd_vel_to_vesc',
             name='cmd_vel_to_vesc',
             output='screen',
-            parameters=[
-                {'cmd_vel_topic': '/cmd_vel'},
-                {'left_port': '/dev/ttyACM0'},
-                {'right_port': '/dev/ttyACM1'},
-                {'estop_topic': '/estop'},
-                {'wheel_radius_m': 0.307975},
-                {'track_width_m': 0.5588},
-                {'erpm_per_wheel_rpm': 500.0},
-                {'max_erpm_step_per_tick': 2000},
-                {'max_erpm': 20000},
-                {'cmd_timeout_s': 0.5},
-                {'baud': 115200},
-                {'serial_timeout_s': 0.05},
-                {'left_sign': 1},
-                {'right_sign': -1},
-                {'print_RPM_cmds': False},
-            ],
+            parameters=[vesc_config],
         ),
 
         Node(
@@ -150,45 +137,14 @@ def generate_launch_description():
             executable='cam_ops',
             name='cam_ops_node',
             output='screen',
-            parameters=[
-                {'image_topic': '/oak/rgb/image_raw'},
-                {'depth_topic': '/oak/stereo/image_raw'},
-                {'camera_info_topic': '/oak/rgb/camera_info'},
-                {'target_topic': '/user_pos'},
-                {'target_valid_topic': '/user_valid'},
-                {'debug_image_topic': '/robot/debug/cam_ops_image'},
-                {'sync_slop_s': 0.2},
-                {'min_pink_area_px': 300},
-                {'enable_resize': True},
-                {'resize_scale': 0.5},
-                {'min_depth_m': 0.2},
-                {'max_depth_m': 8.0},
-                {'depth_window_radius_px': 2},
-            ],
-        ), 
+            parameters=[perception_config],
+        ),
 
         Node(
             package='planning',
             executable='plan_wheels',
             name='plan_wheels',
             output='screen',
-            parameters=[
-                {'target_topic': '/user_pos'},
-                {'target_valid_topic': '/user_valid'},
-                {'cmd_vel_topic': '/cmd_vel_auto'},
-                {'target_timeout_s': 0.5},
-                {'publish_rate_hz': 20.0},
-                {'follow_distance_m': 1.5},
-                {'distance_deadband_m': 0.15},
-                {'lateral_deadband_m': 0.10},
-                {'k_linear': 0.8},
-                {'k_angular': 1.8},
-                {'max_linear_x': 0.15},
-                {'max_angular_z': 0.4},
-                {'allow_reverse': False},
-                {'max_reverse_x': 0.15},
-                {'turn_in_place_angle_only': True},
-                {'turn_only_lateral_threshold_m': 0.5},
-            ],
+            parameters=[planning_config],
         ),
     ])

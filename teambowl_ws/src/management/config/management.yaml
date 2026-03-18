@@ -1,0 +1,6 @@
+mode_manager:
+  ros__parameters:
+    mode_topic: /robot_mode
+    mode_set_topic: /robot_mode_set
+    start_mode: "off"
+    publish_rate_hz: 5.0

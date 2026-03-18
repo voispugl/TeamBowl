@@ -90,11 +90,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies
+# pyvesc==0.2.2 pinned: known-good on aarch64 Python 3.10; PyCRC is auto-installed as
+# pyvesc's own dependency at the correct version — do NOT add PyCRC separately.
+# depthai (Python SDK) is intentionally omitted: no Python code imports it, and the pip
+# wheel bundles libdepthai-core.so which conflicts with ros-humble-depthai at runtime.
 RUN pip3 install --no-cache-dir \
     numpy \
-    pyvesc \
-    PyCRC \
-    depthai
+    pyvesc==0.2.2
 
 # rosdep init may already be done in the base image
 RUN rosdep init || true
