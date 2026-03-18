@@ -13,7 +13,7 @@ TeamBowl/
 └── teambowl_ws/            ROS2 workspace
     ├── build.sh            Clean build + launch full stack
     └── src/
-        ├── bringup/        System-wide launch file
+        ├── bringup/        System-wide launch file (see bringup/README.md)
         ├── locomotion/     Leg controllers, velocity mux, collision guard
         ├── management/     Robot mode manager, keyboard operator
         ├── drivers/        robstride_can_driver, vesc_driver, depthai-ros, xsens
@@ -21,6 +21,9 @@ TeamBowl/
         ├── perception/     Camera ops
         └── planning/       Autonomous planning
 ```
+
+For the full node inventory, launch arguments, and config file locations see
+[`teambowl_ws/src/bringup/README.md`](teambowl_ws/src/bringup/README.md).
 
 ---
 
@@ -147,68 +150,29 @@ Common packages to rebuild after edits:
 
 ---
 
-## Bringup — What Launches
-
-`ros2 launch bringup bringup.launch.py` starts:
-
-| Node | Package | Purpose |
-|------|---------|---------|
-| OAK-D camera | `depthai_ros_driver` | Depth + RGB images |
-| `robstride_can_driver` | `robstride_can_driver` | CAN motor driver (leg joints) |
-| `mode_manager` | `management` | Robot mode state machine |
-| `heartbeat_publisher` | `safety` | 10 Hz heartbeat |
-| `system_health` | `safety` | E-stop watchdog |
-| `hold_position_controller` | `locomotion` | Freezes RS04 joints at current positions on enable |
-| `vel_cmd_mux` | `locomotion` | Teleop / auton velocity selector |
-| `collision_guard` | `locomotion` | Velocity safety clamp |
-| `cmd_vel_to_vesc` | `vesc_driver` | Wheel drive (VESC) |
-| `cam_ops` | `perception` | Person detection and tracking |
-| `plan_wheels` | `planning` | Autonomous follow planner |
-
----
-
-## Leg Joint Controllers
-
-Two controllers are available — only one should run at a time. Bringup launches `hold_position_controller` by default.
-
-### `driving_leg_controller`
-Holds RS04 joints at the **calibrated positions** in `locomotion/driving_leg_pos.yaml`.
-Logs a movement preview before enabling (WARN if any joint moves > 0.3 rad).
-
-### `hold_position_controller`
-Snapshots `/joint_states` at enable time and holds those positions.
-Prints live per-joint status every 2 s:
-```
-[HOLD]  joint_rs04_1: +0.1234  joint_rs04_2: X  joint_rs04_3: -0.5678  ...
-```
-`X` = controller not active or no joint state received for that joint.
-
-**To swap to driving_leg_controller after bringup:**
-
-```bash
-pkill -f hold_position_controller
-ros2 run locomotion driving_leg_controller
-```
-
----
-
-## Robot Mode
-
-| Mode | Value | Behaviour |
-|------|-------|-----------|
-| Off (default) | `"off"` | Motors stopped |
-| Teleop | `"teleop"` | Leg controller holds; wheel drive active via `/cmd_vel_teleop` |
-| Autonomous | `"auton"` | Leg controller holds; planner drives via `/cmd_vel_auto` |
-
-Set manually:
-```bash
-ros2 topic pub /robot_mode_set std_msgs/msg/String '{data: "teleop"}' --once
-```
-
----
-
 ## Joint Layout
 
 - **RS04** (`joint_rs04_1` … `joint_rs04_6`, `can0`): actively controlled by leg controllers.
 - **RS00** (`joint_rs00_1`, `joint_rs00_2`, `can1`): coast mode (zero gains, damper disabled).
 - **RS05** (`joint_rs05_1`, `can1`): currently unplugged — ignored.
+
+---
+
+## TODO
+
+- [ ] **Dockerize** — containerize the full robot stack so bringup, drivers, and
+  dependencies are fully encapsulated and reproducible across machines.
+
+- [ ] **CAN auto-launch on Jetson AGX Orin** — configure CAN interfaces to come
+  up automatically on boot. The persistent systemd-networkd setup is documented
+  in the [CAN Interface Setup](#can-interface-setup-jetson-agx-orin) section above.
+  Steps remaining: confirm interface names on the specific carrier board, enable
+  `mttcan` module loading at boot (`/etc/modules-load.d/mttcan.conf`), and verify
+  after a cold reboot.
+
+- [ ] **Refactor codebase as planned** — see the target architecture below.
+  `LocomotionManager` (marked X) is intentionally removed; `TerrainAssessor` feeds
+  directly into `LocalPlanner` and `LegController`. `WheelController` and
+  `LegController` replace the current flat locomotion nodes.
+
+  ![Target UML Architecture](teambowl_ws/src/bringup/assets/uml_state_diagram.png)

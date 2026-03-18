@@ -56,8 +56,9 @@ Things must come up in this sequence:
    (must be running first)    → enables all motors, starts /joint_states at 100 Hz
                               → exposes /enable_motors, /stop_motors, /set_gains, etc.
 
-4. Leg controller             ros2 run locomotion driving_leg_controller
-   (either one)            OR ros2 run locomotion hold_position_controller
+4. Leg controller             bringup.launch.py launches hold_position_controller
+   (default via bringup)    OR ros2 run locomotion hold_position_controller
+                            OR ros2 run locomotion driving_leg_controller
                               → waits up to 5 s for driver services (coast setup)
                               → stays STOPPED until robot mode is set
 
@@ -66,9 +67,18 @@ Things must come up in this sequence:
                               → controller transitions to RUNNING, calls /enable_motors
 ```
 
-`teleop.sh` in the repo root handles steps 1–5 automatically (native, no Docker).
+**`hold_position_controller` is what bringup.launch.py launches for teleop** (switched
+from `driving_leg_controller` on 2026-03-17). `teleop.sh` (in `teambowl_docker/`)
+handles the robstride driver startup + mode set inside the container.
 
-The bringup.launch.py does NOT launch the robstride driver — it must be started separately.
+bringup.launch.py NOW includes the robstride driver (added 2026-03-17).
+
+## 2026-03-18 — Moved parameters to config/locomotion.yaml
+
+- **`config/locomotion.yaml`**: New file. Contains parameters for all three nodes
+  (`hold_position_controller`, `vel_cmd_mux`, `collision_guard`) in standard ROS2
+  YAML format. `bringup.launch.py` passes this single file to all three nodes.
+- **`setup.py`**: Added `config/locomotion.yaml` to `data_files`.
 
 ## 2026-03-17 — Added per-joint status print to hold_position_controller
 
