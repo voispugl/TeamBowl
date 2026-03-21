@@ -20,6 +20,7 @@ def generate_launch_description():
         launch_arguments={
             'name': 'oak',
             'rectify_rgb': 'true',
+            'pointcloud.enable': 'false',
             'params_file': os.path.join(
                 get_package_share_directory('depthai_ros_driver'),
                 'config', 'oak_d_pro_w.yaml'
