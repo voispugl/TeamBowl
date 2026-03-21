@@ -5,9 +5,7 @@
       i_enable_ir: true
       i_nn_type: none
       i_pipeline_type: depth
-      i_decimation = 2
-      i_num_threads: 4
-      i_sync_threshold: 100
+      i_decimation: 4
     stereo:
       i_align_depth: true # Required to map depth to RGB
       i_publish_topic: true
