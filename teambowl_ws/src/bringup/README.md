@@ -37,6 +37,7 @@ Nodes that start unconditionally:
 | `vel_cmd_mux` | locomotion | `locomotion/config/locomotion.yaml` |
 | `collision_guard` | locomotion | `locomotion/config/locomotion.yaml` |
 | `cmd_vel_to_vesc` | vesc_driver | `vesc_driver/config/vesc_driver.yaml` |
+| `diff_drive_odom` | state_estimation | `state_estimation/config/state_estimation.yaml` |
 | `cam_ops_node` | perception | `perception/config/perception.yaml` |
 | `plan_wheels` | planning | `planning/config/planning.yaml` |
 
@@ -67,6 +68,7 @@ the relevant package.
 | safety | `src/safety/config/safety.yaml` |
 | locomotion | `src/locomotion/config/locomotion.yaml` |
 | vesc_driver | `src/drivers/vesc_driver/config/vesc_driver.yaml` |
+| state_estimation | `src/state_estimation/config/state_estimation.yaml` |
 | perception | `src/perception/config/perception.yaml` |
 | planning | `src/planning/config/planning.yaml` |
 | robstride motors | `src/drivers/robstride_can_driver/config/motors.yaml` |
@@ -79,4 +81,3 @@ The robot starts in `"off"` mode (motors stopped). Mode is controlled at runtime
 via the `/robot_mode_set` topic and published on `/robot_mode` by the `mode_manager`
 node. Valid modes: `teleop`, `auto`, `off`. In `teleop` mode `vel_cmd_mux` passes
 `/cmd_vel_teleop` through; in `auto` mode it passes `/cmd_vel_auto`.
-

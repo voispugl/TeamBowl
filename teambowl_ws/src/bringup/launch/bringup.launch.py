@@ -50,6 +50,8 @@ def generate_launch_description():
         get_package_share_directory('perception'), 'config', 'perception.yaml')
     planning_config = os.path.join(
         get_package_share_directory('planning'), 'config', 'planning.yaml')
+    state_estimation_config = os.path.join(
+        get_package_share_directory('state_estimation'), 'config', 'state_estimation.yaml')
 
     leg_controller_arg = DeclareLaunchArgument(
         'leg_controller',
@@ -131,6 +133,14 @@ def generate_launch_description():
             name='cmd_vel_to_vesc',
             output='screen',
             parameters=[vesc_config],
+        ),
+
+        Node(
+            package='state_estimation',
+            executable='diff_drive_odom',
+            name='diff_drive_odom',
+            output='screen',
+            parameters=[state_estimation_config],
         ),
 
         Node(
