@@ -10,21 +10,33 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     oak_camera = IncludeLaunchDescription(
+        # PythonLaunchDescriptionSource(
+        #     os.path.join(
+        #         get_package_share_directory('depthai_ros_driver'),
+        #         'launch',
+        #         'camera.launch.py'
+        #     )
+        # ),
+        # launch_arguments={
+        #     'name': 'oak',
+        #     'rectify_rgb': 'true',
+        #     'pointcloud.enable': 'true',
+        #     'params_file': os.path.join(
+        #         get_package_share_directory('depthai_ros_driver'),
+        #         'config', 'oak_d_pro_w.yaml'
+        #     ),
+        # }.items()
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('depthai_ros_driver'),
+                get_package_share_directory('depthai_ros_driver'), # Or your local package
                 'launch',
-                'camera.launch.py'
+                'pointcloud.launch.py'  # Switch from camera.launch.py to this
             )
         ),
         launch_arguments={
             'name': 'oak',
-            'rectify_rgb': 'true',
-            'pointcloud.enable': 'true',
-            'params_file': os.path.join(
-                get_package_share_directory('depthai_ros_driver'),
-                'config', 'oak_d_pro_w.yaml'
-            ),
+            'params_file': os.path.join(get_package_share_directory('perception'), 'config', 'camera.yaml'),
+            'parent_frame': 'oak_d_base_frame',
         }.items()
     )
 
