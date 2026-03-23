@@ -10,27 +10,11 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     oak_camera = IncludeLaunchDescription(
-        # PythonLaunchDescriptionSource(
-        #     os.path.join(
-        #         get_package_share_directory('depthai_ros_driver'),
-        #         'launch',
-        #         'camera.launch.py'
-        #     )
-        # ),
-        # launch_arguments={
-        #     'name': 'oak',
-        #     'rectify_rgb': 'true',
-        #     'pointcloud.enable': 'true',
-        #     'params_file': os.path.join(
-        #         get_package_share_directory('depthai_ros_driver'),
-        #         'config', 'oak_d_pro_w.yaml'
-        #     ),
-        # }.items()
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('depthai_ros_driver'), # Or your local package
+                get_package_share_directory('depthai_ros_driver'),
                 'launch',
-                'pointcloud.launch.py'  # Switch from camera.launch.py to this
+                'camera.launch.py'
             )
         ),
         launch_arguments={
@@ -38,10 +22,28 @@ def generate_launch_description():
             'rectify_rgb': 'true',
             'pointcloud.enable': 'true',
             'params_file': os.path.join(
-                get_package_share_directory('depthai_ros_driver'), 
-                'config', 'oak_d_pro_w.yaml'),
-            'parent_frame': 'oak_d_base_frame',
+                get_package_share_directory('depthai_ros_driver'),
+                'config', 'oak_d_pro_w.yaml'
+            ),
         }.items()
+
+        ## point cloud launch
+        # PythonLaunchDescriptionSource(
+        #     os.path.join(
+        #         get_package_share_directory('depthai_ros_driver'), # Or your local package
+        #         'launch',
+        #         'pointcloud.launch.py'  # Switch from camera.launch.py to this
+        #     )
+        # ),
+        # launch_arguments={
+        #     'name': 'oak',
+        #     'rectify_rgb': 'true',
+        #     'pointcloud.enable': 'true',
+        #     'params_file': os.path.join(
+        #         get_package_share_directory('depthai_ros_driver'), 
+        #         'config', 'oak_d_pro_w.yaml'),
+        #     'parent_frame': 'oak_d_base_frame',
+        # }.items()
     )
 
     robstride_driver = IncludeLaunchDescription(
