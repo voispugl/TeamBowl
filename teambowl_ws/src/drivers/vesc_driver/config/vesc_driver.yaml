@@ -4,8 +4,8 @@ cmd_vel_to_vesc:
     left_port: /dev/ttyACM0
     right_port: /dev/ttyACM1
     estop_topic: /estop
-    wheel_radius_m: 0.307975
-    track_width_m: 0.5588
+    wheel_radius_m: 0.157485
+    track_width_m: 0.568643
     erpm_per_wheel_rpm: 500.0
     max_erpm_step_per_tick: 2000
     max_erpm: 20000
