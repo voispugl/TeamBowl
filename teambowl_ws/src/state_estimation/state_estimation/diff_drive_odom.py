@@ -4,7 +4,7 @@ import math
 from typing import Optional
 
 import rclpy
-from geometry_msgs.msg import Quaternion, Twist
+from geometry_msgs.msg import Quaternion
 from nav_msgs.msg import Odometry
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -32,7 +32,6 @@ class DiffDriveOdomNode(Node):
 
         self.declare_parameter('left_wheel_vel_topic', '/wheel_vel_left')
         self.declare_parameter('right_wheel_vel_topic', '/wheel_vel_right')
-        self.declare_parameter('cmd_vel_fallback_topic', '/cmd_vel')
         self.declare_parameter('odom_topic', '/wheel/odometry')
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
@@ -41,8 +40,6 @@ class DiffDriveOdomNode(Node):
         self.declare_parameter('left_sign', 1.0)
         self.declare_parameter('right_sign', -1.0)
         self.declare_parameter('wheel_timeout_s', 0.25)
-        self.declare_parameter('use_cmd_vel_fallback', True)
-        self.declare_parameter('cmd_vel_timeout_s', 0.25)
         self.declare_parameter('publish_rate_hz', 50.0)
         self.declare_parameter(
             'pose_covariance_diagonal',
@@ -55,7 +52,6 @@ class DiffDriveOdomNode(Node):
 
         self.left_wheel_vel_topic = self.get_parameter('left_wheel_vel_topic').value
         self.right_wheel_vel_topic = self.get_parameter('right_wheel_vel_topic').value
-        self.cmd_vel_fallback_topic = self.get_parameter('cmd_vel_fallback_topic').value
         self.odom_topic = self.get_parameter('odom_topic').value
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
@@ -64,10 +60,6 @@ class DiffDriveOdomNode(Node):
         self.left_sign = float(self.get_parameter('left_sign').value)
         self.right_sign = float(self.get_parameter('right_sign').value)
         self.wheel_timeout = Duration(seconds=float(self.get_parameter('wheel_timeout_s').value))
-        self.use_cmd_vel_fallback = bool(self.get_parameter('use_cmd_vel_fallback').value)
-        self.cmd_vel_timeout = Duration(
-            seconds=float(self.get_parameter('cmd_vel_timeout_s').value)
-        )
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
 
         pose_diag = list(self.get_parameter('pose_covariance_diagonal').value)
@@ -89,13 +81,8 @@ class DiffDriveOdomNode(Node):
         self.last_left_time: Optional[rclpy.time.Time] = None
         self.last_right_time: Optional[rclpy.time.Time] = None
 
-        self.cmd_fallback_vx = 0.0
-        self.cmd_fallback_wz = 0.0
-        self.last_cmd_time: Optional[rclpy.time.Time] = None
-
         self.create_subscription(Float64, self.left_wheel_vel_topic, self._on_left_wheel, 10)
         self.create_subscription(Float64, self.right_wheel_vel_topic, self._on_right_wheel, 10)
-        self.create_subscription(Twist, self.cmd_vel_fallback_topic, self._on_cmd_vel, 10)
 
         self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10)
 
@@ -105,7 +92,6 @@ class DiffDriveOdomNode(Node):
         self.get_logger().info(
             'diff_drive_odom up. '
             f'left={self.left_wheel_vel_topic}, right={self.right_wheel_vel_topic}, '
-            f'fallback={self.cmd_vel_fallback_topic}, '
             f'odom={self.odom_topic}, frames={self.odom_frame}->{self.base_frame}'
         )
 
@@ -117,36 +103,22 @@ class DiffDriveOdomNode(Node):
         self.right_wheel_rad_s = float(msg.data) * self.right_sign
         self.last_right_time = self.get_clock().now()
 
-    def _on_cmd_vel(self, msg: Twist):
-        self.cmd_fallback_vx = float(msg.linear.x)
-        self.cmd_fallback_wz = float(msg.angular.z)
-        self.last_cmd_time = self.get_clock().now()
-
     def _fresh(self, stamp, timeout: Duration) -> bool:
         if stamp is None:
             return False
         return (self.get_clock().now() - stamp) <= timeout
 
-    def _have_wheel_feedback(self) -> bool:
-        return self._fresh(self.last_left_time, self.wheel_timeout) and self._fresh(
-            self.last_right_time, self.wheel_timeout
-        )
-
-    def _have_cmd_fallback(self) -> bool:
-        return self.use_cmd_vel_fallback and self._fresh(self.last_cmd_time, self.cmd_vel_timeout)
-
     def _compute_body_twist(self) -> tuple[float, float]:
-        if self._have_wheel_feedback():
-            v_left = self.left_wheel_rad_s * self.wheel_radius_m
-            v_right = self.right_wheel_rad_s * self.wheel_radius_m
-            linear_x = 0.5 * (v_left + v_right)
-            angular_z = (v_right - v_left) / self.track_width_m
-            return linear_x, angular_z
+        if not self._fresh(self.last_left_time, self.wheel_timeout):
+            return 0.0, 0.0
+        if not self._fresh(self.last_right_time, self.wheel_timeout):
+            return 0.0, 0.0
 
-        if self._have_cmd_fallback():
-            return self.cmd_fallback_vx, self.cmd_fallback_wz
-
-        return 0.0, 0.0
+        v_left = self.left_wheel_rad_s * self.wheel_radius_m
+        v_right = self.right_wheel_rad_s * self.wheel_radius_m
+        linear_x = 0.5 * (v_left + v_right)
+        angular_z = (v_right - v_left) / self.track_width_m
+        return linear_x, angular_z
 
     def _tick(self):
         now = self.get_clock().now()
