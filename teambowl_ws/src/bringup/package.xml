@@ -10,6 +10,7 @@
   <depend>launch</depend>
   <depend>launch_ros</depend>
   <depend>state_estimation</depend>
+  <depend>robot_localization</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

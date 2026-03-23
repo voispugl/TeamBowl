@@ -144,6 +144,14 @@ def generate_launch_description():
         ),
 
         Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[state_estimation_config],
+        ),
+
+        Node(
             package='perception',
             executable='cam_ops',
             name='cam_ops_node',

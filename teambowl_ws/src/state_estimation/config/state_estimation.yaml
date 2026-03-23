@@ -2,21 +2,48 @@ diff_drive_odom:
   ros__parameters:
     left_wheel_vel_topic: /wheel_vel_left
     right_wheel_vel_topic: /wheel_vel_right
-    imu_topic: /imu/data
     cmd_vel_fallback_topic: /cmd_vel
-    odom_topic: /odom
+    odom_topic: /wheel/odometry
     odom_frame: odom
     base_frame: base_link
     wheel_radius_m: 0.307975
     track_width_m: 0.5588
     left_sign: 1.0
     right_sign: -1.0
-    use_imu_yaw_rate: true
-    imu_timeout_s: 0.25
     wheel_timeout_s: 0.25
-    use_cmd_vel_fallback: true
+    use_cmd_vel_fallback: false
     cmd_vel_timeout_s: 0.25
-    publish_tf: true
     publish_rate_hz: 50.0
     pose_covariance_diagonal: [0.05, 0.05, 99999.0, 99999.0, 99999.0, 0.1]
     twist_covariance_diagonal: [0.02, 0.02, 99999.0, 99999.0, 99999.0, 0.05]
+
+ekf_filter_node:
+  ros__parameters:
+    frequency: 50.0
+    sensor_timeout: 0.1
+    two_d_mode: true
+    publish_tf: true
+    publish_acceleration: false
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+    odom0: /wheel/odometry
+    odom0_config: [true, true, false,
+                   false, false, true,
+                   true, false, false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_differential: false
+    odom0_relative: false
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_queue_size: 10
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: false

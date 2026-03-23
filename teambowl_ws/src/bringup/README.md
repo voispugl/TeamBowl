@@ -38,6 +38,7 @@ Nodes that start unconditionally:
 | `collision_guard` | locomotion | `locomotion/config/locomotion.yaml` |
 | `cmd_vel_to_vesc` | vesc_driver | `vesc_driver/config/vesc_driver.yaml` |
 | `diff_drive_odom` | state_estimation | `state_estimation/config/state_estimation.yaml` |
+| `ekf_filter_node` | robot_localization | `state_estimation/config/state_estimation.yaml` |
 | `cam_ops_node` | perception | `perception/config/perception.yaml` |
 | `plan_wheels` | planning | `planning/config/planning.yaml` |
 
