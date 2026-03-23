@@ -5,10 +5,60 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 import os
+import math
+import xml.etree.ElementTree as ET
 from ament_index_python.packages import get_package_share_directory
 
 
+def _parse_xyz(text):
+    return [float(value) for value in text.split()]
+
+
+def _compute_base_to_imu_tf(urdf_path):
+    root = ET.parse(urdf_path).getroot()
+    wheel_positions = {}
+
+    for joint in root.findall('joint'):
+        name = joint.get('name')
+        if name not in {'left_wheel_0', 'right_wheel_0'}:
+            continue
+        origin = joint.find('origin')
+        if origin is None or origin.get('xyz') is None:
+            raise RuntimeError(f'Joint {name} is missing an origin xyz in {urdf_path}')
+        wheel_positions[name] = _parse_xyz(origin.get('xyz'))
+
+    missing = {'left_wheel_0', 'right_wheel_0'} - set(wheel_positions)
+    if missing:
+        raise RuntimeError(
+            f'URDF {urdf_path} is missing required wheel joints: {sorted(missing)}'
+        )
+
+    base_in_imu = [
+        (wheel_positions['left_wheel_0'][index] + wheel_positions['right_wheel_0'][index]) / 2.0
+        for index in range(3)
+    ]
+
+    # IMU axes are x-right, y-forward, z-up. base_link is x-forward, y-left, z-up.
+    yaw_base_to_imu = -math.pi / 2.0
+    cos_yaw = math.cos(yaw_base_to_imu)
+    sin_yaw = math.sin(yaw_base_to_imu)
+    imu_in_base = [
+        -(cos_yaw * base_in_imu[0] - sin_yaw * base_in_imu[1]),
+        -sin_yaw * base_in_imu[0] - cos_yaw * base_in_imu[1],
+        -base_in_imu[2],
+    ]
+
+    return imu_in_base, yaw_base_to_imu
+
+
 def generate_launch_description():
+    robot_urdf = os.path.join(
+        get_package_share_directory('bringup'),
+        'robot_description',
+        'bowl.urdf',
+    )
+    imu_translation, imu_yaw = _compute_base_to_imu_tf(robot_urdf)
+
     oak_camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -66,6 +116,23 @@ def generate_launch_description():
 
         oak_camera,
         robstride_driver,
+
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_to_imu_tf',
+            output='screen',
+            arguments=[
+                str(imu_translation[0]),
+                str(imu_translation[1]),
+                str(imu_translation[2]),
+                '0',
+                '0',
+                str(imu_yaw),
+                'base_link',
+                'imu_link',
+            ],
+        ),
 
         Node(
             package='management',
