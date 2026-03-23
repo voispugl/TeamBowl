@@ -46,8 +46,6 @@ def launch_setup(context, *args, **kwargs):
                     name="point_cloud_xyz",
                     remappings=[
                         ("depth/image_rect", name + "/stereo/image_raw"),
-                        # ("intensity/image_rect", name + "/right/image_rect"),
-                        # ("intensity/camera_info", name + "/stereo/camera_info"),
                         ("points", name + "/points"),
                     ],
                 ),
@@ -69,7 +67,7 @@ def generate_launch_description():
         DeclareLaunchArgument("cam_yaw", default_value="0.0"),
         DeclareLaunchArgument(
             "params_file",
-            default_value=os.path.join(depthai_prefix, "config", "pcl.yaml"),
+            default_value=os.path.join(depthai_prefix, "config", "oak_d_pro_w.yaml"),
         ),
         DeclareLaunchArgument("use_rviz", default_value="False"),
     ]
