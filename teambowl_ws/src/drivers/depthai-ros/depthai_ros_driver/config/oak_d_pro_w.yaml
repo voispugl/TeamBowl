@@ -1,11 +1,3 @@
-# /oak:
-#   ros__parameters:
-#     camera:
-#       i_nn_type: none
-#     rgb:
-#       i_resolution: '720'
-
-
 /oak:
   ros__parameters:
     camera:
@@ -20,4 +12,5 @@
       i_right_rect_publish_topic: true
       i_right_rect_synced: false
       i_publish_topic: true
+      i_enable_decimation_filter: true
       i_decimation: 4
