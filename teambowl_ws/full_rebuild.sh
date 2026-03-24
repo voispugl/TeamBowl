@@ -3,6 +3,13 @@ set -e
 
 cd ~/TeamBowl/teambowl_ws
 
+echo "[build] Setting can network up..."
+sudo modprobe mttcan
+sudo ip link set can0 type can bitrate 1000000
+sudo ip link set can1 type can bitrate 1000000
+sudo ip link set can0 up
+sudo ip link set can1 up
+
 echo "[build] Cleaning previous build artifacts..."
 rm -rf build install log
 
