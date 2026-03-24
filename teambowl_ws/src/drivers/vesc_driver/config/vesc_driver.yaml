@@ -7,12 +7,12 @@ cmd_vel_to_vesc:
     wheel_radius_m: 0.157485
     track_width_m: 0.568643
     erpm_per_wheel_rpm: 500.0
-    max_erpm_step_per_tick: 2000
+    max_erpm_step_per_tick: 200
     max_erpm: 20000
     cmd_timeout_s: 0.5
     baud: 115200
     serial_timeout_s: 0.05
-    left_sign: 1
+    left_sign: -1
     right_sign: -1
     print_RPM_cmds: false
     left_wheel_vel_topic: /wheel_vel_left
