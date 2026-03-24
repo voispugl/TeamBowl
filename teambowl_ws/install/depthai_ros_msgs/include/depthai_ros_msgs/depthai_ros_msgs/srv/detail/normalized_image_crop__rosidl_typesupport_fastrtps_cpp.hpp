@@ -1,0 +1,1 @@
+/home/box/TeamBowl/teambowl_ws/build/depthai_ros_msgs/rosidl_typesupport_fastrtps_cpp/depthai_ros_msgs/srv/detail/normalized_image_crop__rosidl_typesupport_fastrtps_cpp.hpp
