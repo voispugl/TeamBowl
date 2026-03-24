@@ -12,7 +12,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
-        ('share/' + package_name + '/robot_description', ['../../bowl_URDF/urdf/bowl.urdf']),
+        ('share/' + package_name + '/robot_description', ['../../../bowl_URDF/urdf/bowl.urdf']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
