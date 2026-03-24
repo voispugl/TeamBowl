@@ -13,7 +13,7 @@
       i_subpixel: true
       i_right_rect_publish_topic: true
       i_right_rect_synced: false
-      i_publish_topic: false
+      i_publish_topic: true
       i_enable_decimation_filter: true
       i_decimation_filter_decimation_factor: 4
       i_lr_check: true
