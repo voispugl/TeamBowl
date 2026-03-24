@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/build/depthai_ros_msgs/rosidl_generator_cpp/depthai_ros_msgs/msg/detail/hand_landmark__type_support.hpp

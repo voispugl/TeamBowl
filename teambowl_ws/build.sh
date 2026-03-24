@@ -23,7 +23,8 @@ colcon build --symlink-install --packages-select \
     safety \
     perception \
     planning \
-    vesc_driver
+    vesc_driver \
+    state_estimation 
 
 echo "[build] Sourcing workspace overlay..."
 source install/setup.bash

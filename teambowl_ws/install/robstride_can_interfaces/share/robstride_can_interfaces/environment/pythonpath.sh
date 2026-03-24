@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/build/robstride_can_interfaces/ament_cmake_environment_hooks/pythonpath.sh

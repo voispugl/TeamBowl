@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/build/depthai_ros_msgs/ament_cmake_environment_hooks/local_setup.sh

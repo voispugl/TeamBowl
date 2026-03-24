@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/src/drivers/depthai-ros/depthai_ros_driver/include/depthai_ros_driver/param_handlers/pipeline_gen_param_handler.hpp
