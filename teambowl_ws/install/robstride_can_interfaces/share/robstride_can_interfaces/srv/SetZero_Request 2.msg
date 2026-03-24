@@ -1,1 +1,0 @@
-/workspaces/teambowl_ws/build/robstride_can_interfaces/rosidl_cmake/srv/SetZero_Request.msg

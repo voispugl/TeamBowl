@@ -1,0 +1,9 @@
+source;share/state_estimation/hook/pythonpath.ps1
+source;share/state_estimation/hook/pythonpath.dsv
+source;share/state_estimation/hook/pythonpath.sh
+source;share/state_estimation/hook/ament_prefix_path.ps1
+source;share/state_estimation/hook/ament_prefix_path.dsv
+source;share/state_estimation/hook/ament_prefix_path.sh
+source;../../build/state_estimation/share/state_estimation/hook/pythonpath_develop.ps1
+source;../../build/state_estimation/share/state_estimation/hook/pythonpath_develop.dsv
+source;../../build/state_estimation/share/state_estimation/hook/pythonpath_develop.sh
