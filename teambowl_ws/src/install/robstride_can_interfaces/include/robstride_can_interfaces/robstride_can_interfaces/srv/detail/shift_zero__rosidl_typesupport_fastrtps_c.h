@@ -1,0 +1,1 @@
+/home/box/TeamBowl/teambowl_ws/src/build/robstride_can_interfaces/rosidl_typesupport_fastrtps_c/robstride_can_interfaces/srv/detail/shift_zero__rosidl_typesupport_fastrtps_c.h

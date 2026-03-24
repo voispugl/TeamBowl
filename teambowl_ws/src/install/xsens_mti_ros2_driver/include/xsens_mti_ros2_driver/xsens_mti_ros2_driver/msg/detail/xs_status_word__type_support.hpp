@@ -1,0 +1,1 @@
+/home/box/TeamBowl/teambowl_ws/src/build/xsens_mti_ros2_driver/rosidl_generator_cpp/xsens_mti_ros2_driver/msg/detail/xs_status_word__type_support.hpp

@@ -1,0 +1,1 @@
+/home/box/TeamBowl/teambowl_ws/src/build/robstride_can_interfaces/ament_cmake_core/robstride_can_interfacesConfig-version.cmake

@@ -1,0 +1,1 @@
+/home/box/TeamBowl/teambowl_ws/src/build/depthai-ros/ament_cmake_core/depthai-rosConfig-version.cmake
