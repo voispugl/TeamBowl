@@ -3,7 +3,7 @@ import serial
 import pyvesc
 from pyvesc.VESC.messages import SetRPM, SetCurrent
 
-PORT = "/dev/ttyACM1"
+PORT = "/dev/ttyACM0"
 BAUD = 115200
 
 with serial.Serial(PORT, baudrate=BAUD, timeout=0.05) as ser:
@@ -12,7 +12,7 @@ with serial.Serial(PORT, baudrate=BAUD, timeout=0.05) as ser:
     # Send RPM command
     t_end = time.time() + 10.0
     while time.time() < t_end:
-        ser.write(pyvesc.encode(SetRPM(8000)))
+        ser.write(pyvesc.encode(SetRPM(4000)))
         print("Sent RPM = 2000")
         time.sleep(0.01)
 
