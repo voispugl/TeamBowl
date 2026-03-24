@@ -1,0 +1,1 @@
+/home/box/TeamBowl/teambowl_ws/src/build/depthai_ros_msgs/rosidl_typesupport_introspection_c/depthai_ros_msgs/srv/detail/trigger_named__rosidl_typesupport_introspection_c.h

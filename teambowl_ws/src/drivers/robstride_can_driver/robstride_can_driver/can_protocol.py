@@ -1,4 +1,4 @@
-    """
+"""
 can_protocol.py
 
 Pure stateless encode/decode module for the RobStride Private CAN Protocol
