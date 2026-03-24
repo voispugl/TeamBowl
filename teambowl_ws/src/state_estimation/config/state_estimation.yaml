@@ -8,7 +8,7 @@ diff_drive_odom:
     wheel_radius_m: 0.157485
     track_width_m: 0.568643
     left_sign: 1.0
-    right_sign: -1.0
+    right_sign: 1.0
     wheel_timeout_s: 0.25
     publish_rate_hz: 50.0
     pose_covariance_diagonal: [0.05, 0.05, 99999.0, 99999.0, 99999.0, 0.1]
