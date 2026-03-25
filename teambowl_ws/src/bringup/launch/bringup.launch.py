@@ -5,60 +5,10 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 import os
-import math
-import xml.etree.ElementTree as ET
 from ament_index_python.packages import get_package_share_directory
 
 
-def _parse_xyz(text):
-    return [float(value) for value in text.split()]
-
-
-def _compute_base_to_imu_tf(urdf_path):
-    root = ET.parse(urdf_path).getroot()
-    wheel_positions = {}
-
-    for joint in root.findall('joint'):
-        name = joint.get('name')
-        if name not in {'left_wheel_0', 'right_wheel_0'}:
-            continue
-        origin = joint.find('origin')
-        if origin is None or origin.get('xyz') is None:
-            raise RuntimeError(f'Joint {name} is missing an origin xyz in {urdf_path}')
-        wheel_positions[name] = _parse_xyz(origin.get('xyz'))
-
-    missing = {'left_wheel_0', 'right_wheel_0'} - set(wheel_positions)
-    if missing:
-        raise RuntimeError(
-            f'URDF {urdf_path} is missing required wheel joints: {sorted(missing)}'
-        )
-
-    base_in_imu = [
-        (wheel_positions['left_wheel_0'][index] + wheel_positions['right_wheel_0'][index]) / 2.0
-        for index in range(3)
-    ]
-
-    # IMU axes are x-right, y-forward, z-up. base_link is x-forward, y-left, z-up.
-    yaw_base_to_imu = -math.pi / 2.0
-    cos_yaw = math.cos(yaw_base_to_imu)
-    sin_yaw = math.sin(yaw_base_to_imu)
-    imu_in_base = [
-        -(cos_yaw * base_in_imu[0] - sin_yaw * base_in_imu[1]),
-        -sin_yaw * base_in_imu[0] - cos_yaw * base_in_imu[1],
-        -base_in_imu[2],
-    ]
-
-    return imu_in_base, yaw_base_to_imu
-
-
 def generate_launch_description():
-    robot_urdf = os.path.join(
-        get_package_share_directory('bringup'),
-        'robot_description',
-        'bowl.urdf',
-    )
-    imu_translation, imu_yaw = _compute_base_to_imu_tf(robot_urdf)
-
     oak_camera = IncludeLaunchDescription(
         # point cloud launch
         PythonLaunchDescriptionSource(
@@ -88,6 +38,23 @@ def generate_launch_description():
         ),
     )
 
+    nav2_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('nav2_bringup'),
+                'launch',
+                'navigation_launch.py'
+            )
+        ),
+        launch_arguments={
+            'use_sim_time': 'false',
+            'params_file': os.path.join(
+                get_package_share_directory('planning'), 
+                'config', 'planning.yaml'),
+            'autostart': 'true',
+        }.items()
+    )
+
     management_config = os.path.join(
         get_package_share_directory('management'), 'config', 'management.yaml')
     safety_config = os.path.join(
@@ -100,8 +67,6 @@ def generate_launch_description():
         get_package_share_directory('perception'), 'config', 'perception.yaml')
     planning_config = os.path.join(
         get_package_share_directory('planning'), 'config', 'planning.yaml')
-    state_estimation_config = os.path.join(
-        get_package_share_directory('state_estimation'), 'config', 'state_estimation.yaml')
 
     leg_controller_arg = DeclareLaunchArgument(
         'leg_controller',
@@ -116,22 +81,17 @@ def generate_launch_description():
 
         oak_camera,
         robstride_driver,
+        nav2_launch,
 
         Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_to_imu_tf',
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_navigation',
             output='screen',
-            arguments=[
-                str(imu_translation[0]),
-                str(imu_translation[1]),
-                str(imu_translation[2]),
-                str(imu_yaw),
-                '0',
-                '0',
-                'base_link',
-                'imu_link',
-            ],
+            parameters=[{
+                'autostart': True,
+                'node_names': ['planner_server', 'controller_server', 'local_costmap', 'global_costmap']
+            }]
         ),
 
         Node(
@@ -203,22 +163,6 @@ def generate_launch_description():
         ),
 
         Node(
-            package='state_estimation',
-            executable='diff_drive_odom',
-            name='diff_drive_odom',
-            output='screen',
-            parameters=[state_estimation_config],
-        ),
-
-        Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_filter_node',
-            output='screen',
-            parameters=[state_estimation_config],
-        ),
-
-        Node(
             package='perception',
             executable='cam_ops',
             name='cam_ops_node',
@@ -226,11 +170,11 @@ def generate_launch_description():
             parameters=[perception_config],
         ),
 
-        Node(
-            package='planning',
-            executable='plan_wheels',
-            name='plan_wheels',
-            output='screen',
-            parameters=[planning_config],
-        ),
+        # Node(
+        #     package='planning',
+        #     executable='plan_wheels',
+        #     name='plan_wheels',
+        #     output='screen',
+        #     parameters=[planning_config],
+        # ),
     ])

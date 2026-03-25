@@ -16,3 +16,72 @@ plan_wheels:
     max_reverse_x: 0.15
     turn_in_place_angle_only: true
     turn_only_lateral_threshold_m: 0.5
+
+planner_server:
+  ros__parameters:
+    planner_plugins: ["GridBased"]
+
+    GridBased:
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      tolerance: 0.125                      # tolerance for planning if unable to reach exact pose, in meters
+      downsample_costmap: false             # whether or not to downsample the map
+      downsampling_factor: 1                # multiplier for the resolution of the costmap layer (e.g. 2 on a 5cm costmap would be 10cm)
+      allow_unknown: true                   # allow traveling in unknown space
+      max_iterations: 1000000               # maximum total iterations to search for before failing (in case unreachable), set to -1 to disable
+      max_on_approach_iterations: 1000      # maximum number of iterations to attempt to reach goal once in tolerance
+      max_planning_time: 2.0                # max time in s for planner to plan, smooth
+      cost_travel_multiplier: 2.0           # Cost multiplier to apply to search to steer away from high cost areas. Larger values will place in the center of aisles more exactly (if non-`FREE` cost potential field exists) but take slightly longer to compute. To optimize for speed, a value of 1.0 is reasonable. A reasonable tradeoff value is 2.0. A value of 0.0 effective disables steering away from obstacles and acts like a naive binary search A*.
+      use_final_approach_orientation: false # Whether to set the final path pose at the goal's orientation to the requested orientation (false) or in line with the approach angle so the robot doesn't rotate to heading (true)
+      smoother:
+        max_iterations: 1000
+        w_smooth: 0.3
+        w_data: 0.2
+        tolerance: 1.0e-10
+
+controller_server:
+  ros__parameters:
+    controller_plugins: ["FollowPath"]
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.15  # Start extra slow for initial testing
+      lookahead_dist: 0.6
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 1.0
+      use_velocity_scaled_lookahead_dist: true
+      regulated_linear_scaling_min_radius: 0.9
+      remappings:
+        - /cmd_vel => /cmd_vel_auto
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: odom        # Uses your EKF odom frame
+      robot_base_frame: base_link
+      use_sim_time: false
+      rolling_window: true      # Moves with the robot in empty space
+      width: 10.0
+      height: 10.0
+      resolution: 0.05
+      plugins: ["inflation_layer"] # No obstacle_layer = Empty Map
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.55
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      use_sim_time: false
+      rolling_window: true
+      width: 3.0
+      height: 3.0
+      resolution: 0.05
+      plugins: ["inflation_layer"] # Pure empty space for local pathing
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.55
