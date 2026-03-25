@@ -9,7 +9,7 @@
         <visual>
             <origin xyz="0.155 0.211201 0.14785" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/83.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/83.stl" scale="1 1 1" />
             </geometry>
             <material name="0.231373_0.380392_0.705882_0.000000_0.000000">
                 <texture />
@@ -26,7 +26,7 @@
         <visual>
             <origin xyz="0.155 0.211201 0.14785" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/83.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/83.stl" scale="1 1 1" />
             </geometry>
             <material name="0.231373_0.380392_0.705882_0.000000_0.000000">
                 <texture />
@@ -43,7 +43,7 @@
         <visual>
             <origin xyz="0.155 0.414212 0.0228866" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/113.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/113.stl" scale="1 1 1" />
             </geometry>
             <material name="0.972549_0.529412_0.003922_0.000000_0.000000">
                 <texture />
@@ -60,7 +60,7 @@
         <visual>
             <origin xyz="0.155 0.414212 0.0228866" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/113.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/113.stl" scale="1 1 1" />
             </geometry>
             <material name="0.972549_0.529412_0.003922_0.000000_0.000000">
                 <texture />
@@ -77,7 +77,7 @@
         <visual>
             <origin xyz="0.12775 0.318497 0.302267" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/109.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/109.stl" scale="1 1 1" />
             </geometry>
             <material name="0.498039_0.498039_0.498039_0.000000_0.000000">
                 <texture />
@@ -94,7 +94,7 @@
         <visual>
             <origin xyz="0.12775 0.318497 0.302267" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/109.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/109.stl" scale="1 1 1" />
             </geometry>
             <material name="0.498039_0.498039_0.498039_0.000000_0.000000">
                 <texture />
@@ -111,7 +111,7 @@
         <visual>
             <origin xyz="-0.00546297 0.0848 0.0954208" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/102.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/102.stl" scale="1 1 1" />
             </geometry>
             <material name="0.972549_0.529412_0.003922_0.000000_0.000000">
                 <texture />
@@ -128,7 +128,7 @@
         <visual>
             <origin xyz="0.15 0.11869 0.213556" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/59.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/59.stl" scale="1 1 1" />
             </geometry>
             <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
                 <texture />
@@ -145,7 +145,7 @@
         <visual>
             <origin xyz="0.15 0.11869 0.213556" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/59.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/59.stl" scale="1 1 1" />
             </geometry>
             <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
                 <texture />
@@ -162,7 +162,7 @@
         <visual>
             <origin xyz="0.11875 0.18869 0.213556" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/87.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/87.stl" scale="1 1 1" />
             </geometry>
             <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
                 <texture />
@@ -179,7 +179,7 @@
         <visual>
             <origin xyz="0.11875 0.18869 0.213556" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/87.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/87.stl" scale="1 1 1" />
             </geometry>
             <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
                 <texture />
@@ -196,7 +196,7 @@
         <visual>
             <origin xyz="2.42861e-17 0.19613 -0.20009" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/95.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/95.stl" scale="1 1 1" />
             </geometry>
             <material name="0.917647_0.917647_0.917647_0.000000_0.000000">
                 <texture />
@@ -213,7 +213,7 @@
         <visual>
             <origin xyz="0.000140291 0.248619 -0.14544" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/63.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/63.stl" scale="1 1 1" />
             </geometry>
             <material name="0.768627_0.886275_0.952941_0.000000_0.000000">
                 <texture />
@@ -230,7 +230,7 @@
         <visual>
             <origin xyz="0.18125 0.18869 0.213556" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/79.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/79.stl" scale="1 1 1" />
             </geometry>
             <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
                 <texture />
@@ -247,7 +247,7 @@
         <visual>
             <origin xyz="0.18125 0.18869 0.213556" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/79.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/79.stl" scale="1 1 1" />
             </geometry>
             <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
                 <texture />
@@ -264,7 +264,7 @@
         <visual>
             <origin xyz="0.271842 0.12319 0.151616" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/132.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/132.stl" scale="1 1 1" />
             </geometry>
             <material name="0.231373_0.380392_0.705882_0.000000_0.000000">
                 <texture />
@@ -281,7 +281,7 @@
         <visual>
             <origin xyz="0.27443 0.0457572 0.0410302" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/91.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/91.stl" scale="1 1 1" />
             </geometry>
             <material name="0.980392_0.713725_0.003922_0.000000_0.000000">
                 <texture />
@@ -298,7 +298,7 @@
         <visual>
             <origin xyz="0.27443 0.0457572 0.0410302" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/91.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/91.stl" scale="1 1 1" />
             </geometry>
             <material name="0.980392_0.713725_0.003922_0.000000_0.000000">
                 <texture />
@@ -315,7 +315,7 @@
         <visual>
             <origin xyz="0.2968 0.12319 0.151616" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/132.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/132.stl" scale="1 1 1" />
             </geometry>
             <material name="0.231373_0.380392_0.705882_0.000000_0.000000">
                 <texture />
@@ -333,7 +333,7 @@
         <visual>
             <origin xyz="-3.37024e-19 -1.53081e-19 0" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/75.stl" scale="1 1 1" />
+                <mesh filename="package://bringup/robot_description/meshes/75.stl" scale="1 1 1" />
             </geometry>
             <material name="0.086275_0.317647_0.690196_0.000000_0.000000">
                 <texture />

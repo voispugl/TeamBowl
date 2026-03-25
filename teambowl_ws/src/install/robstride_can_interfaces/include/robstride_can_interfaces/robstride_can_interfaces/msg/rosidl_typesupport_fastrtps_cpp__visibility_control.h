@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/src/build/robstride_can_interfaces/rosidl_typesupport_fastrtps_cpp/robstride_can_interfaces/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
