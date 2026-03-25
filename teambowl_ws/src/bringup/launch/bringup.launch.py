@@ -50,6 +50,56 @@ def _compute_base_to_imu_tf(urdf_path):
     return imu_in_base, yaw_base_to_imu
 
 
+def _compute_base_to_rgb_camera_tf(urdf_path):
+    root = ET.parse(urdf_path).getroot()
+    joint_origins = {}
+
+    for joint in root.findall('joint'):
+        name = joint.get('name')
+        if name not in {'left_wheel_0', 'right_wheel_0', 'rgb_cam_0'}:
+            continue
+        origin = joint.find('origin')
+        if origin is None or origin.get('xyz') is None:
+            raise RuntimeError(f'Joint {name} is missing an origin xyz in {urdf_path}')
+        joint_origins[name] = {
+            'xyz': _parse_xyz(origin.get('xyz')),
+            'rpy': _parse_xyz(origin.get('rpy', '0 0 0')),
+        }
+
+    missing = {'left_wheel_0', 'right_wheel_0', 'rgb_cam_0'} - set(joint_origins)
+    if missing:
+        raise RuntimeError(
+            f'URDF {urdf_path} is missing required joints: {sorted(missing)}'
+        )
+
+    base_in_imu = [
+        (joint_origins['left_wheel_0']['xyz'][index] + joint_origins['right_wheel_0']['xyz'][index]) / 2.0
+        for index in range(3)
+    ]
+    cam_in_imu = joint_origins['rgb_cam_0']['xyz']
+    cam_rpy_in_imu = joint_origins['rgb_cam_0']['rpy']
+
+    dx_i = cam_in_imu[0] - base_in_imu[0]
+    dy_i = cam_in_imu[1] - base_in_imu[1]
+    dz_i = cam_in_imu[2] - base_in_imu[2]
+
+    # URDF Frame/IMU axes: x-right, y-forward, z-up. base_link: x-forward, y-left, z-up.
+    cam_pos_in_base = [
+        dy_i,
+        -dx_i,
+        dz_i,
+    ]
+
+    # Convert camera orientation into base_link coordinates. The rgb_cam_0 joint is
+    # modeled as a -90 deg roll in the IMU frame; base_link itself is rotated -90 deg
+    # yaw relative to that IMU frame.
+    cam_roll_in_base = cam_rpy_in_imu[0]
+    cam_pitch_in_base = cam_rpy_in_imu[1]
+    cam_yaw_in_base = -math.pi / 2.0
+
+    return cam_pos_in_base, [cam_roll_in_base, cam_pitch_in_base, cam_yaw_in_base]
+
+
 def generate_launch_description():
 
     robot_urdf = os.path.join(
@@ -58,23 +108,30 @@ def generate_launch_description():
         'bowl.urdf',
     )
     imu_translation, imu_yaw = _compute_base_to_imu_tf(robot_urdf)
+    cam_translation, cam_rpy = _compute_base_to_rgb_camera_tf(robot_urdf)
 
     oak_camera = IncludeLaunchDescription(
-        # point cloud launch
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('depthai_ros_driver'), # Or your local package
+                get_package_share_directory('depthai_ros_driver'),
                 'launch',
-                'pointcloud.launch.py'  # Switch from camera.launch.py to this
+                'camera.launch.py'
             )
         ),
         launch_arguments={
             'name': 'oak',
             'rectify_rgb': 'true',
+            'pointcloud.enable': 'true',
             'params_file': os.path.join(
-                get_package_share_directory('depthai_ros_driver'), 
+                get_package_share_directory('depthai_ros_driver'),
                 'config', 'oak_d_pro_w.yaml'),
             'parent_frame': 'base_link',
+            'cam_pos_x': str(cam_translation[0]),
+            'cam_pos_y': str(cam_translation[1]),
+            'cam_pos_z': str(cam_translation[2]),
+            'cam_roll': str(cam_rpy[0]),
+            'cam_pitch': str(cam_rpy[1]),
+            'cam_yaw': str(cam_rpy[2]),
         }.items()
     )
 
