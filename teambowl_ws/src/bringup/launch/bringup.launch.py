@@ -77,8 +77,6 @@ def _compute_base_to_rgb_camera_tf(urdf_path):
         for index in range(3)
     ]
     cam_in_imu = joint_origins['rgb_cam_0']['xyz']
-    cam_rpy_in_imu = joint_origins['rgb_cam_0']['rpy']
-
     dx_i = cam_in_imu[0] - base_in_imu[0]
     dy_i = cam_in_imu[1] - base_in_imu[1]
     dz_i = cam_in_imu[2] - base_in_imu[2]
@@ -90,14 +88,9 @@ def _compute_base_to_rgb_camera_tf(urdf_path):
         dz_i,
     ]
 
-    # Convert camera orientation into base_link coordinates. The rgb_cam_0 joint is
-    # modeled as a -90 deg roll in the IMU frame; base_link itself is rotated -90 deg
-    # yaw relative to that IMU frame.
-    cam_roll_in_base = cam_rpy_in_imu[0]
-    cam_pitch_in_base = cam_rpy_in_imu[1]
-    cam_yaw_in_base = -math.pi / 2.0
-
-    return cam_pos_in_base, [cam_roll_in_base, cam_pitch_in_base, cam_yaw_in_base]
+    # camera.launch.py creates the optical-frame rotation internally. We only want
+    # the physical mount of the camera base frame relative to base_link here.
+    return cam_pos_in_base, [0.0, 0.0, 0.0]
 
 
 def generate_launch_description():
