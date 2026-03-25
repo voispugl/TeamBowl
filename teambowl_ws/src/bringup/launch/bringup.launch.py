@@ -102,6 +102,8 @@ def generate_launch_description():
                 get_package_share_directory('planning'), 
                 'config', 'planning.yaml'),
             'autostart': 'true',
+            'use_lifecycle_mgr': 'true', # Let this launch handle lifecycle
+            'map_subscribe_transient_local': 'true',
         }.items()
     )
 
@@ -132,17 +134,6 @@ def generate_launch_description():
         oak_camera,
         robstride_driver,
         nav2_launch,
-
-        Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_navigation',
-            output='screen',
-            parameters=[{
-                'autostart': True,
-                'node_names': ['planner_server', 'controller_server', 'local_costmap', 'global_costmap']
-            }]
-        ),
 
         Node(
             package='management',
