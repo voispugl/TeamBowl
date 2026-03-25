@@ -86,9 +86,9 @@ global_costmap:
       robot_base_frame: base_link
       use_sim_time: false
       rolling_window: true
-      width: 10.0
-      height: 10.0
-      resolution: 0.05
+      width: !!float 10.0
+      height: !!float 10.0
+      resolution: !!float 0.05
       robot_radius: 0.32
       track_unknown_space: true
       always_send_full_costmap: true
@@ -107,9 +107,9 @@ local_costmap:
       robot_base_frame: base_link
       use_sim_time: false
       rolling_window: true
-      width: 3.0
-      height: 3.0
-      resolution: 0.05
+      width: !!float 3.0
+      height: !!float 3.0
+      resolution: !!float 0.05
       robot_radius: 0.32
       always_send_full_costmap: true
       plugins: ["inflation_layer"]
@@ -122,4 +122,4 @@ lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: false
     autostart: true
-    node_names: ["planner_server", "controller_server"]
+    node_names: ["global_costmap", "local_costmap", "planner_server", "controller_server"]
