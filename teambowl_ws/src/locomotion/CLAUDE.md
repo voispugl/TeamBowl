@@ -73,6 +73,31 @@ handles the robstride driver startup + mode set inside the container.
 
 bringup.launch.py NOW includes the robstride driver (added 2026-03-17).
 
+## 2026-03-24 — driving_leg_controller: auto_start on launch
+
+- **`locomotion/driving_leg_controller.py`**: Added `auto_start` (default `true`) and
+  `auto_start_delay_s` (default `2.0`) parameters. When `auto_start=true`, a one-shot
+  timer fires after the delay and calls `_transition_to_running()` automatically —
+  no need to publish to `/robot_mode` to enable the legs. E-stop and mode `"off"` still
+  stop the controller normally. Auto-start does not re-enable after a stop.
+
+## 2026-03-24 — driving_leg_controller: removed RS00 coast setup; added status print
+
+- **`locomotion/driving_leg_controller.py`**: Removed all RS00 coast-mode code (service
+  clients for set_gains/read_motor_param/write_motor_param, _coast_timer, _setup_coast_mode,
+  rs00_joints parameter). RS00 freewheeling is now handled by motors.yaml (kp=0, kd=0).
+  Added `_status_timer` (5 s) printing target, actual, and error per RS04 joint.
+- **`drivers/robstride_can_driver/config/motors.yaml`**: RS00 default_kp and default_kd set
+  to 0.0 so wheel motors freewheel from driver startup without any controller intervention.
+
+## 2026-03-24 — driving_leg_controller now default; torque_ff = 0; can1 resilience
+
+- **`launch/bringup.launch.py`**: `leg_controller` default changed to `driving`.
+- **`config/locomotion.yaml`**: Added `driving_leg_controller` section with `torque_ff: 0.0`
+  (MIT mode hold relies on Kp/Kd only, no feedforward torque).
+- **`driver_node.py`**: CAN bus open failure no longer crashes the node; motors on an
+  unavailable bus are silently skipped everywhere.
+
 ## 2026-03-18 — Moved parameters to config/locomotion.yaml
 
 - **`config/locomotion.yaml`**: New file. Contains parameters for all three nodes

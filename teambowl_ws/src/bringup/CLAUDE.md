@@ -8,6 +8,12 @@
   for the OAK-D-W — causing the camera to run at full/default resolution. Now 720p is
   correctly enforced.
 
+## 2026-03-24 — Switched default leg controller to driving_leg_controller
+
+- **`launch/bringup.launch.py`**: Changed `leg_controller` default from `hold` to `driving`.
+  Robot now moves to and holds the YAML target positions on enable instead of freezing at
+  current positions.
+
 ## 2026-03-18 — Added leg_controller launch argument + README
 
 - **`launch/bringup.launch.py`**: Added `leg_controller` launch argument (`hold`
