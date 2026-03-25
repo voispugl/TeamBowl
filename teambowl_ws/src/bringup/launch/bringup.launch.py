@@ -74,7 +74,7 @@ def generate_launch_description():
             'params_file': os.path.join(
                 get_package_share_directory('depthai_ros_driver'), 
                 'config', 'oak_d_pro_w.yaml'),
-            'parent_frame': 'oak_d_base_frame',
+            'parent_frame': 'base_link',
         }.items()
     )
 
@@ -86,25 +86,6 @@ def generate_launch_description():
                 'driver.launch.py'
             )
         ),
-    )
-
-    nav2_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory('nav2_bringup'),
-                'launch',
-                'navigation_launch.py'
-            )
-        ),
-        launch_arguments={
-            'use_sim_time': 'false',
-            'params_file': os.path.join(
-                get_package_share_directory('planning'), 
-                'config', 'planning.yaml'),
-            'autostart': 'true',
-            'use_lifecycle_mgr': 'true', # Let this launch handle lifecycle
-            'map_subscribe_transient_local': 'true',
-        }.items()
     )
 
     management_config = os.path.join(
@@ -119,10 +100,12 @@ def generate_launch_description():
         get_package_share_directory('perception'), 'config', 'perception.yaml')
     planning_config = os.path.join(
         get_package_share_directory('planning'), 'config', 'planning.yaml')
+    state_estimation_config = os.path.join(
+        get_package_share_directory('state_estimation'), 'config', 'state_estimation.yaml')
 
     leg_controller_arg = DeclareLaunchArgument(
         'leg_controller',
-        default_value='driving',
+        default_value='hold',
         description='Leg controller to launch: hold (default), driving, or none. '
                     'hold and driving cannot run simultaneously.')
     leg_ctrl = LaunchConfiguration('leg_controller')
@@ -133,7 +116,23 @@ def generate_launch_description():
 
         oak_camera,
         robstride_driver,
-        nav2_launch,
+
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_to_imu_tf',
+            output='screen',
+            arguments=[
+                str(imu_translation[0]),
+                str(imu_translation[1]),
+                str(imu_translation[2]),
+                str(imu_yaw),
+                '0',
+                '0',
+                'base_link',
+                'imu_link',
+            ],
+        ),
 
         Node(
             package='management',
@@ -201,6 +200,49 @@ def generate_launch_description():
             name='cmd_vel_to_vesc',
             output='screen',
             parameters=[vesc_config],
+        ),
+
+        Node(
+            package='state_estimation',
+            executable='diff_drive_odom',
+            name='diff_drive_odom',
+            output='screen',
+            parameters=[state_estimation_config],
+        ),
+
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[state_estimation_config],
+        ),
+
+        Node(
+            package='nav2_planner',
+            executable='planner_server',
+            name='planner_server',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
+        Node(
+            package='nav2_controller',
+            executable='controller_server',
+            name='controller_server',
+            output='screen',
+            parameters=[planning_config],
+            remappings=[
+                ('/cmd_vel', '/cmd_vel_auto'),
+            ],
+        ),
+
+        Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_navigation',
+            output='screen',
+            parameters=[planning_config],
         ),
 
         Node(

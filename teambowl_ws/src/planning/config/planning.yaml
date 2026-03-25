@@ -19,6 +19,8 @@ plan_wheels:
 
 planner_server:
   ros__parameters:
+    use_sim_time: false
+    expected_planner_frequency: 5.0
     planner_plugins: ["GridBased"]
 
     GridBased:
@@ -40,7 +42,28 @@ planner_server:
 
 controller_server:
   ros__parameters:
+    use_sim_time: false
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.0
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    odom_topic: /odometry/filtered
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.1
+      movement_time_allowance: 10.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.35
+
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       desired_linear_vel: 0.15  # Start extra slow for initial testing
@@ -49,25 +72,31 @@ controller_server:
       max_lookahead_dist: 1.0
       use_velocity_scaled_lookahead_dist: true
       regulated_linear_scaling_min_radius: 0.9
-      remappings:
-        - /cmd_vel => /cmd_vel_auto
+      use_rotate_to_heading: true
+      rotate_to_heading_angular_vel: 0.5
+      transform_tolerance: 0.2
+      allow_reversing: false
 
 global_costmap:
   global_costmap:
     ros__parameters:
       update_frequency: 1.0
       publish_frequency: 1.0
-      global_frame: odom        # Uses your EKF odom frame
+      global_frame: odom
       robot_base_frame: base_link
       use_sim_time: false
-      rolling_window: true      # Moves with the robot in empty space
+      rolling_window: true
       width: 10.0
       height: 10.0
       resolution: 0.05
-      plugins: ["inflation_layer"] # No obstacle_layer = Empty Map
+      robot_radius: 0.32
+      track_unknown_space: true
+      always_send_full_costmap: true
+      plugins: ["inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.55
+        cost_scaling_factor: 3.0
 
 local_costmap:
   local_costmap:
@@ -81,7 +110,16 @@ local_costmap:
       width: 3.0
       height: 3.0
       resolution: 0.05
-      plugins: ["inflation_layer"] # Pure empty space for local pathing
+      robot_radius: 0.32
+      always_send_full_costmap: true
+      plugins: ["inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.55
+        cost_scaling_factor: 3.0
+
+lifecycle_manager_navigation:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names: ["planner_server", "controller_server"]
