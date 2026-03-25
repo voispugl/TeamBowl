@@ -105,7 +105,7 @@ def generate_launch_description():
 
     leg_controller_arg = DeclareLaunchArgument(
         'leg_controller',
-        default_value='hold',
+        default_value='driving',
         description='Leg controller to launch: hold (default), driving, or none. '
                     'hold and driving cannot run simultaneously.')
     leg_ctrl = LaunchConfiguration('leg_controller')
