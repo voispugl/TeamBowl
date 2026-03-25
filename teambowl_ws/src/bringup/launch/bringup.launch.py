@@ -124,7 +124,7 @@ def generate_launch_description():
             'pointcloud.enable': 'true',
             'params_file': os.path.join(
                 get_package_share_directory('depthai_ros_driver'),
-                'config', 'oak_d_pro_w.yaml'),
+                'config', 'rgbd.yaml'),
             'parent_frame': 'base_link',
             'cam_pos_x': str(cam_translation[0]),
             'cam_pos_y': str(cam_translation[1]),
