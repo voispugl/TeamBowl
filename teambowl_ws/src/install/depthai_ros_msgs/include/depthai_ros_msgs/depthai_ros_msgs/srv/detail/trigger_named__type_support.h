@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/src/build/depthai_ros_msgs/rosidl_generator_c/depthai_ros_msgs/srv/detail/trigger_named__type_support.h

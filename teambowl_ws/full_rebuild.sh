@@ -35,6 +35,3 @@ colcon build --symlink-install --packages-select \
 
 echo "[build] Sourcing workspace overlay..."
 source install/setup.bash
-
-echo "[build] Launching bringup..."
-ros2 launch bringup bringup.launch.py
