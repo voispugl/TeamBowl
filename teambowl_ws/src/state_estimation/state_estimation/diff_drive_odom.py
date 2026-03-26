@@ -35,7 +35,7 @@ class DiffDriveOdomNode(Node):
         self.declare_parameter('odom_topic', '/wheel/odometry')
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
-        self.declare_parameter('wheel_radius_m', 0.307975)
+        self.declare_parameter('wheel_radius_m', 0.157485)
         self.declare_parameter('track_width_m', 0.5588)
         self.declare_parameter('left_sign', 1.0)
         self.declare_parameter('right_sign', -1.0)

@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/src/build/depthai_bridge/ament_cmake_environment_hooks/local_setup.bash

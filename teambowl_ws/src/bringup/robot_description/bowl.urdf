@@ -43,7 +43,7 @@
         <visual>
             <origin xyz="0.155 0.414212 0.0228866" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/113.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/131.stl" scale="1 1 1" />
             </geometry>
             <material name="0.972549_0.529412_0.003922_0.000000_0.000000">
                 <texture />
@@ -60,7 +60,7 @@
         <visual>
             <origin xyz="0.155 0.414212 0.0228866" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/113.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/131.stl" scale="1 1 1" />
             </geometry>
             <material name="0.972549_0.529412_0.003922_0.000000_0.000000">
                 <texture />
@@ -77,7 +77,7 @@
         <visual>
             <origin xyz="0.12775 0.318497 0.302267" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/109.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/127.stl" scale="1 1 1" />
             </geometry>
             <material name="0.498039_0.498039_0.498039_0.000000_0.000000">
                 <texture />
@@ -94,7 +94,7 @@
         <visual>
             <origin xyz="0.12775 0.318497 0.302267" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/109.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/127.stl" scale="1 1 1" />
             </geometry>
             <material name="0.498039_0.498039_0.498039_0.000000_0.000000">
                 <texture />
@@ -104,18 +104,18 @@
     </link>
     <link name="Frame">
         <inertial>
-            <mass value="0.00445655" />
-            <origin xyz="-0.00567621 -0.00510567 0.130299" rpy="0 -0 0" />
-            <inertia ixx="0.000182145" ixy="-2.13378e-08" ixz="-2.08573e-07" iyy="0.000254408" iyz="2.7417e-05" izz="0.000183112" />
+            <mass value="0.00493951" />
+            <origin xyz="-0.0057727 0.0293511 0.0401885" rpy="0 -0 0" />
+            <inertia ixx="0.000126942" ixy="-2.31757e-07" ixz="2.72376e-07" iyy="0.000216504" iyz="7.25005e-06" izz="0.000186534" />
         </inertial>
         <visual>
             <origin xyz="-0.00546297 0.0848 0.0954208" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/102.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/111.stl" scale="1 1 1" />
             </geometry>
-            <material name="0.972549_0.529412_0.003922_0.000000_0.000000">
+            <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
                 <texture />
-                <color rgba="0.972549 0.529412 0.00392157 1" />
+                <color rgba="0.615686 0.811765 0.929412 1" />
             </material>
         </visual>
     </link>
@@ -189,14 +189,14 @@
     </link>
     <link name="Lid">
         <inertial>
-            <mass value="0.00148516" />
-            <origin xyz="-0.00745293 0.115107 -0.00861439" rpy="0 -0 0" />
-            <inertia ixx="2.03406e-05" ixy="-8.95812e-07" ixz="-5.48577e-08" iyy="3.41205e-05" iyz="8.51167e-07" izz="5.31223e-05" />
+            <mass value="0.00166483" />
+            <origin xyz="-0.00667876 0.103152 -0.00905696" rpy="0 -0 0" />
+            <inertia ixx="2.37961e-05" ixy="-7.01922e-07" ixz="-5.42613e-08" iyy="3.45938e-05" iyz="8.41868e-07" izz="5.7036e-05" />
         </inertial>
         <visual>
             <origin xyz="2.42861e-17 0.19613 -0.20009" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/95.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/104.stl" scale="1 1 1" />
             </geometry>
             <material name="0.917647_0.917647_0.917647_0.000000_0.000000">
                 <texture />
@@ -264,7 +264,7 @@
         <visual>
             <origin xyz="0.271842 0.12319 0.151616" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/132.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/150.stl" scale="1 1 1" />
             </geometry>
             <material name="0.231373_0.380392_0.705882_0.000000_0.000000">
                 <texture />
@@ -281,7 +281,7 @@
         <visual>
             <origin xyz="0.27443 0.0457572 0.0410302" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/91.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/100.stl" scale="1 1 1" />
             </geometry>
             <material name="0.980392_0.713725_0.003922_0.000000_0.000000">
                 <texture />
@@ -298,7 +298,7 @@
         <visual>
             <origin xyz="0.27443 0.0457572 0.0410302" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/91.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/100.stl" scale="1 1 1" />
             </geometry>
             <material name="0.980392_0.713725_0.003922_0.000000_0.000000">
                 <texture />
@@ -315,7 +315,7 @@
         <visual>
             <origin xyz="0.2968 0.12319 0.151616" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://bowl/meshes/132.stl" scale="1 1 1" />
+                <mesh filename="package://bowl/meshes/150.stl" scale="1 1 1" />
             </geometry>
             <material name="0.231373_0.380392_0.705882_0.000000_0.000000">
                 <texture />
@@ -341,101 +341,104 @@
             </material>
         </visual>
     </link>
+    <link name="z_axis_1">
+        <inertial>
+            <mass value="4.90874e-07" />
+            <origin xyz="-1.32983e-19 -1.92593e-34 0.0125" rpy="0 -0 0" />
+            <inertia ixx="2.63333e-11" ixy="0" ixz="0" iyy="2.63333e-11" iyz="0" izz="1.53398e-12" />
+        </inertial>
+        <visual>
+            <origin xyz="0 -1.53081e-19 0" rpy="0 -0 0" />
+            <geometry>
+                <mesh filename="package://bowl/meshes/75.stl" scale="1 1 1" />
+            </geometry>
+            <material name="0.086275_0.317647_0.690196_0.000000_0.000000">
+                <texture />
+                <color rgba="0.0862745 0.317647 0.690196 1" />
+            </material>
+        </visual>
+    </link>
+    <link name="z_axis_2">
+        <inertial>
+            <mass value="4.90874e-07" />
+            <origin xyz="-1.32983e-19 -1.92593e-34 0.0125" rpy="0 -0 0" />
+            <inertia ixx="2.63333e-11" ixy="0" ixz="0" iyy="2.63333e-11" iyz="0" izz="1.53398e-12" />
+        </inertial>
+        <visual>
+            <origin xyz="0 -1.53081e-19 0" rpy="0 -0 0" />
+            <geometry>
+                <mesh filename="package://bowl/meshes/75.stl" scale="1 1 1" />
+            </geometry>
+            <material name="0.086275_0.317647_0.690196_0.000000_0.000000">
+                <texture />
+                <color rgba="0.0862745 0.317647 0.690196 1" />
+            </material>
+        </visual>
+    </link>
+    <link name="z_axis_3">
+        <inertial>
+            <mass value="4.90874e-07" />
+            <origin xyz="-1.32983e-19 -1.92593e-34 0.0125" rpy="0 -0 0" />
+            <inertia ixx="2.63333e-11" ixy="0" ixz="0" iyy="2.63333e-11" iyz="0" izz="1.53398e-12" />
+        </inertial>
+        <visual>
+            <origin xyz="0 -1.53081e-19 0" rpy="0 -0 0" />
+            <geometry>
+                <mesh filename="package://bowl/meshes/75.stl" scale="1 1 1" />
+            </geometry>
+            <material name="0.086275_0.317647_0.690196_0.000000_0.000000">
+                <texture />
+                <color rgba="0.0862745 0.317647 0.690196 1" />
+            </material>
+        </visual>
+    </link>
     <joint name="Fastened 1_0" type="fixed">
         <origin xyz="-8.67362e-19 0 0" rpy="-1.73472e-17 8.86235e-18 -1.03773e-33" />
         <axis xyz="-8.86235e-18 -1.73472e-17 1" />
         <parent link="root" />
         <child link="Frame" />
     </joint>
-    <joint name="closing_knee0_0" type="continuous">
-        <origin xyz="0.02625 -0.225522 0.190669" rpy="-0.349066 -1.72747e-15 2.66893e-16" />
-        <axis xyz="1 2.68293e-15 3.68387e-17" />
-        <parent link="Thigh_1" />
-        <child link="Calf_1" />
-    </joint>
-    <joint name="closing_knee1_0" type="continuous">
-        <origin xyz="0.02625 -0.225522 0.190669" rpy="-0.349066 1.37701e-15 9.32681e-16" />
-        <axis xyz="1 2.68293e-15 3.68387e-17" />
-        <parent link="Thigh" />
-        <child link="Calf" />
-    </joint>
-    <joint name="dof_ankle0_0" type="continuous">
-        <origin xyz="0.02725 0.0957158 -0.279381" rpy="0.610865 -2.02326e-15 -1.57207e-15" />
+    <joint name="ankle0_0" type="continuous">
+        <origin xyz="0.02725 0.0957158 -0.279381" rpy="0.610865 -2.01631e-15 -1.5672e-15" />
         <axis xyz="-1 -1.69007e-15 -1.55165e-15" />
         <parent link="Calf_1" />
         <child link="Foot_1" />
     </joint>
-    <joint name="dof_ankle1_0" type="continuous">
-        <origin xyz="0.02725 0.0957158 -0.279381" rpy="0.610865 1.67124e-15 1.43103e-15" />
-        <axis xyz="-1 -1.69007e-15 -1.55165e-15" />
-        <parent link="Calf" />
-        <child link="Foot" />
-    </joint>
-    <joint name="dof_calf0_0" type="continuous">
-        <origin xyz="-0.03125 -0.07 -3.1225e-15" rpy="-0.436332 2.46632e-15 -7.51253e-15" />
+    <joint name="calf0_0" type="continuous">
+        <origin xyz="-0.03125 -0.07 -3.19189e-15" rpy="-0.436332 5.52108e-15 -5.14189e-17" />
         <axis xyz="-1 -2.87471e-15 -1.34042e-16" />
         <parent link="Hip_1" />
         <child link="Thigh_1" />
     </joint>
+    <joint name="closing_knee1_0" type="continuous">
+        <origin xyz="0.02625 -0.225522 0.190669" rpy="-0.349066 -7.96611e-16 -1.31473e-14" />
+        <axis xyz="1 2.68293e-15 3.68387e-17" />
+        <parent link="Thigh" />
+        <child link="Calf" />
+    </joint>
+    <joint name="dof_ankle1_0" type="continuous">
+        <origin xyz="0.02725 0.0957158 -0.279381" rpy="0.610865 1.67033e-15 1.4304e-15" />
+        <axis xyz="-1 -1.69007e-15 -1.55165e-15" />
+        <parent link="Calf" />
+        <child link="Foot" />
+    </joint>
     <joint name="dof_calf1_0" type="continuous">
-        <origin xyz="-0.03125 -0.07 3.23352e-15" rpy="-0.436332 -1.23267e-15 -1.29098e-14" />
+        <origin xyz="-0.03125 -0.07 3.21965e-15" rpy="-0.436332 6.36257e-15 -1.23128e-14" />
         <axis xyz="-1 -2.87471e-15 -1.34042e-16" />
         <parent link="Hip" />
         <child link="Thigh" />
     </joint>
-    <joint name="dof_driver0_0" type="continuous">
-        <origin xyz="0.03125 -0.07 3.53884e-15" rpy="-0.785398 -3.16395e-15 -6.83644e-15" />
-        <axis xyz="1 2.42762e-15 1.53802e-17" />
-        <parent link="Hip_1" />
-        <child link="Knee Kicker" />
-    </joint>
     <joint name="dof_driver1_0" type="continuous">
-        <origin xyz="0.03125 -0.07 1.01308e-14" rpy="-0.785398 3.02832e-16 -1.26566e-14" />
+        <origin xyz="0.03125 -0.07 1.02696e-14" rpy="-0.785398 3.02832e-16 -1.93215e-15" />
         <axis xyz="1 2.42762e-15 1.53802e-17" />
         <parent link="Hip" />
         <child link="Knee Kicker_1" />
     </joint>
-    <joint name="dof_hip0_0" type="continuous">
-        <origin xyz="-0.155463 -0.03389 -0.118135" rpy="2.87809e-16 -4.94585e-16 3.18016e-14" />
-        <axis xyz="3.88364e-16 1 -2.60209e-17" />
-        <parent link="Frame" />
-        <child link="Hip_1" />
-    </joint>
     <joint name="dof_hip1_0" type="continuous">
-        <origin xyz="0.144537 -0.03389 -0.118135" rpy="3.18538e-16 -1.87654e-15 3.19124e-14" />
+        <origin xyz="0.144537 -0.03389 -0.118135" rpy="-6.76723e-15 -1.26908e-14 -4.91142e-14" />
         <axis xyz="-3.88364e-16 -1 2.60209e-17" />
         <parent link="Frame" />
         <child link="Hip" />
-    </joint>
-    <joint name="dof_lid_0" type="continuous">
-        <origin xyz="-0.00546297 -0.11133 0.294511" rpy="6.8777e-18 6.13827e-17 2.05537e-33" />
-        <axis xyz="1.50366e-19 -2.25134e-17 -1" />
-        <parent link="Frame" />
-        <child link="Lid" />
-    </joint>
-    <joint name="dof_lid_gear_0" type="continuous">
-        <origin xyz="-0.00560326 -0.163819 0.240861" rpy="8.6621e-17 3.30928e-16 1.64268e-32" />
-        <axis xyz="-2.11965e-17 5.1682e-17 -1" />
-        <parent link="Frame" />
-        <child link="Lid Gear" />
-    </joint>
-    <joint name="dof_motor0_0" type="continuous">
-        <origin xyz="-0.282193 0.0390428 0.0543905" rpy="-1.33914 1.27404e-16 6.41461e-17" />
-        <axis xyz="-1 7.94831e-31 7.96232e-17" />
-        <parent link="Frame" />
-        <child link="Wheel Gear_1" />
-    </joint>
-    <joint name="dof_motor1_0" type="continuous">
-        <origin xyz="0.271267 0.0390428 0.0543905" rpy="3.44827e-26 -1.85182e-16 -6.77939e-17" />
-        <axis xyz="1 -7.94831e-31 -7.96232e-17" />
-        <parent link="Frame" />
-        <child link="Wheel Gear" />
-    </joint>
-    <joint name="dof_trochanter0_0" type="continuous">
-        <origin xyz="-0.03625 -0.0225108 0.0657059" rpy="0.349066 3.83054e-15 1.27368e-15" />
-        <axis xyz="-1 -2.3946e-15 -1.19973e-16" />
-        <parent link="Knee Kicker" />
-        <child link="Align bar_1" />
     </joint>
     <joint name="dof_trochanter1_0" type="continuous">
         <origin xyz="-0.03625 -0.0225108 0.0657059" rpy="0.349066 -8.64061e-15 -1.73077e-15" />
@@ -443,22 +446,88 @@
         <parent link="Knee Kicker_1" />
         <child link="Align bar" />
     </joint>
+    <joint name="driver0_0" type="continuous">
+        <origin xyz="0.03125 -0.07 3.78864e-15" rpy="-0.785398 -3.16395e-15 1.06414e-15" />
+        <axis xyz="1 2.42762e-15 1.53802e-17" />
+        <parent link="Hip_1" />
+        <child link="Knee Kicker" />
+    </joint>
+    <joint name="hip0_0" type="continuous">
+        <origin xyz="-0.155463 -0.03389 -0.118135" rpy="-6.79796e-15 -1.13089e-14 -4.9225e-14" />
+        <axis xyz="3.88364e-16 1 -2.60209e-17" />
+        <parent link="Frame" />
+        <child link="Hip_1" />
+    </joint>
     <joint name="imu_0" type="fixed">
         <origin xyz="1.20439e-18 1.53081e-19 1.33292e-35" rpy="1.73472e-17 -8.86235e-18 8.83989e-34" />
         <axis xyz="0 0 1" />
         <parent link="Frame" />
         <child link="z_axis" />
     </joint>
+    <joint name="knee0_0" type="continuous">
+        <origin xyz="0.02625 -0.225522 0.190669" rpy="-0.349066 8.47614e-15 -3.25427e-15" />
+        <axis xyz="1 2.68293e-15 3.68387e-17" />
+        <parent link="Thigh_1" />
+        <child link="Calf_1" />
+    </joint>
+    <joint name="left_mono_0" type="fixed">
+        <origin xyz="-0.0429629 0.229702 0.0818872" rpy="-1.5708 -5.51779e-30 -6.56158e-18" />
+        <axis xyz="0 0 -1" />
+        <parent link="Frame" />
+        <child link="z_axis_3" />
+    </joint>
+    <joint name="left_motor_0" type="continuous">
+        <origin xyz="-0.282193 0.0390428 0.0543905" rpy="-1.5708 7.96232e-17 7.96232e-17" />
+        <axis xyz="1 -7.94831e-31 -7.96232e-17" />
+        <parent link="Frame" />
+        <child link="Wheel Gear_1" />
+    </joint>
     <joint name="left_wheel_0" type="continuous">
-        <origin xyz="-0.302263 -0.03839 -0.056195" rpy="-0.110825 6.43831e-18 -1.48663e-17" />
-        <axis xyz="1 6.56158e-18 8.86235e-18" />
+        <origin xyz="-0.302263 -0.03839 -0.056195" rpy="1.73472e-17 -8.50584e-19 4.81092e-17" />
+        <axis xyz="-1 -6.56158e-18 -8.86235e-18" />
         <parent link="Frame" />
         <child link="Wheel_1" />
     </joint>
+    <joint name="lid_0" type="continuous">
+        <origin xyz="-0.00546297 -0.11133 0.294511" rpy="1.69673e-18 1.50366e-19 -3.13011e-36" />
+        <axis xyz="-1.50366e-19 2.25134e-17 1" />
+        <parent link="Frame" />
+        <child link="Lid" />
+    </joint>
+    <joint name="lid_gear_0" type="continuous">
+        <origin xyz="-0.00560326 -0.163819 0.240861" rpy="-7.24987e-17 -2.11965e-17 4.41241e-34" />
+        <axis xyz="-2.11965e-17 5.1682e-17 -1" />
+        <parent link="Frame" />
+        <child link="Lid Gear" />
+    </joint>
+    <joint name="rgb_cam_0" type="fixed">
+        <origin xyz="-0.00546292 0.229702 0.0818872" rpy="-1.5708 -5.51779e-30 -6.56158e-18" />
+        <axis xyz="0 0 -1" />
+        <parent link="Frame" />
+        <child link="z_axis_1" />
+    </joint>
+    <joint name="right_mono_0" type="fixed">
+        <origin xyz="0.0320371 0.229702 0.0818872" rpy="-1.5708 -5.51779e-30 -6.56158e-18" />
+        <axis xyz="0 0 -1" />
+        <parent link="Frame" />
+        <child link="z_axis_2" />
+    </joint>
+    <joint name="right_motor_0" type="continuous">
+        <origin xyz="0.271267 0.0390428 0.0543905" rpy="5.78468e-34 -1.7632e-16 -6.56158e-18" />
+        <axis xyz="1 -7.94831e-31 -7.96232e-17" />
+        <parent link="Frame" />
+        <child link="Wheel Gear" />
+    </joint>
     <joint name="right_wheel_0" type="continuous">
-        <origin xyz="0.26638 -0.03839 -0.056195" rpy="-3.14159 -1.30343e-17 -3.14159" />
+        <origin xyz="0.26638 -0.03839 -0.056195" rpy="3.14159 -1.30343e-17 -3.14159" />
         <axis xyz="1 8.08576e-18 2.18967e-17" />
         <parent link="Frame" />
         <child link="Wheel" />
+    </joint>
+    <joint name="trochanter0_0" type="continuous">
+        <origin xyz="-0.03625 -0.0225108 0.0657059" rpy="0.349066 3.83054e-15 1.27368e-15" />
+        <axis xyz="-1 -2.3946e-15 -1.19973e-16" />
+        <parent link="Knee Kicker" />
+        <child link="Align bar_1" />
     </joint>
 </robot>

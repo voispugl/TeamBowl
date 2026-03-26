@@ -9,7 +9,6 @@ import math
 import xml.etree.ElementTree as ET
 from ament_index_python.packages import get_package_share_directory
 
-
 def _parse_xyz(text):
     return [float(value) for value in text.split()]
 
@@ -51,30 +50,81 @@ def _compute_base_to_imu_tf(urdf_path):
     return imu_in_base, yaw_base_to_imu
 
 
+def _compute_base_to_rgb_camera_tf(urdf_path):
+    root = ET.parse(urdf_path).getroot()
+    joint_origins = {}
+
+    for joint in root.findall('joint'):
+        name = joint.get('name')
+        if name not in {'left_wheel_0', 'right_wheel_0', 'rgb_cam_0'}:
+            continue
+        origin = joint.find('origin')
+        if origin is None or origin.get('xyz') is None:
+            raise RuntimeError(f'Joint {name} is missing an origin xyz in {urdf_path}')
+        joint_origins[name] = {
+            'xyz': _parse_xyz(origin.get('xyz')),
+            'rpy': _parse_xyz(origin.get('rpy', '0 0 0')),
+        }
+
+    missing = {'left_wheel_0', 'right_wheel_0', 'rgb_cam_0'} - set(joint_origins)
+    if missing:
+        raise RuntimeError(
+            f'URDF {urdf_path} is missing required joints: {sorted(missing)}'
+        )
+
+    base_in_imu = [
+        (joint_origins['left_wheel_0']['xyz'][index] + joint_origins['right_wheel_0']['xyz'][index]) / 2.0
+        for index in range(3)
+    ]
+    cam_in_imu = joint_origins['rgb_cam_0']['xyz']
+    dx_i = cam_in_imu[0] - base_in_imu[0]
+    dy_i = cam_in_imu[1] - base_in_imu[1]
+    dz_i = cam_in_imu[2] - base_in_imu[2]
+
+    # URDF Frame/IMU axes: x-right, y-forward, z-up. base_link: x-forward, y-left, z-up.
+    cam_pos_in_base = [
+        dy_i,
+        -dx_i,
+        dz_i,
+    ]
+
+    # camera.launch.py creates the optical-frame rotation internally. We only want
+    # the physical mount of the camera base frame relative to base_link here.
+    return cam_pos_in_base, [0.0, 0.0, 0.0]
+
+
 def generate_launch_description():
+
     robot_urdf = os.path.join(
         get_package_share_directory('bringup'),
         'robot_description',
         'bowl.urdf',
     )
     imu_translation, imu_yaw = _compute_base_to_imu_tf(robot_urdf)
+    cam_translation, cam_rpy = _compute_base_to_rgb_camera_tf(robot_urdf)
 
     oak_camera = IncludeLaunchDescription(
-        # point cloud launch
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('depthai_ros_driver'), # Or your local package
+                get_package_share_directory('depthai_ros_driver'),
                 'launch',
-                'pointcloud.launch.py'  # Switch from camera.launch.py to this
+                'camera.launch.py'
             )
         ),
         launch_arguments={
             'name': 'oak',
             'rectify_rgb': 'true',
+            'pointcloud.enable': 'true',
             'params_file': os.path.join(
-                get_package_share_directory('depthai_ros_driver'), 
-                'config', 'oak_d_pro_w.yaml'),
-            'parent_frame': 'oak_d_base_frame',
+                get_package_share_directory('depthai_ros_driver'),
+                'config', 'rgbd.yaml'),
+            'parent_frame': 'base_link',
+            'cam_pos_x': str(cam_translation[0]),
+            'cam_pos_y': str(cam_translation[1]),
+            'cam_pos_z': str(cam_translation[2]),
+            'cam_roll': str(cam_rpy[0]),
+            'cam_pitch': str(cam_rpy[1]),
+            'cam_yaw': str(cam_rpy[2]),
         }.items()
     )
 
@@ -219,6 +269,33 @@ def generate_launch_description():
         ),
 
         Node(
+            package='nav2_planner',
+            executable='planner_server',
+            name='planner_server',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
+        Node(
+            package='nav2_controller',
+            executable='controller_server',
+            name='controller_server',
+            output='screen',
+            parameters=[planning_config],
+            remappings=[
+                ('/cmd_vel', '/cmd_vel_auto'),
+            ],
+        ),
+
+        Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_navigation',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
+        Node(
             package='perception',
             executable='cam_ops',
             name='cam_ops_node',
@@ -226,11 +303,11 @@ def generate_launch_description():
             parameters=[perception_config],
         ),
 
-        Node(
-            package='planning',
-            executable='plan_wheels',
-            name='plan_wheels',
-            output='screen',
-            parameters=[planning_config],
-        ),
+        # Node(
+        #     package='planning',
+        #     executable='plan_wheels',
+        #     name='plan_wheels',
+        #     output='screen',
+        #     parameters=[planning_config],
+        # ),
     ])

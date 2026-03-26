@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+teambowl_ws/build/
+teambowl_ws/install/
+teambowl_ws/log/
+teambowl_ws/src/install/
+teambowl_ws/src/log/
+teambowl_ws/src/*/install/
+teambowl_ws/src/*/log/

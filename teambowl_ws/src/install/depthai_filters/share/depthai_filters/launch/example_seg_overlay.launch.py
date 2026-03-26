@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/src/drivers/depthai-ros/depthai_filters/launch/example_seg_overlay.launch.py

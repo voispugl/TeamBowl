@@ -1,6 +1,5 @@
 /oak:
   ros__parameters:
-    i_publish_topic: false
     pointcloud:
       i_enable: false
     camera:

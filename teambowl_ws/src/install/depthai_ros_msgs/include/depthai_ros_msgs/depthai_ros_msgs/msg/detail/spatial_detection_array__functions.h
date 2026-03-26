@@ -1,1 +1,0 @@
-/home/box/TeamBowl/teambowl_ws/src/build/depthai_ros_msgs/rosidl_generator_c/depthai_ros_msgs/msg/detail/spatial_detection_array__functions.h
