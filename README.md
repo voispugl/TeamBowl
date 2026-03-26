@@ -12,7 +12,8 @@ TeamBowl/
 ├── teambowl_docker/        Docker image and compose file (optional)
 └── teambowl_ws/            ROS2 workspace
     ├── full_rebuild.sh     Clean build + launch full stack
-    ├── source.sh           Source environment + launch full stack
+    ├── source.sh           Source environment
+    ├── launch.sh           Source environment + launch full stack
     └── src/
         ├── bringup/        System-wide launch file (see bringup/README.md)
         ├── locomotion/     Leg controllers, velocity mux, collision guard
