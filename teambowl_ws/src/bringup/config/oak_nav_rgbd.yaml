@@ -7,7 +7,7 @@
       i_pipeline_type: depth
     rgb:
       i_width: 640
-      i_height: 360
+      i_height: 352
       i_fps: 20.0
     stereo:
       i_align_depth: true

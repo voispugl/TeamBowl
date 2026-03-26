@@ -1,1 +1,1 @@
-launch:launch_ros:nav2_controller:nav2_lifecycle_manager:nav2_planner:robot_localization:state_estimation:tf2_ros
+launch:launch_ros:nav2_controller:nav2_lifecycle_manager:nav2_planner:planning:robot_localization:state_estimation:tf2_ros

@@ -116,9 +116,9 @@ def generate_launch_description():
             'rectify_rgb': 'true',
             'pointcloud.enable': 'true',
             'params_file': os.path.join(
-                get_package_share_directory('bringup'),
+                get_package_share_directory('depthai_ros_driver'),
                 'config',
-                'oak_nav_rgbd.yaml',
+                'rgbd.yaml',
             ),
             'parent_frame': 'base_link',
             'cam_pos_x': str(cam_translation[0]),
