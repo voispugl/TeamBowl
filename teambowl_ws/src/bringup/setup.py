@@ -12,6 +12,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
         ('share/' + package_name + '/robot_description', ['robot_description/bowl.urdf']),
         ('share/' + package_name + '/robot_description/meshes', glob('robot_description/meshes/*.stl')),
     ],

@@ -116,8 +116,10 @@ def generate_launch_description():
             'rectify_rgb': 'true',
             'pointcloud.enable': 'true',
             'params_file': os.path.join(
-                get_package_share_directory('depthai_ros_driver'),
-                'config', 'rgbd.yaml'),
+                get_package_share_directory('bringup'),
+                'config',
+                'oak_nav_rgbd.yaml',
+            ),
             'parent_frame': 'base_link',
             'cam_pos_x': str(cam_translation[0]),
             'cam_pos_y': str(cam_translation[1]),
@@ -285,6 +287,14 @@ def generate_launch_description():
             remappings=[
                 ('/cmd_vel', '/cmd_vel_auto'),
             ],
+        ),
+
+        Node(
+            package='planning',
+            executable='nav_cloud_filter',
+            name='nav_cloud_filter',
+            output='screen',
+            parameters=[planning_config],
         ),
 
         Node(

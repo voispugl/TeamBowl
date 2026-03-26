@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'plan_wheels = planning.plan_wheels:main',
+            'nav_cloud_filter = planning.nav_cloud_filter:main',
         ],
     },
 )

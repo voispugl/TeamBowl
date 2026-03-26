@@ -10,6 +10,7 @@
   <depend>launch</depend>
   <depend>launch_ros</depend>
   <depend>state_estimation</depend>
+  <depend>planning</depend>
   <depend>robot_localization</depend>
   <depend>tf2_ros</depend>
   <depend>nav2_planner</depend>
