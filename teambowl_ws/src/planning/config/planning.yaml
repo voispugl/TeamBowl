@@ -63,6 +63,8 @@ follow_executor:
     goal_checker_id: goal_checker
     debug_path_topic: /follow_path
     cmd_vel_topic: /cmd_vel_auto
+    mode_topic: /robot_mode
+    autonomous_mode_name: auton
 
 planner_server:
   ros__parameters:

@@ -11,6 +11,8 @@ from nav_msgs.msg import Path
 from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import String
 
 
 class FollowExecutor(Node):
@@ -29,6 +31,8 @@ class FollowExecutor(Node):
         self.declare_parameter('goal_checker_id', 'goal_checker')
         self.declare_parameter('debug_path_topic', '/follow_path')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel_auto')
+        self.declare_parameter('mode_topic', '/robot_mode')
+        self.declare_parameter('autonomous_mode_name', 'auton')
 
         self.goal_topic = str(self.get_parameter('goal_topic').value)
         self.goal_timeout = Duration(seconds=float(self.get_parameter('goal_timeout_s').value))
@@ -42,10 +46,25 @@ class FollowExecutor(Node):
         self.goal_checker_id = str(self.get_parameter('goal_checker_id').value)
         self.debug_path_topic = str(self.get_parameter('debug_path_topic').value)
         self.cmd_vel_topic = str(self.get_parameter('cmd_vel_topic').value)
+        self.mode_topic = str(self.get_parameter('mode_topic').value)
+        self.autonomous_mode_name = str(self.get_parameter('autonomous_mode_name').value)
 
         self.goal_sub = self.create_subscription(PoseStamped, self.goal_topic, self._goal_cb, 10)
         self.path_pub = self.create_publisher(Path, self.debug_path_topic, 10)
         self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+
+        mode_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.mode_sub = self.create_subscription(
+            String,
+            self.mode_topic,
+            self._mode_cb,
+            mode_qos,
+        )
 
         self.planner_client = ActionClient(self, ComputePathToPose, self.planner_action_name)
         self.controller_client = ActionClient(self, FollowPath, self.controller_action_name)
@@ -53,6 +72,7 @@ class FollowExecutor(Node):
         self.latest_goal: PoseStamped | None = None
         self.latest_goal_time = None
         self.last_planned_goal: PoseStamped | None = None
+        self.robot_mode = 'off'
 
         self.planner_goal_handle = None
         self.controller_goal_handle = None
@@ -71,6 +91,16 @@ class FollowExecutor(Node):
         self.latest_goal = msg
         self.latest_goal_time = self.get_clock().now()
 
+    def _mode_cb(self, msg: String):
+        new_mode = msg.data.strip().lower()
+        if new_mode == self.robot_mode:
+            return
+
+        self.robot_mode = new_mode
+        if self.robot_mode != self.autonomous_mode_name:
+            self._cancel_controller_if_needed()
+            self._publish_zero_cmd()
+
     def _goal_fresh(self) -> bool:
         if self.latest_goal is None or self.latest_goal_time is None:
             return False
@@ -86,6 +116,13 @@ class FollowExecutor(Node):
             return
 
         if self.latest_goal is None:
+            return
+
+        if self.robot_mode != self.autonomous_mode_name:
+            if self.last_planned_goal is None or self._goal_changed_enough(
+                self.last_planned_goal, self.latest_goal
+            ):
+                self._request_path(self.latest_goal)
             return
 
         if not self.planner_client.server_is_ready():
@@ -164,6 +201,11 @@ class FollowExecutor(Node):
 
         self.path_pub.publish(path)
         self.last_planned_goal = self.latest_goal
+
+        if self.robot_mode != self.autonomous_mode_name:
+            self._cancel_controller_if_needed()
+            self._publish_zero_cmd()
+            return
 
         if self.controller_goal_handle is not None:
             self._cancel_controller_if_needed(next_path=path)
