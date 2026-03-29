@@ -167,26 +167,34 @@ class FollowExecutor(Node):
         goal.use_start = False
 
         self.planner_request_in_flight = True
+        self.get_logger().info(
+            f'Requesting path to '
+            f'({goal_pose.pose.position.x:.2f}, {goal_pose.pose.position.y:.2f}) '
+            f'in {goal_pose.header.frame_id}'
+        )
         future = self.planner_client.send_goal_async(goal)
         future.add_done_callback(self._on_planner_goal_response)
 
     def _on_planner_goal_response(self, future):
-        self.planner_request_in_flight = False
         try:
             goal_handle = future.result()
         except Exception as exc:
+            self.planner_request_in_flight = False
             self.get_logger().error(f'Failed to send planner goal: {exc}')
             return
 
         if not goal_handle.accepted:
+            self.planner_request_in_flight = False
             self.get_logger().warn('Planner rejected follow goal')
             return
 
         self.planner_goal_handle = goal_handle
+        self.get_logger().info('Planner accepted follow goal')
         result_future = goal_handle.get_result_async()
         result_future.add_done_callback(self._on_planner_result)
 
     def _on_planner_result(self, future):
+        self.planner_request_in_flight = False
         try:
             wrapped_result = future.result()
         except Exception as exc:
@@ -199,6 +207,7 @@ class FollowExecutor(Node):
             self.get_logger().warn('Planner returned an empty path')
             return
 
+        self.get_logger().info(f'Planner returned path with {len(path.poses)} poses')
         self.path_pub.publish(path)
         self.last_planned_goal = self.latest_goal
 
