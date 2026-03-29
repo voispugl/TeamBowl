@@ -27,7 +27,6 @@ class FollowExecutor(Node):
         self.declare_parameter('planner_id', 'GridBased')
         self.declare_parameter('controller_id', 'FollowPath')
         self.declare_parameter('goal_checker_id', 'goal_checker')
-        self.declare_parameter('progress_checker_id', 'progress_checker')
         self.declare_parameter('debug_path_topic', '/follow_path')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel_auto')
 
@@ -41,7 +40,6 @@ class FollowExecutor(Node):
         self.planner_id = str(self.get_parameter('planner_id').value)
         self.controller_id = str(self.get_parameter('controller_id').value)
         self.goal_checker_id = str(self.get_parameter('goal_checker_id').value)
-        self.progress_checker_id = str(self.get_parameter('progress_checker_id').value)
         self.debug_path_topic = str(self.get_parameter('debug_path_topic').value)
         self.cmd_vel_topic = str(self.get_parameter('cmd_vel_topic').value)
 
@@ -203,7 +201,6 @@ class FollowExecutor(Node):
         goal.path = path
         goal.controller_id = self.controller_id
         goal.goal_checker_id = self.goal_checker_id
-        goal.progress_checker_id = self.progress_checker_id
 
         future = self.controller_client.send_goal_async(goal)
         future.add_done_callback(self._on_controller_goal_response)

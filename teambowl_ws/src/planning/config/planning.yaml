@@ -61,7 +61,6 @@ follow_executor:
     planner_id: GridBased
     controller_id: FollowPath
     goal_checker_id: goal_checker
-    progress_checker_id: progress_checker
     debug_path_topic: /follow_path
     cmd_vel_topic: /cmd_vel_auto
 
