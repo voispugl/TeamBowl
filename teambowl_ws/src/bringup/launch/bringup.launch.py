@@ -298,6 +298,14 @@ def generate_launch_description():
         ),
 
         Node(
+            package='planning',
+            executable='follow_goal',
+            name='follow_goal',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
+        Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_navigation',
