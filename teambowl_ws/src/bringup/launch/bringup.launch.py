@@ -306,6 +306,14 @@ def generate_launch_description():
         ),
 
         Node(
+            package='planning',
+            executable='follow_executor',
+            name='follow_executor',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
+        Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_navigation',

@@ -28,6 +28,7 @@ setup(
             'plan_wheels = planning.plan_wheels:main',
             'nav_cloud_filter = planning.nav_cloud_filter:main',
             'follow_goal = planning.follow_goal:main',
+            'follow_executor = planning.follow_executor:main',
         ],
     },
 )
