@@ -115,14 +115,14 @@ controller_server:
 
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.15  # Start extra slow for initial testing
+      desired_linear_vel: 0.5
       lookahead_dist: 0.6
       min_lookahead_dist: 0.3
       max_lookahead_dist: 1.0
       use_velocity_scaled_lookahead_dist: true
       regulated_linear_scaling_min_radius: 0.9
       use_rotate_to_heading: true
-      rotate_to_heading_angular_vel: 0.8
+      rotate_to_heading_angular_vel: 1.2
       transform_tolerance: 0.2
       allow_reversing: false
 
