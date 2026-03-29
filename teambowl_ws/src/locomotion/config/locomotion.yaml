@@ -34,4 +34,4 @@ collision_guard:
     estop_topic: /estop
     output_topic: /cmd_vel
     max_linear_x: 0.2
-    max_angular_z: 0.5
+    max_angular_z: 0.8

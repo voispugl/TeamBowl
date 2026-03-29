@@ -35,7 +35,7 @@ class CollisionGuardNode(Node):
         # Topics for velocity clamping
         self.declare_parameter('input_topic', '/cmd_vel_selected')
         self.declare_parameter('max_linear_x', 0.2)     # m/s
-        self.declare_parameter('max_angular_z', 0.5)    # rad/s
+        self.declare_parameter('max_angular_z', 0.8)    # rad/s
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('output_topic', '/cmd_vel')
 

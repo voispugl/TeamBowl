@@ -65,7 +65,7 @@ class PlanWheels(Node):
 
         # Limits
         self.declare_parameter('max_linear_x', 0.2)
-        self.declare_parameter('max_angular_z', 0.5)
+        self.declare_parameter('max_angular_z', 0.8)
 
         # Optional reverse behavior
         self.declare_parameter('allow_reverse', False)

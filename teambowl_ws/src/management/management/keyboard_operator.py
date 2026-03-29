@@ -2,6 +2,7 @@
 import sys
 import select
 import termios
+import time
 import tty
 
 import rclpy
@@ -64,9 +65,10 @@ class KeyboardOperatorNode(Node):
         self.declare_parameter('mode_set_topic', '/robot_mode_set')
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('publish_rate_hz', 20.0)
+        self.declare_parameter('teleop_hold_timeout_s', 0.20)
 
         self.declare_parameter('linear_speed', 0.20)
-        self.declare_parameter('angular_speed', 0.50)
+        self.declare_parameter('angular_speed', 0.80)
 
         self.declare_parameter('linear_speed_step', 0.05)
         self.declare_parameter('angular_speed_step', 0.10)
@@ -74,12 +76,15 @@ class KeyboardOperatorNode(Node):
         self.declare_parameter('linear_speed_min', 0.0)
         self.declare_parameter('linear_speed_max', 0.20)
         self.declare_parameter('angular_speed_min', 0.0)
-        self.declare_parameter('angular_speed_max', 0.50)
+        self.declare_parameter('angular_speed_max', 0.80)
 
         self.teleop_topic = self.get_parameter('teleop_topic').value
         self.mode_set_topic = self.get_parameter('mode_set_topic').value
         self.estop_topic = self.get_parameter('estop_topic').value
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
+        self.teleop_hold_timeout_s = float(
+            self.get_parameter('teleop_hold_timeout_s').value
+        )
 
         self.linear_speed = float(self.get_parameter('linear_speed').value)
         self.angular_speed = float(self.get_parameter('angular_speed').value)
@@ -103,6 +108,7 @@ class KeyboardOperatorNode(Node):
         self.pub_estop = self.create_publisher(Bool, self.estop_topic, qos)
 
         self.current_twist = zero_twist()
+        self.last_motion_command_time = 0.0
 
         # Put terminal into cbreak mode so we can read single keypresses.
         self.stdin_fd = sys.stdin.fileno()
@@ -138,6 +144,7 @@ Modes:
   9 -> ESTOP OFF
 
 Teleop motion:
+  Hold the key to keep moving
   w -> forward
   s -> backward
   a -> turn left
@@ -186,6 +193,10 @@ Misc:
         msg.angular.z = angular_z
         self.current_twist = msg
 
+    def _set_motion_twist(self, linear_x: float, angular_z: float):
+        self._set_twist(linear_x, angular_z)
+        self.last_motion_command_time = time.monotonic()
+
     def _handle_key(self, key: str):
         # Modes
         if key == '1':
@@ -209,28 +220,28 @@ Misc:
 
         # Motion
         if key == 'w':
-            self._set_twist(+self.linear_speed, 0.0)
+            self._set_motion_twist(+self.linear_speed, 0.0)
             return
         if key == 's':
-            self._set_twist(-self.linear_speed, 0.0)
+            self._set_motion_twist(-self.linear_speed, 0.0)
             return
         if key == 'a':
-            self._set_twist(0.0, +self.angular_speed)
+            self._set_motion_twist(0.0, +self.angular_speed)
             return
         if key == 'd':
-            self._set_twist(0.0, -self.angular_speed)
+            self._set_motion_twist(0.0, -self.angular_speed)
             return
         if key == 'q':
-            self._set_twist(+self.linear_speed, +self.angular_speed)
+            self._set_motion_twist(+self.linear_speed, +self.angular_speed)
             return
         if key == 'e':
-            self._set_twist(+self.linear_speed, -self.angular_speed)
+            self._set_motion_twist(+self.linear_speed, -self.angular_speed)
             return
         if key == 'z':
-            self._set_twist(-self.linear_speed, +self.angular_speed)
+            self._set_motion_twist(-self.linear_speed, +self.angular_speed)
             return
         if key == 'c':
-            self._set_twist(-self.linear_speed, -self.angular_speed)
+            self._set_motion_twist(-self.linear_speed, -self.angular_speed)
             return
         if key == ' ' or key == 'x':
             self._set_twist(0.0, 0.0)
@@ -279,6 +290,13 @@ Misc:
         if select.select([sys.stdin], [], [], 0.0)[0]:
             key = sys.stdin.read(1)
             self._handle_key(key)
+
+        now = time.monotonic()
+        if (
+            (self.current_twist.linear.x != 0.0 or self.current_twist.angular.z != 0.0)
+            and (now - self.last_motion_command_time) > self.teleop_hold_timeout_s
+        ):
+            self._set_twist(0.0, 0.0)
 
         # Keep publishing current teleop command so mux freshness stays alive.
         self.pub_cmd.publish(self.current_twist)
