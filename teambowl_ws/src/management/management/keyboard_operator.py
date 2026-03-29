@@ -8,7 +8,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 
 def clamp(x: float, lo: float, hi: float) -> float:
@@ -32,11 +32,14 @@ class KeyboardOperatorNode(Node):
     Publishes:
       - /cmd_vel_teleop   (geometry_msgs/Twist)
       - /robot_mode_set   (std_msgs/String)
+      - /estop            (std_msgs/Bool)
 
     Mode keys:
       1 -> off
       2 -> teleop
       3 -> auton
+      0 -> estop on
+      9 -> estop off
 
     Motion keys:
       w/s : forward/back
@@ -59,21 +62,23 @@ class KeyboardOperatorNode(Node):
 
         self.declare_parameter('teleop_topic', '/cmd_vel_teleop')
         self.declare_parameter('mode_set_topic', '/robot_mode_set')
+        self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('publish_rate_hz', 20.0)
 
         self.declare_parameter('linear_speed', 0.20)
-        self.declare_parameter('angular_speed', 0.80)
+        self.declare_parameter('angular_speed', 0.50)
 
         self.declare_parameter('linear_speed_step', 0.05)
         self.declare_parameter('angular_speed_step', 0.10)
 
         self.declare_parameter('linear_speed_min', 0.0)
-        self.declare_parameter('linear_speed_max', 0.60)
+        self.declare_parameter('linear_speed_max', 0.20)
         self.declare_parameter('angular_speed_min', 0.0)
-        self.declare_parameter('angular_speed_max', 1.5)
+        self.declare_parameter('angular_speed_max', 0.50)
 
         self.teleop_topic = self.get_parameter('teleop_topic').value
         self.mode_set_topic = self.get_parameter('mode_set_topic').value
+        self.estop_topic = self.get_parameter('estop_topic').value
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
 
         self.linear_speed = float(self.get_parameter('linear_speed').value)
@@ -95,6 +100,7 @@ class KeyboardOperatorNode(Node):
 
         self.pub_cmd = self.create_publisher(Twist, self.teleop_topic, qos)
         self.pub_mode = self.create_publisher(String, self.mode_set_topic, qos)
+        self.pub_estop = self.create_publisher(Bool, self.estop_topic, qos)
 
         self.current_twist = zero_twist()
 
@@ -108,7 +114,7 @@ class KeyboardOperatorNode(Node):
 
         self.get_logger().info(
             f'KeyboardOperator up. teleop_topic={self.teleop_topic}, '
-            f'mode_set_topic={self.mode_set_topic}'
+            f'mode_set_topic={self.mode_set_topic}, estop_topic={self.estop_topic}'
         )
         self._print_help()
         self._log_speeds()
@@ -128,6 +134,8 @@ Modes:
   1 -> OFF
   2 -> TELEOP
   3 -> AUTON
+  0 -> ESTOP ON
+  9 -> ESTOP OFF
 
 Teleop motion:
   w -> forward
@@ -165,6 +173,13 @@ Misc:
         self.pub_mode.publish(msg)
         self.get_logger().info(f'mode request -> {mode}')
 
+    def _publish_estop(self, asserted: bool):
+        msg = Bool()
+        msg.data = asserted
+        self.pub_estop.publish(msg)
+        state = 'ON' if asserted else 'OFF'
+        self.get_logger().warn(f'estop -> {state}')
+
     def _set_twist(self, linear_x: float, angular_z: float):
         msg = Twist()
         msg.linear.x = linear_x
@@ -183,6 +198,13 @@ Misc:
         if key == '3':
             self._publish_mode('auton')
             self._set_twist(0.0, 0.0)
+            return
+        if key == '0':
+            self._publish_estop(True)
+            self._set_twist(0.0, 0.0)
+            return
+        if key == '9':
+            self._publish_estop(False)
             return
 
         # Motion
