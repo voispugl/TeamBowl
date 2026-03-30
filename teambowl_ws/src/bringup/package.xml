@@ -16,6 +16,7 @@
   <depend>nav2_planner</depend>
   <depend>nav2_controller</depend>
   <depend>nav2_lifecycle_manager</depend>
+  <depend>pointcloud_to_laserscan</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
