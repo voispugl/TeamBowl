@@ -117,7 +117,9 @@ def generate_launch_description():
             'pointcloud.enable': 'true',
             'params_file': os.path.join(
                 get_package_share_directory('depthai_ros_driver'),
-                'config', 'rgbd.yaml'),
+                'config',
+                'rgbd.yaml',
+            ),
             'parent_frame': 'base_link',
             'cam_pos_x': str(cam_translation[0]),
             'cam_pos_y': str(cam_translation[1]),
@@ -285,6 +287,55 @@ def generate_launch_description():
             remappings=[
                 ('/cmd_vel', '/cmd_vel_auto'),
             ],
+        ),
+
+        Node(
+            package='planning',
+            executable='nav_cloud_filter',
+            name='nav_cloud_filter',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
+        Node(
+            package='pointcloud_to_laserscan',
+            executable='pointcloud_to_laserscan_node',
+            name='nav_cloud_to_scan',
+            output='screen',
+            remappings=[
+                ('cloud_in', '/oak/nav_points'),
+                ('scan', '/oak/nav_scan'),
+            ],
+            parameters=[{
+                'target_frame': 'base_link',
+                'transform_tolerance': 0.1,
+                'min_height': -0.10,
+                'max_height': 1.20,
+                'angle_min': -1.5708,
+                'angle_max': 1.5708,
+                'angle_increment': 0.00872665,
+                'scan_time': 0.1,
+                'range_min': 0.15,
+                'range_max': 2.50,
+                'use_inf': True,
+                'inf_epsilon': 1.0,
+            }],
+        ),
+
+        Node(
+            package='planning',
+            executable='follow_goal',
+            name='follow_goal',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
+        Node(
+            package='planning',
+            executable='follow_executor',
+            name='follow_executor',
+            output='screen',
+            parameters=[planning_config],
         ),
 
         Node(
