@@ -10,13 +10,13 @@ class ModeManagerNode(Node):
     Runtime mode manager
 
     Subscribes to:
-      - /robot_mode_set (String): "off", "teleop", "auton"
+      - /robot_mode_set (String): "off", "teleop", "auton", "trick"
 
     Publishes:
-      - /robot_mode (String): "off", "teleop", "auton"
+      - /robot_mode (String): "off", "teleop", "auton", "trick"
     """
 
-    VALID_MODES = {'off', 'teleop', 'auton'}
+    VALID_MODES = {'off', 'teleop', 'auton', 'trick'}
 
     def __init__(self):
         super().__init__('mode_manager')

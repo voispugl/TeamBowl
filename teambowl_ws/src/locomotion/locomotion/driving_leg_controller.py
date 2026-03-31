@@ -73,6 +73,7 @@ class DrivingLegController(Node):
         self._estop = False
         self._running = False
         self._current_positions: dict = {}   # joint_name → float, from /joint_states
+        self._trick_offsets: dict = {}       # joint_name → offset (rad), from /trick_leg_offsets
 
         # ------------------------------------------------------------------ #
         # Publisher
@@ -85,6 +86,7 @@ class DrivingLegController(Node):
         self.create_subscription(String, mode_topic, self._on_mode, 10)
         self.create_subscription(Bool, estop_topic, self._on_estop, 10)
         self.create_subscription(JointState, '/joint_states', self._on_joint_states, 10)
+        self.create_subscription(JointState, '/trick_leg_offsets', self._on_trick_offsets, 10)
 
         # ------------------------------------------------------------------ #
         # Service clients
@@ -125,6 +127,10 @@ class DrivingLegController(Node):
     def _on_joint_states(self, msg: JointState):
         for name, pos in zip(msg.name, msg.position):
             self._current_positions[name] = pos
+
+    def _on_trick_offsets(self, msg: JointState):
+        for name, pos in zip(msg.name, msg.position):
+            self._trick_offsets[name] = pos
 
     def _on_mode(self, msg: String):
         new_mode = msg.data
@@ -208,10 +214,16 @@ class DrivingLegController(Node):
         if not self._running:
             return
 
+        in_trick = (self._mode == 'trick')
+        positions = [
+            base + self._trick_offsets.get(name, 0.0) if in_trick else base
+            for name, base in zip(self._joint_names, self._joint_positions)
+        ]
+
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = self._joint_names
-        msg.position = self._joint_positions
+        msg.position = positions
         msg.velocity = [0.0] * len(self._joint_names)
         msg.effort = [self._torque_ff] * len(self._joint_names)
         self._cmd_pub.publish(msg)
@@ -222,7 +234,9 @@ class DrivingLegController(Node):
 
     def _print_status(self):
         state = 'RUNNING' if self._running else 'STOPPED'
-        for name, target in zip(self._joint_names, self._joint_positions):
+        in_trick = (self._mode == 'trick')
+        for name, base in zip(self._joint_names, self._joint_positions):
+            target = base + self._trick_offsets.get(name, 0.0) if in_trick else base
             actual = self._current_positions.get(name)
             if actual is not None:
                 err = target - actual
