@@ -22,7 +22,7 @@ class VelCmdMuxNode(Node):
     """
     Publishes /cmd_vel_selected based on:
       - /estop (Bool): forces zero output
-      - /robot_mode (String): "off", "teleop", "auton"
+      - /robot_mode (String): "off", "teleop", "auton", "trick"
       - freshness of /cmd_vel_teleop and /cmd_vel_auto
 
     Subscribes to:
@@ -35,7 +35,7 @@ class VelCmdMuxNode(Node):
       - /cmd_vel_selected (teleop cmd, auto cmd, or zero cmd)
     """
 
-    VALID_MODES = {'off', 'teleop', 'auton'}
+    VALID_MODES = {'off', 'teleop', 'auton', 'trick'}
 
     def __init__(self):
         super().__init__('vel_cmd_mux')
@@ -160,8 +160,8 @@ class VelCmdMuxNode(Node):
             self.pub_out.publish(zero_twist())
             return
 
-        # Handle teleop mode
-        if self.robot_mode == 'teleop':
+        # Handle teleop and trick modes (trick still drives via teleop commands)
+        if self.robot_mode in ('teleop', 'trick'):
             if self._fresh(self.last_teleop_time, self.teleop_timeout):
                 if self.debug: self.get_logger().info(f'MUX: mode=teleop, fresh -> cmd {self.last_teleop}')
                 self.pub_out.publish(self.last_teleop)

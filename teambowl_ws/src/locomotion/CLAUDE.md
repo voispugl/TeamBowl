@@ -73,6 +73,16 @@ handles the robstride driver startup + mode set inside the container.
 
 bringup.launch.py NOW includes the robstride driver (added 2026-03-17).
 
+## 2026-03-31 — Added trick mode to driving_leg_controller
+
+- **`locomotion/trick_leg_offsets.yaml`**: New file. Per-joint offset values (rad) added
+  to base `driving_leg_pos.yaml` positions when in trick mode. Installed to `share/locomotion/`.
+- **`setup.py`**: Added `trick_leg_offsets.yaml` to `data_files`.
+- **`driving_leg_controller.py`**: Added `_trick_offsets` dict (joint → float). Subscribes
+  to `/trick_leg_offsets` (JointState from keyboard_operator). In `_publish_commands`,
+  adds offsets to base positions when `self._mode == 'trick'`; otherwise uses base only.
+  `_print_status` also shows effective (offset-adjusted) target in trick mode.
+
 ## 2026-03-24 — driving_leg_controller: auto_start on launch
 
 - **`locomotion/driving_leg_controller.py`**: Added `auto_start` (default `true`) and

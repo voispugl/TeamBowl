@@ -12,6 +12,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config', ['config/locomotion.yaml']),
         ('share/' + package_name, ['locomotion/driving_leg_pos.yaml']),
+        ('share/' + package_name, ['locomotion/trick_leg_offsets.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

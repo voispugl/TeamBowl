@@ -78,9 +78,9 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('track_width_m', 0.5588)
 
         # Conversion / limits
-        self.declare_parameter('erpm_per_wheel_rpm', 500.0)
-        self.declare_parameter('max_erpm_step_per_tick', 2000)
-        self.declare_parameter('max_erpm', 20000)
+        self.declare_parameter('erpm_per_wheel_rpm', 99.0)
+        self.declare_parameter('max_erpm_step_per_tick', 200)
+        self.declare_parameter('max_erpm', 2560)
 
         # Command timeout
         self.declare_parameter('cmd_timeout_s', 0.5)
@@ -240,7 +240,7 @@ class CmdVelToVescNode(Node):
         erpm_left = int(round(wheel_rpm_left * self.erpm_per_wheel_rpm * self.left_sign))
         erpm_right = int(round(wheel_rpm_right * self.erpm_per_wheel_rpm * self.right_sign))
 
-        # Clamp
+        # Clamp to the configured wheel ERPM safety cap.
         erpm_left = max(-self.max_erpm, min(self.max_erpm, erpm_left))
         erpm_right = max(-self.max_erpm, min(self.max_erpm, erpm_right))
 
