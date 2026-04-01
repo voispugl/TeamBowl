@@ -78,7 +78,7 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('track_width_m', 0.5588)
 
         # Conversion / limits
-        self.declare_parameter('erpm_per_wheel_rpm', 99.0)
+        self.declare_parameter('erpm_per_wheel_rpm', 101.5)
         self.declare_parameter('max_erpm_step_per_tick', 200)
         self.declare_parameter('max_erpm', 2560)
 
