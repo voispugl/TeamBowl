@@ -117,9 +117,10 @@ ros2 run management keyboard_operator
 
 | Key | Action |
 |-----|--------|
-| `2` | Activate teleop mode |
-| `1` | Return to off |
-| `3` | Autonomous mode |
+| `1` | OFF mode |
+| `2` | TELEOP mode |
+| `3` | AUTON mode |
+| `4` | TRICK mode (leg pose control) |
 | `w` / `s` | Forward / back |
 | `a` / `d` | Turn left / right |
 | `q` / `e` | Forward-left / forward-right |
@@ -127,6 +128,8 @@ ros2 run management keyboard_operator
 | `space` / `x` | Stop |
 | `[` / `]` | Decrease / increase linear speed |
 | `;` / `'` | Decrease / increase angular speed |
+| `j` | (trick mode) All joints → trick offsets |
+| `n` | (trick mode) All joints → base driving positions |
 
 ---
 
