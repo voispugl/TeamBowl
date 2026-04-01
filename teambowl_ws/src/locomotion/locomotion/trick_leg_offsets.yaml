@@ -3,8 +3,8 @@
 # Press 'n' to return all joints to base driving positions (stay in trick mode).
 joints:
   joint_rs04_1: 0.0   # CAN ID 0x0A
-  joint_rs04_2: -0.3  # CAN ID 0x0B
+  joint_rs04_2: -1  # CAN ID 0x0B
   joint_rs04_3: 0.3   # CAN ID 0x0C
   joint_rs04_4: 0.0   # CAN ID 0x14
-  joint_rs04_5: -0.3   # CAN ID 0x15
+  joint_rs04_5: -1   # CAN ID 0x15
   joint_rs04_6: 0.3   # CAN ID 0x16

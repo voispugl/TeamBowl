@@ -18,15 +18,17 @@ Keyboard-based operator interface.
 Parameters live in `config/management.yaml` (installed to `share/management/config/`).
 Loaded by `bringup.launch.py` via native ROS2 YAML parameter loading.
 
-## 2026-03-31 — Added trick mode
+## 2026-03-31 — Added trick mode; `j` drives forward for 2 s
 
 - **`mode_manager.py`**: Added `'trick'` to `VALID_MODES`. No other logic changes needed.
 - **`keyboard_operator.py`**: Added trick mode (key `4`). Loads `trick_leg_offsets.yaml`
-  from `share/locomotion/` at startup. Tracks `_trick_pose_active` (bool) and
-  `_requested_mode` (str). Key `j` sets all joints to YAML offsets; key `n` returns
-  all joints to base (stays in trick mode). Publishes `/trick_leg_offsets` (JointState)
-  every tick; `driving_leg_controller` only applies offsets when mode == `'trick'`.
-  Pressing `1`/`2`/`3` resets `_trick_pose_active` to False.
+  from `share/locomotion/` at startup. Tracks `_trick_pose_active` (bool),
+  `_requested_mode` (str), and `_trick_drive_until` (float monotonic deadline).
+  Key `j` sets all joints to YAML offsets and drives wheels forward at `linear_speed`
+  for 2 s (via deadline in `_tick`); key `n` returns all joints to base (stays in trick
+  mode). Publishes `/trick_leg_offsets` (JointState) every tick; `driving_leg_controller`
+  only applies offsets when mode == `'trick'`. Pressing `1`/`2`/`3` resets
+  `_trick_pose_active` to False.
 
 ## 2026-03-18 — Moved parameters to config/management.yaml
 

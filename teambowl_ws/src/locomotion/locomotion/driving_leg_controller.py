@@ -26,6 +26,7 @@ from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
+from robstride_can_interfaces.srv import SetGains
 
 
 class DrivingLegController(Node):
@@ -48,6 +49,9 @@ class DrivingLegController(Node):
         self.declare_parameter('publish_rate_hz', 50.0)
         self.declare_parameter('auto_start', True)
         self.declare_parameter('auto_start_delay_s', 8.0)
+        self.declare_parameter('rs00_joints', ['joint_rs00_1', 'joint_rs00_2'])
+        self.declare_parameter('trick_rs00_kp', 10.0)
+        self.declare_parameter('trick_rs00_kd', 5.0)
 
         config_path = self.get_parameter('config_path').value
         mode_topic = self.get_parameter('mode_topic').value
@@ -57,6 +61,9 @@ class DrivingLegController(Node):
         publish_rate_hz = self.get_parameter('publish_rate_hz').value
         auto_start = self.get_parameter('auto_start').value
         auto_start_delay_s = self.get_parameter('auto_start_delay_s').value
+        self._rs00_joints = list(self.get_parameter('rs00_joints').value)
+        self._trick_rs00_kp = float(self.get_parameter('trick_rs00_kp').value)
+        self._trick_rs00_kd = float(self.get_parameter('trick_rs00_kd').value)
 
         # ------------------------------------------------------------------ #
         # Load joint positions from YAML
@@ -93,6 +100,7 @@ class DrivingLegController(Node):
         # ------------------------------------------------------------------ #
         self._enable_client = self.create_client(Trigger, '/enable_motors')
         self._stop_client = self.create_client(Trigger, '/stop_motors')
+        self._set_gains_client = self.create_client(SetGains, '/set_gains')
 
         # ------------------------------------------------------------------ #
         # Timers
@@ -136,8 +144,13 @@ class DrivingLegController(Node):
         new_mode = msg.data
         if new_mode == self._mode:
             return
+        old_mode = self._mode
         self._mode = new_mode
         self.get_logger().info(f'Mode → {new_mode}')
+        if new_mode == 'trick':
+            self._lock_rs00_wheels()
+        elif old_mode == 'trick':
+            self._release_rs00_wheels()
         self._update_state()
 
     def _on_estop(self, msg: Bool):
@@ -250,6 +263,51 @@ class DrivingLegController(Node):
                     f'[DRIVE/{state}]  {name}: target={target:+.4f}  actual=no_data',
                     flush=True,
                 )
+
+    # ---------------------------------------------------------------------- #
+    # RS00 wheel lock / release
+    # ---------------------------------------------------------------------- #
+
+    def _lock_rs00_wheels(self):
+        positions = [self._current_positions.get(n, 0.0) for n in self._rs00_joints]
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = list(self._rs00_joints)
+        msg.position = positions
+        msg.velocity = [0.0] * len(self._rs00_joints)
+        msg.effort = [0.0] * len(self._rs00_joints)
+        self._cmd_pub.publish(msg)
+        self._set_rs00_gains(self._trick_rs00_kp, self._trick_rs00_kd)
+        self.get_logger().info(
+            f'RS00 wheels locked at {[f"{p:.4f}" for p in positions]} '
+            f'(kp={self._trick_rs00_kp}, kd={self._trick_rs00_kd})'
+        )
+
+    def _release_rs00_wheels(self):
+        self._set_rs00_gains(0.0, 0.0)
+        self.get_logger().info('RS00 wheels released to coast.')
+
+    def _set_rs00_gains(self, kp: float, kd: float):
+        if not self._set_gains_client.service_is_ready():
+            self.get_logger().warn('/set_gains not ready — skipping RS00 gain change')
+            return
+        for name in self._rs00_joints:
+            req = SetGains.Request()
+            req.joint_name = name
+            req.kp = kp
+            req.kd = kd
+            future = self._set_gains_client.call_async(req)
+            future.add_done_callback(
+                lambda f, n=name: self._log_set_gains_result(f, n)
+            )
+
+    def _log_set_gains_result(self, future, joint_name: str):
+        try:
+            result = future.result()
+            if not result.success:
+                self.get_logger().warn(f'/set_gains {joint_name} → {result.message}')
+        except Exception as e:
+            self.get_logger().error(f'/set_gains {joint_name} failed: {e}')
 
     # ---------------------------------------------------------------------- #
     # Service helper

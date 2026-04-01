@@ -15,6 +15,8 @@ driving_leg_controller:
     torque_ff: 0.0
     publish_rate_hz: 50.0
     rs00_joints: [joint_rs00_1, joint_rs00_2]
+    trick_rs00_kp: 10.0
+    trick_rs00_kd: 5.0
 
 vel_cmd_mux:
   ros__parameters:

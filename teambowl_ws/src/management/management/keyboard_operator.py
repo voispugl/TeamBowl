@@ -59,7 +59,7 @@ class KeyboardOperatorNode(Node):
       ; / ' : decrease / increase angular speed
 
     Trick mode (key 4):
-      j : move all leg joints to trick offsets (single movement)
+      j : move all leg joints to trick offsets + drive forward for 2 s
       n : return all leg joints to base driving positions
 
   Misc:
@@ -121,6 +121,7 @@ class KeyboardOperatorNode(Node):
         self.last_motion_command_time = 0.0
 
         # Trick mode state
+        self._trick_drive_until: float = 0.0   # monotonic deadline for trick forward drive
         share_dir = get_package_share_directory('locomotion')
         default_trick_path = os.path.join(share_dir, 'trick_leg_offsets.yaml')
         self.declare_parameter('trick_offsets_path', default_trick_path)
@@ -191,7 +192,7 @@ Speed tuning:
   ' -> increase angular speed
 
 Trick mode (press 4 first):
-  j     -> move all leg joints to trick offsets (single movement)
+  j     -> move all leg joints to trick offsets + drive forward for 2 s
   n     -> return all leg joints to base driving positions (stay in trick mode)
   space -> ESTOP ON (disables all joints and wheels)
 
@@ -331,7 +332,8 @@ Misc:
         if self._requested_mode == 'trick':
             if key == 'j':
                 self._trick_pose_active = True
-                self.get_logger().info('trick pose -> ON')
+                self._trick_drive_until = time.monotonic() + 2.0
+                self.get_logger().info('trick pose -> ON (driving forward for 2 s)')
                 return
             if key == 'n':
                 self._trick_pose_active = False
@@ -370,7 +372,12 @@ Misc:
             self._set_twist(0.0, 0.0)
 
         # Keep publishing current teleop command so mux freshness stays alive.
-        self.pub_cmd.publish(self.current_twist)
+        cmd = self.current_twist
+        if self._trick_pose_active and time.monotonic() < self._trick_drive_until:
+            trick_cmd = Twist()
+            trick_cmd.linear.x = self.linear_speed
+            cmd = trick_cmd
+        self.pub_cmd.publish(cmd)
         # Always publish trick offsets; driving_leg_controller only applies them in trick mode.
         self._publish_trick_offsets()
 

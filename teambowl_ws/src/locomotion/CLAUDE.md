@@ -73,6 +73,17 @@ handles the robstride driver startup + mode set inside the container.
 
 bringup.launch.py NOW includes the robstride driver (added 2026-03-17).
 
+## 2026-03-31 — RS00 wheels lock in trick mode, coast in teleop
+
+- **`driving_leg_controller.py`**: On transition to `'trick'` mode, snapshots current
+  RS00 wheel positions from `/joint_states`, publishes them as `/joint_commands` to set
+  the driver's commanded_position, then calls `/set_gains` (kp=`trick_rs00_kp`,
+  kd=`trick_rs00_kd`) for each RS00 joint to engage position hold. On transition away
+  from `'trick'`, calls `/set_gains` with kp=0, kd=0 to release back to coast.
+- **`config/locomotion.yaml`**: Added `trick_rs00_kp: 10.0` and `trick_rs00_kd: 5.0`
+  under `driving_leg_controller` section.
+- **`package.xml`**: Added `<depend>robstride_can_interfaces</depend>`.
+
 ## 2026-03-31 — Added trick mode to driving_leg_controller
 
 - **`locomotion/trick_leg_offsets.yaml`**: New file. Per-joint offset values (rad) added
