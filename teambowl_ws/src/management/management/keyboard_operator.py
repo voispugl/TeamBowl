@@ -79,13 +79,13 @@ class KeyboardOperatorNode(Node):
         self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('angular_speed', 0.80)
 
-        self.declare_parameter('linear_speed_step', 0.05)
-        self.declare_parameter('angular_speed_step', 0.10)
+        self.declare_parameter('linear_speed_step', 0.10)
+        self.declare_parameter('angular_speed_step', 0.20)
 
         self.declare_parameter('linear_speed_min', 0.0)
-        self.declare_parameter('linear_speed_max', 0.20)
+        self.declare_parameter('linear_speed_max', 1.0)
         self.declare_parameter('angular_speed_min', 0.0)
-        self.declare_parameter('angular_speed_max', 0.80)
+        self.declare_parameter('angular_speed_max', 1.5)
 
         self.teleop_topic = self.get_parameter('teleop_topic').value
         self.mode_set_topic = self.get_parameter('mode_set_topic').value
