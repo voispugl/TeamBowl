@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'mode_manager = management.mode_manager:main',
             'keyboard_operator = management.keyboard_operator:main',
+            'led_controller = management.led_controller:main',
         ],
     },
 )
