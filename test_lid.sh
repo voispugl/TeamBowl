@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./test_lid.sh
-#eeeee
+#eeeeeeee
 # Workflow:
 #   1. Edit teambowl_ws/src/locomotion/config/lid_controller.yaml
 #   2. Run this script to restart the controller and test the new angles.

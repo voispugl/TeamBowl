@@ -108,6 +108,14 @@ def generate_launch_description():
         ),
 
         Node(
+            package='management',
+            executable='led_controller',
+            name='led_controller',
+            output='screen',
+            parameters=[management_config],
+        ),
+
+        Node(
             package='safety',
             executable='heartbeat_publisher',
             name='heartbeat_publisher',
