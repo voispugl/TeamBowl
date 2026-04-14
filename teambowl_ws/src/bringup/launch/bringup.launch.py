@@ -5,7 +5,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 import os
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, PackageNotFoundError
 
 
 def generate_launch_description():
@@ -37,18 +37,51 @@ def generate_launch_description():
         ),
     )
 
+    xsens_imu = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('xsens_mti_ros2_driver'),
+                'launch',
+                'xsens_mti_node.launch.py'
+            )
+        ),
+    )
+
     management_config = os.path.join(
         get_package_share_directory('management'), 'config', 'management.yaml')
     safety_config = os.path.join(
         get_package_share_directory('safety'), 'config', 'safety.yaml')
     locomotion_config = os.path.join(
         get_package_share_directory('locomotion'), 'config', 'locomotion.yaml')
+    balance_config = os.path.join(
+        get_package_share_directory('locomotion'), 'config', 'balance_controller.yaml')
+    ekf_config = os.path.join(
+        get_package_share_directory('locomotion'), 'config', 'ekf.yaml')
     vesc_config = os.path.join(
         get_package_share_directory('vesc_driver'), 'config', 'vesc_driver.yaml')
     perception_config = os.path.join(
         get_package_share_directory('perception'), 'config', 'perception.yaml')
     planning_config = os.path.join(
         get_package_share_directory('planning'), 'config', 'planning.yaml')
+    lid_config = os.path.join(
+        get_package_share_directory('locomotion'), 'config', 'lid_controller.yaml')
+
+    # Foxglove bridge — allows Foxglove Studio to connect for visualization and
+    # gain tuning via /balance_gains topic. Requires ros-humble-foxglove-bridge.
+    # Install: sudo apt install ros-humble-foxglove-bridge
+    # Connect: open Foxglove Studio → Open Connection → Rosbridge (ws://robot-ip:8765)
+    try:
+        get_package_share_directory('foxglove_bridge')
+        _foxglove_available = True
+    except PackageNotFoundError:
+        _foxglove_available = False
+
+    foxglove_arg = DeclareLaunchArgument(
+        'foxglove',
+        default_value='true' if _foxglove_available else 'false',
+        description='Launch foxglove_bridge for remote visualization (default: true if installed)'
+    )
+    use_foxglove = LaunchConfiguration('foxglove')
 
     leg_controller_arg = DeclareLaunchArgument(
         'leg_controller',
@@ -59,10 +92,12 @@ def generate_launch_description():
 
     return LaunchDescription([
 
+        foxglove_arg,
         leg_controller_arg,
 
         oak_camera,
         robstride_driver,
+        xsens_imu,
 
         Node(
             package='management',
@@ -124,6 +159,35 @@ def generate_launch_description():
             parameters=[locomotion_config],
         ),
 
+        # Balance controller: passthrough in non-balance modes,
+        # LQR+PI balance in "balance" mode.
+        # Sits between collision_guard (/cmd_vel_safe) and cmd_vel_to_vesc (/cmd_vel).
+        Node(
+            package='locomotion',
+            executable='balance_controller',
+            name='balance_controller',
+            output='screen',
+            parameters=[balance_config],
+        ),
+
+        # Wheel odometry: integrates /cmd_vel into /odom_wheels for EKF fusion.
+        Node(
+            package='locomotion',
+            executable='wheel_odom',
+            name='wheel_odom',
+            output='screen',
+            parameters=[balance_config],
+        ),
+
+        # EKF: fuses /imu/data + /odom_wheels → /odometry/filtered
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[ekf_config],
+        ),
+
         Node(
             package='vesc_driver',
             executable='cmd_vel_to_vesc',
@@ -146,5 +210,34 @@ def generate_launch_description():
             name='plan_wheels',
             output='screen',
             parameters=[planning_config],
+        ),
+
+        # Foxglove bridge — remote visualization + /balance_gains topic tuning
+        # Disable with: ros2 launch bringup bringup.launch.py foxglove:=false
+        # Lid controller: drives RS05 motor (cargo bay lid) between open/close.
+        # Trigger from Foxglove: Publish panel → /lid_command (std_msgs/String)
+        # Messages: {"data": "open"}, {"data": "close"}, {"data": "toggle"}
+        Node(
+            package='locomotion',
+            executable='lid_controller',
+            name='lid_controller',
+            output='screen',
+            parameters=[lid_config],
+        ),
+
+        Node(
+            package='foxglove_bridge',
+            executable='foxglove_bridge',
+            name='foxglove_bridge',
+            output='screen',
+            parameters=[{
+                'port': 8765,
+                'address': '0.0.0.0',
+                'tls': False,
+                'topic_whitelist': ['.*'],  # expose all topics
+                'param_whitelist': ['.*'],   # expose all parameters
+                'max_qos_depth': 1,
+            }],
+            condition=IfCondition(use_foxglove),
         ),
     ])

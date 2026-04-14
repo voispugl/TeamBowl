@@ -1,5 +1,27 @@
 # bringup
 
+## 2026-04-13 — Added lid_controller to bringup
+
+- **`launch/bringup.launch.py`**: Added `lid_controller` node (locomotion pkg, `lid_controller.yaml`).
+  Drives the RS05 motor on the cargo bay lid. Subscribes to `/lid_command` (std_msgs/String).
+  Commandable from Foxglove Publish panel without `/robot_mode` dependency.
+
+
+## 2026-04-13 — Added foxglove_bridge, Xsens IMU, EKF, balance_controller, wheel_odom to bringup
+
+- **`launch/bringup.launch.py`**:
+  - Added `xsens_imu` include launch for `xsens_mti_ros2_driver/xsens_mti_node.launch.py`
+  - Added `balance_controller` node (locomotion pkg, `balance_controller.yaml`)
+  - Added `wheel_odom` node (locomotion pkg, `balance_controller.yaml`)
+  - Added `ekf_filter_node` from `robot_localization` pkg (`ekf.yaml`)
+  - `collision_guard` now outputs to `/cmd_vel_safe` (changed in `locomotion.yaml`);
+    `balance_controller` receives this and publishes to `/cmd_vel` for VESCs.
+  - Added `foxglove_bridge` node (port 8765). Disabled if package not installed.
+    Disable at launch time: `ros2 launch bringup bringup.launch.py foxglove:=false`
+    Install: `sudo apt install ros-humble-foxglove-bridge`
+
+
+
 ## 2026-03-18 — Pass oak_d_pro_w.yaml to camera launch
 
 - **`launch/bringup.launch.py`**: Added `params_file` pointing to

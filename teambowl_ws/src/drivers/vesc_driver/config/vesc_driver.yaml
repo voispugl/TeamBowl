@@ -4,7 +4,7 @@ cmd_vel_to_vesc:
     left_port: /dev/ttyACM0
     right_port: /dev/ttyACM1
     estop_topic: /estop
-    wheel_radius_m: 0.307975
+    wheel_radius_m: 0.153988  # 0.307975 m was the diameter — halved to get radius
     track_width_m: 0.5588
     erpm_per_wheel_rpm: 500.0
     max_erpm_step_per_tick: 2000

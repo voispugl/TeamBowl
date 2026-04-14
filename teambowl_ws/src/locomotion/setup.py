@@ -10,7 +10,12 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', ['config/locomotion.yaml']),
+        ('share/' + package_name + '/config', [
+            'config/locomotion.yaml',
+            'config/balance_controller.yaml',
+            'config/ekf.yaml',
+            'config/lid_controller.yaml',
+        ]),
         ('share/' + package_name, ['locomotion/driving_leg_pos.yaml']),
     ],
     install_requires=['setuptools'],
@@ -30,6 +35,9 @@ setup(
             'collision_guard = locomotion.collision_guard:main',
             'driving_leg_controller = locomotion.driving_leg_controller:main',
             'hold_position_controller = locomotion.hold_position_controller:main',
+            'balance_controller = locomotion.balance_controller:main',
+            'wheel_odom = locomotion.wheel_odom:main',
+            'lid_controller = locomotion.lid_controller:main',
         ],
     },
 )

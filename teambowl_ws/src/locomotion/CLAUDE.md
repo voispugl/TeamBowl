@@ -1,5 +1,99 @@
 # locomotion
 
+## 2026-04-14 — Upgraded inner pitch loop to PID with 2-second sliding window integral
+
+**`balance_controller`** — `locomotion/balance_controller.py`, **`config/balance_controller.yaml`**
+- Added `ki_pitch` parameter (default 0.0, live-tunable via `/balance_gains`)
+- Inner loop is now PID: `u = -(kp*err + ki*integral + kd*theta_dot)`
+- Integral uses a `collections.deque` of `(ros_time_sec, contribution)` pairs pruned to
+  the last 2.0 seconds — prevents windup from long-term drift
+- Deque is cleared on mode exit (leaving balance mode) and on estop
+
+## 2026-04-14 — Rewrote balance_controller from LQR → cascaded PID
+
+**`balance_controller`** — `locomotion/balance_controller.py`
+Full rewrite. Replaced LQR gain matrix with a simpler cascaded PID architecture.
+- Outer PI (50 Hz): velocity error → `theta_ref` (lean angle setpoint)
+- Inner PD (50 Hz): `(theta - theta_ref)` + `kd_pitch * theta_dot` → wheel velocity cmd (upgraded to PID same day)
+- Removed: LQR gain matrix, mass_mode scheduling (light/nominal/heavy), `_get_gains()`
+- Added: `kp_pitch`, `kd_pitch`, `ki_pitch` parameters (all live-tunable via `/balance_gains` JSON)
+- All other logic unchanged: mode switching, estop, fallover detection, Foxglove echo
+
+**`config/balance_controller.yaml`** — updated gain names:
+- Removed: `k_theta`, `k_theta_dot`, `k_v`, `mass_mode`, `k_*_light`, `k_*_heavy`
+- Added: `kp_pitch: 60.0`, `kd_pitch: 8.0`
+- Outer PI (`kp_vel`, `ki_vel`) and safety limits unchanged
+
+Tune starting from `kp_pitch=60, kd_pitch=8`. Raise `kp_pitch` until oscillation
+then back off 30%; raise `kd_pitch` to damp. Use Foxglove `/balance_gains` JSON
+or `ros2 param set` for live adjustments without restarting.
+
+---
+
+## 2026-04-13 — Added balance controller, wheel odometry, EKF config
+
+### New nodes
+
+**`balance_controller`** — `locomotion/balance_controller.py`
+~~LQR inner loop + PI velocity outer loop~~ (replaced 2026-04-14 with PID — see above).
+- In `balance` mode: uses LQR on `[theta, theta_dot, v_error]` → symmetric wheel
+  velocity cmd. Outer PI generates `theta_ref` from velocity error.
+- In all other modes: passthrough (`/cmd_vel_safe` → `/cmd_vel` unchanged).
+- Subscribes: `/odometry/filtered`, `/imu/data`, `/cmd_vel_safe`, `/robot_mode`, `/estop`
+- Publishes: `/cmd_vel`, `/estop` (on fallover)
+- All gains are live-tunable via `ros2 param set`.
+- Gain scheduling for three mass setpoints: `light` / `nominal` / `heavy`.
+
+**`wheel_odom`** — `locomotion/wheel_odom.py`
+Dead-reckoning odometry from `/cmd_vel` → `/odom_wheels` (nav_msgs/Odometry).
+Used as wheel odometry input to the EKF.
+
+### New config files
+
+- **`config/balance_controller.yaml`**: All gains for `balance_controller` and
+  `wheel_odom` nodes. Tune `k_theta`, `k_theta_dot`, `k_v` from `tune_lqr.py` output.
+- **`config/ekf.yaml`**: `robot_localization` EKF config. Fuses `/imu/data` +
+  `/odom_wheels` → `/odometry/filtered` at 50 Hz.
+
+### Pipeline change: collision_guard output renamed
+
+`collision_guard` now publishes to `/cmd_vel_safe` (was `/cmd_vel`). The
+`balance_controller` sits downstream and publishes to `/cmd_vel`. This places
+`balance_controller` in-path:
+
+```
+collision_guard → /cmd_vel_safe → balance_controller → /cmd_vel → cmd_vel_to_vesc
+```
+
+### New design doc
+
+See `BALANCE_CONTROLLER.md` for full LQR theory, tuning workflow, and topic list.
+
+### Live gain tuner
+
+`scripts/tune_gains.py` — interactive terminal UI and one-liner helper for
+adjusting all LQR/PI gains on the running node via `ros2 param set`.
+Changes take effect within one control tick (≤20ms), no restart needed.
+
+
+
+## 2026-04-13 — Added lid_controller (RS05 cargo bay lid)
+
+**`lid_controller`** — `locomotion/lid_controller.py`
+Drives the RS05 motor (`joint_rs05_1`, can1, 0x1E) between open and closed positions.
+- Triggered from Foxglove: Publish panel → `/lid_command` (std_msgs/String)
+  - `"open"` / `"close"` / `"toggle"`
+- Reports state on `/lid_state` (std_msgs/String): `open`, `closed`, `moving_open`, `moving_closed`, `unknown`
+- Publishes `/joint_commands` at 50Hz; hold torque=0 when idle, `torque_ff` while moving
+- Declares arrived when position error < `position_tolerance_rad` or after `move_timeout_sec`
+- No `/robot_mode` dependency — commandable any time the stack is up
+- Config: `config/lid_controller.yaml` — tune `open_position_rad` after zeroing the motor
+
+**Foxglove setup:**
+1. Publish panel → `/lid_command`, message `{"data": "open"}` → Open Lid button
+2. Publish panel → `/lid_command`, message `{"data": "close"}` → Close Lid button
+3. Raw Messages panel → `/lid_state` to read current state
+
 ## Package overview
 
 ROS2 Python package containing locomotion-layer nodes: velocity command muxing,
