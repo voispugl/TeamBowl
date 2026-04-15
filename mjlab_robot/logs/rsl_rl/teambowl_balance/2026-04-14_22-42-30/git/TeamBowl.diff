@@ -1,0 +1,433 @@
+--- git status ---
+On branch git-how
+Your branch is up to date with 'origin/git-how'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .DS_Store
+	modified:   mjlab_robot/robot_constants.py
+	modified:   mjlab_robot/src/mjlab_robot/__init__.py
+	modified:   mjlab_robot/src/mjlab_robot/tasks/balance/balance_env_cfg.py
+	modified:   mjlab_robot/teambowl_mjlab.xml
+	modified:   test_lid.sh
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/
+	mjlab_robot/CLAUDE.md
+	mjlab_robot/logs/
+	mjlab_robot/src/mjlab_robot/tasks/balance/__init__.py
+	mjlab_robot/src/mjlab_robot/tasks/balance/rl_cfg.py
+	pico/
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/.DS_Store b/.DS_Store
+index 463e17f..8201f91 100644
+Binary files a/.DS_Store and b/.DS_Store differ
+diff --git a/mjlab_robot/robot_constants.py b/mjlab_robot/robot_constants.py
+index c7101a4..d774c67 100644
+--- a/mjlab_robot/robot_constants.py
++++ b/mjlab_robot/robot_constants.py
+@@ -31,6 +31,7 @@ from pathlib import Path
+ 
+ import mujoco
+ 
++from mjlab.actuator import XmlVelocityActuatorCfg
+ from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
+ from mjlab.utils.os import update_assets
+ from mjlab.utils.spec_config import CollisionCfg
+@@ -134,10 +135,15 @@ WHEEL_FOOT_COLLISION = CollisionCfg(
+ # Articulation config.
+ ##
+ 
+-# Velocity actuators are defined entirely in the XML (teambowl_mjlab.xml).
+-# mjlab does not need to manage them through BuiltinActuatorCfg — pass an
+-# empty actuator tuple so mjlab leaves the XML actuators untouched.
+-ROBOT_ARTICULATION = EntityArticulationInfoCfg(actuators=())
++# Wrap the XML <velocity> actuators so mjlab knows which joints are actuated.
++# XmlVelocityActuatorCfg does NOT create new actuators — it finds the existing
++# <velocity> actuators in teambowl_mjlab.xml by matching their target joint names.
++# This is required so JointVelocityActionCfg can resolve joint IDs at runtime.
++_XML_VELOCITY_ACTUATOR = XmlVelocityActuatorCfg(
++    target_names_expr=("left_motor_0", "right_motor_0"),
++)
++
++ROBOT_ARTICULATION = EntityArticulationInfoCfg(actuators=(_XML_VELOCITY_ACTUATOR,))
+ 
+ 
+ ##
+diff --git a/mjlab_robot/src/mjlab_robot/__init__.py b/mjlab_robot/src/mjlab_robot/__init__.py
+index 0d3ecd1..c1cdc0e 100644
+--- a/mjlab_robot/src/mjlab_robot/__init__.py
++++ b/mjlab_robot/src/mjlab_robot/__init__.py
+@@ -1,2 +1,7 @@
++"""TeamBowl mjlab robot package."""
++
++from mjlab_robot.tasks import balance  # noqa: F401  (side-effect: registers tasks)
++
++
+ def main() -> None:
+-    print("Hello from mjlab-robot!")
++    print("TeamBowl mjlab tasks loaded.")
+diff --git a/mjlab_robot/src/mjlab_robot/tasks/balance/balance_env_cfg.py b/mjlab_robot/src/mjlab_robot/tasks/balance/balance_env_cfg.py
+index 87576ea..4650184 100644
+--- a/mjlab_robot/src/mjlab_robot/tasks/balance/balance_env_cfg.py
++++ b/mjlab_robot/src/mjlab_robot/tasks/balance/balance_env_cfg.py
+@@ -70,6 +70,27 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
+ from mjlab.utils.noise import UniformNoiseCfg as Unoise
+ 
+ 
++# ---------------------------------------------------------------------------
++# Floor helper
++# ---------------------------------------------------------------------------
++# mjlab's attach() does NOT copy worldbody geoms from the entity XML into the
++# scene (only bodies/joints/actuators/sensors are attached). The floor defined
++# inside teambowl_mjlab.xml is therefore absent at runtime.  We add it back
++# via spec_fn so the robot has something to stand on.
++
++def _add_floor(spec: "mujoco.MjSpec") -> None:  # noqa: F821
++    """Inject a flat ground plane at z = -0.3 (matches teambowl_mjlab.xml)."""
++    import mujoco  # local import avoids top-level dependency on display
++
++    floor = spec.worldbody.add_geom()
++    floor.name = "floor"
++    floor.type = mujoco.mjtGeom.mjGEOM_PLANE
++    floor.pos = [0.0, 0.0, -0.3]
++    floor.size = [0.0, 0.0, 0.05]
++    # Friction / contact props match teambowl_mjlab.xml defaults
++    floor.friction = [1.0, 0.005, 0.0001]
++
++
+ # ---------------------------------------------------------------------------
+ # Constants
+ # ---------------------------------------------------------------------------
+@@ -105,7 +126,8 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+     scene = SceneCfg(
+         num_envs=num_envs,
+         env_spacing=3.0,         # 3 m spacing between parallel envs
+-        terrain=None,             # floor is defined in teambowl_mjlab.xml
++        terrain=None,
++        spec_fn=_add_floor,      # inject floor plane (worldbody geoms not copied by attach)
+         entities={"robot": get_robot_cfg()},
+     )
+ 
+@@ -113,38 +135,42 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+     # Sensor name format: "entity_name/xml_sensor_name"
+     # All sensor names match those in teambowl_mjlab.xml.
+ 
+-    noise = 0.0 if play else 1.0  # scale multiplier for noise ranges
++    def _unoise(magnitude: float) -> Unoise | None:
++        """Return a uniform noise term, or None in play mode (no corruption)."""
++        if play:
++            return None
++        return Unoise(n_min=-magnitude, n_max=magnitude)
+ 
+     policy_terms: dict[str, ObservationTermCfg] = {
+         # Gravity vector projected into body frame (3D).
+         # When upright: [0, 0, -1].  Encodes pitch + roll.
+         "projected_gravity": ObservationTermCfg(
+             func=envs_mdp.projected_gravity,
+-            noise=Unoise(n_min=-0.05 * noise, n_max=0.05 * noise),
++            noise=_unoise(0.05),
+         ),
+         # Body-frame angular velocity [wx, wy, wz] in rad/s from imu_gyro sensor.
+         "base_ang_vel": ObservationTermCfg(
+             func=envs_mdp.builtin_sensor,
+             params={"sensor_name": "robot/imu_gyro"},
+-            noise=Unoise(n_min=-0.2 * noise, n_max=0.2 * noise),
++            noise=_unoise(0.2),
+         ),
+         # Body-frame linear velocity [vx, vy, vz] in m/s from imu_lin_vel sensor.
+         "base_lin_vel": ObservationTermCfg(
+             func=envs_mdp.builtin_sensor,
+             params={"sensor_name": "robot/imu_lin_vel"},
+-            noise=Unoise(n_min=-0.3 * noise, n_max=0.3 * noise),
++            noise=_unoise(0.3),
+         ),
+         # Left wheel angular velocity (rad/s) — from jointvel sensor.
+         "left_wheel_vel": ObservationTermCfg(
+             func=envs_mdp.builtin_sensor,
+             params={"sensor_name": "robot/left_wheel_vel"},
+-            noise=Unoise(n_min=-0.5 * noise, n_max=0.5 * noise),
++            noise=_unoise(0.5),
+         ),
+         # Right wheel angular velocity (rad/s) — from jointvel sensor.
+         "right_wheel_vel": ObservationTermCfg(
+             func=envs_mdp.builtin_sensor,
+             params={"sensor_name": "robot/right_wheel_vel"},
+-            noise=Unoise(n_min=-0.5 * noise, n_max=0.5 * noise),
++            noise=_unoise(0.5),
+         ),
+         # Velocity command from planner: [vx_cmd, vy_cmd, wz_cmd] in m/s / rad/s.
+         # vy_cmd is always 0 for a wheeled robot; the policy learns to ignore it.
+@@ -190,12 +216,15 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+     #   Left:  scale = 0.5 m/s / wheel_radius * N_left  ≈ 39.3 rad/s
+     #   Right: scale = 0.5 m/s / wheel_radius * N_right ≈ 47.1 rad/s
+     actions: dict[str, ActionTermCfg] = {
++        # actuator_names are matched against the JOINT names of actuated joints.
++        # Our XML <velocity> actuators target left_motor_0 / right_motor_0, so
++        # those joint names are what JointVelocityActionCfg resolves against.
+         "motor_vel": JointVelocityActionCfg(
+             entity_name="robot",
+-            actuator_names=("act_left_motor", "act_right_motor"),
++            actuator_names=("left_motor_0", "right_motor_0"),
+             scale={
+-                "act_left_motor":  MAX_MOTOR_SPEED_LEFT,   # ≈ 39.3 rad/s
+-                "act_right_motor": MAX_MOTOR_SPEED_RIGHT,  # ≈ 47.1 rad/s
++                "left_motor_0":  MAX_MOTOR_SPEED_LEFT,   # ≈ 39.3 rad/s
++                "right_motor_0": MAX_MOTOR_SPEED_RIGHT,  # ≈ 47.1 rad/s
+             },
+             use_default_offset=False,
+         ),
+@@ -222,9 +251,12 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+     rewards: dict[str, RewardTermCfg] = {
+         # Stay upright: rewards small xy-component of projected gravity.
+         # exp(-xy_grav² / std²); std=0.15 → ≈63% at 15° tilt, ≈0% at 45°.
++        # Must specify body_names="Frame" so flat_orientation operates on the
++        # single root body (body_ids=slice(None) selects all bodies by default,
++        # causing a shape mismatch in quat_apply_inverse).
+         "upright": RewardTermCfg(
+             func=vel_mdp.flat_orientation,
+-            params={"std": 0.15},
++            params={"std": 0.15, "asset_cfg": SceneEntityCfg("robot", body_names="Frame")},
+             weight=3.0,
+         ),
+         # Survive reward: +1 every step while not fallen.
+diff --git a/mjlab_robot/teambowl_mjlab.xml b/mjlab_robot/teambowl_mjlab.xml
+index 8250853..92b6ba0 100644
+--- a/mjlab_robot/teambowl_mjlab.xml
++++ b/mjlab_robot/teambowl_mjlab.xml
+@@ -78,12 +78,12 @@
+       <!-- Body-frame IMU site -->
+       <site name="imu_sensor_site" pos="0 0 0.05"/>
+ 
+-      <geom type="mesh" contype="0" conaffinity="0" mesh="mesh111"
++      <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh111"
+             pos="-0.00546297 0.0848 0.0954208"/>
+       <!-- Named for mjlab CollisionCfg pattern matching -->
+-      <geom name="frame_box_collision"
++      <geom group="2" name="frame_box_collision"
+             type="box" size="0.25 0.15 0.22" pos="0 0.05 0.1"
+-            contype="1" conaffinity="1" rgba="0 0 0 0"/>
++            contype="1" conaffinity="1" rgba="0 0.5 0 0.3"/>
+ 
+       <!-- ============================================================
+            Right hip / leg assembly  (rigid — no joints = welded)
+@@ -92,25 +92,25 @@
+         <inertial pos="9.89938e-11 -0.0652752 -3.6294e-07"
+                   quat="2.99052e-05 0.703737 2.96222e-05 0.71046"
+                   mass="4.677" diaginertia="0.0203952 0.0192001 0.00962716"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh59"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh59"
+               pos="0.15 0.11869 0.213556"/>
+         <body name="Thigh" pos="-0.03125 -0.07 0" quat="0.976296 -0.216439 0 0">
+           <inertial pos="0.0235362 -0.120388 0.101442"
+                     quat="0.636039 0.308271 -0.288111 0.646076"
+                     mass="0.439" diaginertia="0.00607694 0.00604218 0.000157761"/>
+-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh79"
++          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh79"
+                 pos="0.18125 0.18869 0.213556"/>
+           <body name="Calf" pos="0.02625 -0.225522 0.190669" quat="0.984808 -0.173648 0 0">
+             <inertial pos="0.00130628 0.0508335 -0.148234"
+                       quat="0.697745 0.11292 -0.120002 0.697137"
+                       mass="0.804" diaginertia="0.0145063 0.0144449 0.000354461"/>
+-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh131"
++            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh131"
+                   pos="0.155 0.414212 0.0228866"/>
+             <body name="Foot" pos="0.02725 0.0957158 -0.279381" quat="0.953717 0.300706 0 0">
+               <inertial pos="-0.0257628 0.0025349 -0.0233876"
+                         quat="0.464535 0.517605 -0.534755 0.479927"
+                         mass="0.242" diaginertia="0.000515045 0.000386185 0.000183729"/>
+-              <geom name="right_foot_collision"
++              <geom group="2" name="right_foot_collision"
+                     type="mesh" contype="1" conaffinity="1" mesh="mesh127"
+                     pos="0.12775 0.318497 0.302267"
+                     friction="0.8 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001 0.5 2"/>
+@@ -121,13 +121,13 @@
+           <inertial pos="-0.0160967 -0.0110483 0.0322497"
+                     quat="0.979198 0.163089 -0.119078 -0.0198329"
+                     mass="0.178" diaginertia="0.000242067 0.000232993 3.88114e-05"/>
+-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh87"
++          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh87"
+                 pos="0.11875 0.18869 0.213556"/>
+           <body name="Align bar" pos="-0.03625 -0.0225108 0.0657059" quat="0.984808 0.173648 0 0">
+             <inertial pos="-2.02172e-12 -0.138854 0.117827"
+                       quat="0.641754 0.296903 -0.296903 0.641754"
+                       mass="0.186" diaginertia="0.00239967 0.00239678 2.56216e-05"/>
+-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh83"
++            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh83"
+                   pos="0.155 0.211201 0.14785"/>
+           </body>
+         </body>
+@@ -140,25 +140,25 @@
+         <inertial pos="9.89938e-11 -0.0652752 -3.6294e-07"
+                   quat="2.99052e-05 0.703737 2.96222e-05 0.71046"
+                   mass="4.677" diaginertia="0.0203952 0.0192001 0.00962716"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh59"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh59"
+               pos="0.15 0.11869 0.213556"/>
+         <body name="Thigh_1" pos="-0.03125 -0.07 0" quat="0.976296 -0.216439 0 0">
+           <inertial pos="0.0235362 -0.120388 0.101442"
+                     quat="0.636039 0.308271 -0.288111 0.646076"
+                     mass="0.439" diaginertia="0.00607694 0.00604218 0.000157761"/>
+-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh79"
++          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh79"
+                 pos="0.18125 0.18869 0.213556"/>
+           <body name="Calf_1" pos="0.02625 -0.225522 0.190669" quat="0.984808 -0.173648 0 0">
+             <inertial pos="0.00130628 0.0508335 -0.148234"
+                       quat="0.697745 0.11292 -0.120002 0.697137"
+                       mass="0.804" diaginertia="0.0145063 0.0144449 0.000354461"/>
+-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh131"
++            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh131"
+                   pos="0.155 0.414212 0.0228866"/>
+             <body name="Foot_1" pos="0.02725 0.0957158 -0.279381" quat="0.953717 0.300706 0 0">
+               <inertial pos="-0.0257628 0.0025349 -0.0233876"
+                         quat="0.464535 0.517605 -0.534755 0.479927"
+                         mass="0.242" diaginertia="0.000515045 0.000386185 0.000183729"/>
+-              <geom name="left_foot_collision"
++              <geom group="2" name="left_foot_collision"
+                     type="mesh" contype="1" conaffinity="1" mesh="mesh127"
+                     pos="0.12775 0.318497 0.302267"
+                     friction="0.8 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001 0.5 2"/>
+@@ -169,13 +169,13 @@
+           <inertial pos="-0.0160967 -0.0110483 0.0322497"
+                     quat="0.979198 0.163089 -0.119078 -0.0198329"
+                     mass="0.178" diaginertia="0.000242067 0.000232993 3.88114e-05"/>
+-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh87"
++          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh87"
+                 pos="0.11875 0.18869 0.213556"/>
+           <body name="Align bar_1" pos="-0.03625 -0.0225108 0.0657059" quat="0.984808 0.173648 0 0">
+             <inertial pos="-2.02172e-12 -0.138854 0.117827"
+                       quat="0.641754 0.296903 -0.296903 0.641754"
+                       mass="0.186" diaginertia="0.00239967 0.00239678 2.56216e-05"/>
+-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh83"
++            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh83"
+                   pos="0.155 0.211201 0.14785"/>
+           </body>
+         </body>
+@@ -196,7 +196,7 @@
+         <joint name="left_motor_0" class="motor_joint"
+                pos="0 0 0" axis="-1 0 0"
+                armature="0.00876"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh100"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh100"
+               pos="0.27443 0.0457572 0.0410302"/>
+       </body>
+ 
+@@ -206,9 +206,9 @@
+         <!-- class="wheel_joint" gives armature (tire) + frictionloss (bearing) -->
+         <joint name="left_wheel_0" class="wheel_joint"
+                pos="0 0 0" axis="-1 0 0"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh150"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh150"
+               pos="0.2968 0.12319 0.151616"/>
+-        <geom name="left_wheel_collision"
++        <geom group="2" name="left_wheel_collision"
+               class="wheel" type="cylinder" size="0.154 0.018"
+               quat="0.7071 0 0.7071 0" contype="1" conaffinity="1" rgba="0.2 0.2 0.2 0.6"/>
+       </body>
+@@ -218,7 +218,7 @@
+         <inertial pos="-0.00667876 0.103152 -0.00905696"
+                   quat="-0.00956325 0.706186 0.0361322 0.70704"
+                   mass="2.818" diaginertia="0.0965965 0.0585789 0.040202"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh104"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh104"
+               pos="0 0.19613 -0.20009"/>
+       </body>
+ 
+@@ -226,7 +226,7 @@
+         <inertial pos="1.04235e-12 2.50691e-11 0.0144022"
+                   quat="0.5 0.5 -0.5 0.5"
+                   mass="0.025" diaginertia="3.67541e-06 3.37396e-06 3.37396e-06"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh63"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh63"
+               pos="0.000140291 0.248619 -0.14544"/>
+       </body>
+ 
+@@ -244,7 +244,7 @@
+         <joint name="right_motor_0" class="motor_joint"
+                pos="0 0 0" axis="1 0 0"
+                armature="0.01260"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh100"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh100"
+               pos="0.27443 0.0457572 0.0410302"/>
+       </body>
+ 
+@@ -255,9 +255,9 @@
+         <!-- class="wheel_joint" gives armature (tire) + frictionloss (bearing) -->
+         <joint name="right_wheel_0" class="wheel_joint"
+                pos="0 0 0" axis="-1 0 0"/>
+-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh150"
++        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh150"
+               pos="0.271842 0.12319 0.151616"/>
+-        <geom name="right_wheel_collision"
++        <geom group="2" name="right_wheel_collision"
+               class="wheel" type="cylinder" size="0.154 0.018"
+               quat="0.7071 0 0.7071 0" contype="1" conaffinity="1" rgba="0.2 0.2 0.2 0.6"/>
+       </body>
+diff --git a/test_lid.sh b/test_lid.sh
+index aaeb42f..5ede28c 100755
+--- a/test_lid.sh
++++ b/test_lid.sh
+@@ -6,7 +6,7 @@
+ #
+ # Usage:
+ #   ./test_lid.sh
+-#eeeeeeee
++#
+ # Workflow:
+ #   1. Edit teambowl_ws/src/locomotion/config/lid_controller.yaml
+ #   2. Run this script to restart the controller and test the new angles.
+@@ -58,8 +58,9 @@ sleep 1
+ ros2 run locomotion lid_controller --ros-args --params-file ${LID_CONFIG} > /tmp/lid_controller_test.log 2>&1 &
+ LID_PID=$!
+ 
+-echo "[lid_test] Lid controller started (PID: ${LID_PID}) with config: teambowl_ws/src/locomotion/config/lid_controller.yaml"
+-echo "[lid_test] Log available at: /tmp/lid_controller_test.log"
++echo "[lid_test] Lid controller started (PID: ${LID_PID})"
++echo "[lid_test] Config: teambowl_ws/src/locomotion/config/lid_controller.yaml"
++echo "[lid_test] Log:    tail -f /tmp/lid_controller_test.log"
+ sleep 2
+ 
+ # --------------------------------------------------------------------------- #
+@@ -74,6 +75,9 @@ echo "    [o] Open Lid"
+ echo "    [c] Close Lid"
+ echo "    [t] Toggle Lid"
+ echo "    [s] Show /lid_state"
++echo "    [m] Monitor Position/Effort (Debug)"
++echo "    [f] Check Motor Faults/Mode (Debug)"
++echo "    [e] Re-send Enable Motors Service"
+ echo "    [q] Quit (kills test node)"
+ echo "=========================================="
+ echo ""
+@@ -105,11 +109,25 @@ while true; do
+             echo "[lid_test] Current Lid State:"
+             ros2 topic echo /lid_state --once
+             ;;
++        [mM]*)
++            echo "[lid_test] Monitoring joint_rs05_1 (Ctrl+C to stop)..."
++            # Use a python script to filter joint states for just the lid
++            ros2 topic echo /joint_states --once | grep -A 20 "joint_rs05_1" || echo "No joint_rs05_1 found in /joint_states"
++            echo "--- (Showing one snapshot. Use 'ros2 topic echo /joint_states' for live stream) ---"
++            ;;
++        [fF]*)
++            echo "[lid_test] Checking /motor_faults for joint_rs05_1..."
++            ros2 topic echo /motor_faults --once | grep -A 15 "joint_rs05_1" || echo "No fault data for joint_rs05_1"
++            ;;
++        [eE]*)
++            echo "[lid_test] Calling /enable_motors service..."
++            ros2 service call /enable_motors std_srvs/srv/Trigger {}
++            ;;
+         [qQ]*)
+             cleanup
+             ;;
+         *)
+-            echo "[lid_test] Unknown command. Use o, c, t, s, or q."
++            echo "[lid_test] Unknown command. Use o, c, t, s, m, f, e, or q."
+             ;;
+     esac
+ done

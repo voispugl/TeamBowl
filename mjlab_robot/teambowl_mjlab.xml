@@ -78,12 +78,12 @@
       <!-- Body-frame IMU site -->
       <site name="imu_sensor_site" pos="0 0 0.05"/>
 
-      <geom type="mesh" contype="0" conaffinity="0" mesh="mesh111"
+      <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh111"
             pos="-0.00546297 0.0848 0.0954208"/>
       <!-- Named for mjlab CollisionCfg pattern matching -->
-      <geom name="frame_box_collision"
-            type="box" size="0.25 0.15 0.22" pos="0 0.05 0.1"
-            contype="1" conaffinity="1" rgba="0 0 0 0"/>
+      <geom group="2" name="frame_box_collision"
+            type="box" size="0.25 0.15 0.22" pos="0 0.013 0.072"
+            contype="1" conaffinity="1" rgba="0 0.5 0 0.3"/>
 
       <!-- ============================================================
            Right hip / leg assembly  (rigid — no joints = welded)
@@ -92,25 +92,25 @@
         <inertial pos="9.89938e-11 -0.0652752 -3.6294e-07"
                   quat="2.99052e-05 0.703737 2.96222e-05 0.71046"
                   mass="4.677" diaginertia="0.0203952 0.0192001 0.00962716"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh59"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh59"
               pos="0.15 0.11869 0.213556"/>
         <body name="Thigh" pos="-0.03125 -0.07 0" quat="0.976296 -0.216439 0 0">
           <inertial pos="0.0235362 -0.120388 0.101442"
                     quat="0.636039 0.308271 -0.288111 0.646076"
                     mass="0.439" diaginertia="0.00607694 0.00604218 0.000157761"/>
-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh79"
+          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh79"
                 pos="0.18125 0.18869 0.213556"/>
           <body name="Calf" pos="0.02625 -0.225522 0.190669" quat="0.984808 -0.173648 0 0">
             <inertial pos="0.00130628 0.0508335 -0.148234"
                       quat="0.697745 0.11292 -0.120002 0.697137"
                       mass="0.804" diaginertia="0.0145063 0.0144449 0.000354461"/>
-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh131"
+            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh131"
                   pos="0.155 0.414212 0.0228866"/>
             <body name="Foot" pos="0.02725 0.0957158 -0.279381" quat="0.953717 0.300706 0 0">
               <inertial pos="-0.0257628 0.0025349 -0.0233876"
                         quat="0.464535 0.517605 -0.534755 0.479927"
                         mass="0.242" diaginertia="0.000515045 0.000386185 0.000183729"/>
-              <geom name="right_foot_collision"
+              <geom group="2" name="right_foot_collision"
                     type="mesh" contype="1" conaffinity="1" mesh="mesh127"
                     pos="0.12775 0.318497 0.302267"
                     friction="0.8 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001 0.5 2"/>
@@ -121,13 +121,13 @@
           <inertial pos="-0.0160967 -0.0110483 0.0322497"
                     quat="0.979198 0.163089 -0.119078 -0.0198329"
                     mass="0.178" diaginertia="0.000242067 0.000232993 3.88114e-05"/>
-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh87"
+          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh87"
                 pos="0.11875 0.18869 0.213556"/>
           <body name="Align bar" pos="-0.03625 -0.0225108 0.0657059" quat="0.984808 0.173648 0 0">
             <inertial pos="-2.02172e-12 -0.138854 0.117827"
                       quat="0.641754 0.296903 -0.296903 0.641754"
                       mass="0.186" diaginertia="0.00239967 0.00239678 2.56216e-05"/>
-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh83"
+            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh83"
                   pos="0.155 0.211201 0.14785"/>
           </body>
         </body>
@@ -140,25 +140,25 @@
         <inertial pos="9.89938e-11 -0.0652752 -3.6294e-07"
                   quat="2.99052e-05 0.703737 2.96222e-05 0.71046"
                   mass="4.677" diaginertia="0.0203952 0.0192001 0.00962716"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh59"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh59"
               pos="0.15 0.11869 0.213556"/>
         <body name="Thigh_1" pos="-0.03125 -0.07 0" quat="0.976296 -0.216439 0 0">
           <inertial pos="0.0235362 -0.120388 0.101442"
                     quat="0.636039 0.308271 -0.288111 0.646076"
                     mass="0.439" diaginertia="0.00607694 0.00604218 0.000157761"/>
-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh79"
+          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh79"
                 pos="0.18125 0.18869 0.213556"/>
           <body name="Calf_1" pos="0.02625 -0.225522 0.190669" quat="0.984808 -0.173648 0 0">
             <inertial pos="0.00130628 0.0508335 -0.148234"
                       quat="0.697745 0.11292 -0.120002 0.697137"
                       mass="0.804" diaginertia="0.0145063 0.0144449 0.000354461"/>
-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh131"
+            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh131"
                   pos="0.155 0.414212 0.0228866"/>
             <body name="Foot_1" pos="0.02725 0.0957158 -0.279381" quat="0.953717 0.300706 0 0">
               <inertial pos="-0.0257628 0.0025349 -0.0233876"
                         quat="0.464535 0.517605 -0.534755 0.479927"
                         mass="0.242" diaginertia="0.000515045 0.000386185 0.000183729"/>
-              <geom name="left_foot_collision"
+              <geom group="2" name="left_foot_collision"
                     type="mesh" contype="1" conaffinity="1" mesh="mesh127"
                     pos="0.12775 0.318497 0.302267"
                     friction="0.8 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001 0.5 2"/>
@@ -169,13 +169,13 @@
           <inertial pos="-0.0160967 -0.0110483 0.0322497"
                     quat="0.979198 0.163089 -0.119078 -0.0198329"
                     mass="0.178" diaginertia="0.000242067 0.000232993 3.88114e-05"/>
-          <geom type="mesh" contype="0" conaffinity="0" mesh="mesh87"
+          <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh87"
                 pos="0.11875 0.18869 0.213556"/>
           <body name="Align bar_1" pos="-0.03625 -0.0225108 0.0657059" quat="0.984808 0.173648 0 0">
             <inertial pos="-2.02172e-12 -0.138854 0.117827"
                       quat="0.641754 0.296903 -0.296903 0.641754"
                       mass="0.186" diaginertia="0.00239967 0.00239678 2.56216e-05"/>
-            <geom type="mesh" contype="0" conaffinity="0" mesh="mesh83"
+            <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh83"
                   pos="0.155 0.211201 0.14785"/>
           </body>
         </body>
@@ -196,7 +196,7 @@
         <joint name="left_motor_0" class="motor_joint"
                pos="0 0 0" axis="-1 0 0"
                armature="0.00876"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh100"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh100"
               pos="0.27443 0.0457572 0.0410302"/>
       </body>
 
@@ -206,11 +206,11 @@
         <!-- class="wheel_joint" gives armature (tire) + frictionloss (bearing) -->
         <joint name="left_wheel_0" class="wheel_joint"
                pos="0 0 0" axis="-1 0 0"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh150"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh150"
               pos="0.2968 0.12319 0.151616"/>
-        <geom name="left_wheel_collision"
+        <geom group="2" name="left_wheel_collision"
               class="wheel" type="cylinder" size="0.154 0.018"
-              quat="0.7071 0 0.7071 0" contype="1" conaffinity="1" rgba="0.2 0.2 0.2 0.6"/>
+              pos="0.013 0 0" quat="0.7071 0 0.7071 0" contype="1" conaffinity="1" rgba="0.2 0.2 0.2 0.6"/>
       </body>
 
       <!-- Lid + lid gear (passive, cosmetic only) -->
@@ -218,7 +218,7 @@
         <inertial pos="-0.00667876 0.103152 -0.00905696"
                   quat="-0.00956325 0.706186 0.0361322 0.70704"
                   mass="2.818" diaginertia="0.0965965 0.0585789 0.040202"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh104"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh104"
               pos="0 0.19613 -0.20009"/>
       </body>
 
@@ -226,7 +226,7 @@
         <inertial pos="1.04235e-12 2.50691e-11 0.0144022"
                   quat="0.5 0.5 -0.5 0.5"
                   mass="0.025" diaginertia="3.67541e-06 3.37396e-06 3.37396e-06"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh63"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh63"
               pos="0.000140291 0.248619 -0.14544"/>
       </body>
 
@@ -244,7 +244,7 @@
         <joint name="right_motor_0" class="motor_joint"
                pos="0 0 0" axis="1 0 0"
                armature="0.01260"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh100"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh100"
               pos="0.27443 0.0457572 0.0410302"/>
       </body>
 
@@ -255,11 +255,11 @@
         <!-- class="wheel_joint" gives armature (tire) + frictionloss (bearing) -->
         <joint name="right_wheel_0" class="wheel_joint"
                pos="0 0 0" axis="-1 0 0"/>
-        <geom type="mesh" contype="0" conaffinity="0" mesh="mesh150"
+        <geom group="0" type="mesh" contype="0" conaffinity="0" mesh="mesh150"
               pos="0.271842 0.12319 0.151616"/>
-        <geom name="right_wheel_collision"
+        <geom group="2" name="right_wheel_collision"
               class="wheel" type="cylinder" size="0.154 0.018"
-              quat="0.7071 0 0.7071 0" contype="1" conaffinity="1" rgba="0.2 0.2 0.2 0.6"/>
+              pos="-0.012 0 0" quat="0.7071 0 0.7071 0" contype="1" conaffinity="1" rgba="0.2 0.2 0.2 0.6"/>
       </body>
 
     </body>

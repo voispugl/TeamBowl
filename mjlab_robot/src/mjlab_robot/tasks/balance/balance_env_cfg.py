@@ -71,6 +71,27 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 
 # ---------------------------------------------------------------------------
+# Floor helper
+# ---------------------------------------------------------------------------
+# mjlab's attach() does NOT copy worldbody geoms from the entity XML into the
+# scene (only bodies/joints/actuators/sensors are attached). The floor defined
+# inside teambowl_mjlab.xml is therefore absent at runtime.  We add it back
+# via spec_fn so the robot has something to stand on.
+
+def _add_floor(spec: "mujoco.MjSpec") -> None:  # noqa: F821
+    """Inject a flat ground plane at z = -0.3 (matches teambowl_mjlab.xml)."""
+    import mujoco  # local import avoids top-level dependency on display
+
+    floor = spec.worldbody.add_geom()
+    floor.name = "floor"
+    floor.type = mujoco.mjtGeom.mjGEOM_PLANE
+    floor.pos = [0.0, 0.0, -0.3]
+    floor.size = [0.0, 0.0, 0.05]
+    # Friction / contact props match teambowl_mjlab.xml defaults
+    floor.friction = [1.0, 0.005, 0.0001]
+
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 # Robot body size ≈ 2 ft = 0.6096 m in all directions; ±30% CG shift = ±0.18 m
@@ -104,8 +125,9 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     # ── Scene ────────────────────────────────────────────────────────────────
     scene = SceneCfg(
         num_envs=num_envs,
-        env_spacing=3.0,         # 3 m spacing between parallel envs
-        terrain=None,             # floor is defined in teambowl_mjlab.xml
+        env_spacing=8.0,         # 8 m spacing between parallel envs
+        terrain=None,
+        spec_fn=_add_floor,      # inject floor plane (worldbody geoms not copied by attach)
         entities={"robot": get_robot_cfg()},
     )
 
@@ -113,38 +135,42 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     # Sensor name format: "entity_name/xml_sensor_name"
     # All sensor names match those in teambowl_mjlab.xml.
 
-    noise = 0.0 if play else 1.0  # scale multiplier for noise ranges
+    def _unoise(magnitude: float) -> Unoise | None:
+        """Return a uniform noise term, or None in play mode (no corruption)."""
+        if play:
+            return None
+        return Unoise(n_min=-magnitude, n_max=magnitude)
 
     policy_terms: dict[str, ObservationTermCfg] = {
         # Gravity vector projected into body frame (3D).
         # When upright: [0, 0, -1].  Encodes pitch + roll.
         "projected_gravity": ObservationTermCfg(
             func=envs_mdp.projected_gravity,
-            noise=Unoise(n_min=-0.05 * noise, n_max=0.05 * noise),
+            noise=_unoise(0.05),
         ),
         # Body-frame angular velocity [wx, wy, wz] in rad/s from imu_gyro sensor.
         "base_ang_vel": ObservationTermCfg(
             func=envs_mdp.builtin_sensor,
             params={"sensor_name": "robot/imu_gyro"},
-            noise=Unoise(n_min=-0.2 * noise, n_max=0.2 * noise),
+            noise=_unoise(0.2),
         ),
         # Body-frame linear velocity [vx, vy, vz] in m/s from imu_lin_vel sensor.
         "base_lin_vel": ObservationTermCfg(
             func=envs_mdp.builtin_sensor,
             params={"sensor_name": "robot/imu_lin_vel"},
-            noise=Unoise(n_min=-0.3 * noise, n_max=0.3 * noise),
+            noise=_unoise(0.3),
         ),
         # Left wheel angular velocity (rad/s) — from jointvel sensor.
         "left_wheel_vel": ObservationTermCfg(
             func=envs_mdp.builtin_sensor,
             params={"sensor_name": "robot/left_wheel_vel"},
-            noise=Unoise(n_min=-0.5 * noise, n_max=0.5 * noise),
+            noise=_unoise(0.5),
         ),
         # Right wheel angular velocity (rad/s) — from jointvel sensor.
         "right_wheel_vel": ObservationTermCfg(
             func=envs_mdp.builtin_sensor,
             params={"sensor_name": "robot/right_wheel_vel"},
-            noise=Unoise(n_min=-0.5 * noise, n_max=0.5 * noise),
+            noise=_unoise(0.5),
         ),
         # Velocity command from planner: [vx_cmd, vy_cmd, wz_cmd] in m/s / rad/s.
         # vy_cmd is always 0 for a wheeled robot; the policy learns to ignore it.
@@ -190,12 +216,15 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     #   Left:  scale = 0.5 m/s / wheel_radius * N_left  ≈ 39.3 rad/s
     #   Right: scale = 0.5 m/s / wheel_radius * N_right ≈ 47.1 rad/s
     actions: dict[str, ActionTermCfg] = {
+        # actuator_names are matched against the JOINT names of actuated joints.
+        # Our XML <velocity> actuators target left_motor_0 / right_motor_0, so
+        # those joint names are what JointVelocityActionCfg resolves against.
         "motor_vel": JointVelocityActionCfg(
             entity_name="robot",
-            actuator_names=("act_left_motor", "act_right_motor"),
+            actuator_names=("left_motor_0", "right_motor_0"),
             scale={
-                "act_left_motor":  MAX_MOTOR_SPEED_LEFT,   # ≈ 39.3 rad/s
-                "act_right_motor": MAX_MOTOR_SPEED_RIGHT,  # ≈ 47.1 rad/s
+                "left_motor_0":  MAX_MOTOR_SPEED_LEFT,   # ≈ 39.3 rad/s
+                "right_motor_0": MAX_MOTOR_SPEED_RIGHT,  # ≈ 47.1 rad/s
             },
             use_default_offset=False,
         ),
@@ -222,9 +251,12 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     rewards: dict[str, RewardTermCfg] = {
         # Stay upright: rewards small xy-component of projected gravity.
         # exp(-xy_grav² / std²); std=0.15 → ≈63% at 15° tilt, ≈0% at 45°.
+        # Must specify body_names="Frame" so flat_orientation operates on the
+        # single root body (body_ids=slice(None) selects all bodies by default,
+        # causing a shape mismatch in quat_apply_inverse).
         "upright": RewardTermCfg(
             func=vel_mdp.flat_orientation,
-            params={"std": 0.15},
+            params={"std": 0.15, "asset_cfg": SceneEntityCfg("robot", body_names="Frame")},
             weight=3.0,
         ),
         # Survive reward: +1 every step while not fallen.
