@@ -12,12 +12,20 @@ if [ ! -f "${BUILD_MARKER}" ]; then
     echo "[entrypoint] First run — building full workspace (this will take several minutes)..."
     cd "${WS}"
 
-    # depthai_filters requires opencv_contrib (ximgproc) which is NOT included in
-    # the Jetson CUDA OpenCV. depthai_examples is skipped because depthai_ros_driver
-    # no longer declares a dependency on it. Neither package is used by bringup.launch.py.
+    # Always ignore: depthai_filters (requires opencv_contrib/ximgproc — not present in
+    # the Jetson CUDA OpenCV or standard Ubuntu opencv). depthai_examples is skipped
+    # because depthai_ros_driver no longer declares a dependency on it.
+    # SKIP_DEPTHAI=1: also ignore all depthai source packages (laptop builds — the
+    # OAK-D camera is never attached to a laptop, so the C++ SDK is not installed).
+    IGNORE_PKGS="depthai_filters depthai_examples"
+    if [ "${SKIP_DEPTHAI:-0}" = "1" ]; then
+        echo "[entrypoint] SKIP_DEPTHAI=1 — skipping all depthai-ros source packages"
+        IGNORE_PKGS="$IGNORE_PKGS depthai_bridge depthai_ros_driver depthai_ros_msgs depthai_descriptions"
+    fi
+
     colcon build \
         --symlink-install \
-        --packages-ignore depthai_filters depthai_examples \
+        --packages-ignore ${IGNORE_PKGS} \
         --cmake-args \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \

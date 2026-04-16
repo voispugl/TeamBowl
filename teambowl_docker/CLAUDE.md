@@ -1,5 +1,69 @@
 # teambowl_docker
 
+## File inventory
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | **Robot image** — AGX Orin (aarch64, JetPack 6.1, CUDA 12.6) |
+| `Dockerfile.laptop` | **Laptop image** — x86_64 (Ubuntu 22.04, no GPU, skips depthai) |
+| `docker-compose.yml` | Robot compose — privileged, `/dev` mount, CAN/USB |
+| `docker-compose.laptop.yml` | Laptop compose — X11 forwarding, no hardware access |
+| `build.sh` | Build + start robot image (`--clean` for full rebuild) |
+| `build.laptop.sh` | Build + start laptop image (`--clean` for full rebuild) |
+| `docker/entrypoint.sh` | Shared entrypoint — auto-builds workspace on first run |
+
+## Quick start
+
+**Robot (AGX Orin):**
+```bash
+cd ~/TeamBowl/teambowl_docker
+./build.sh                 # build image + start (first run ~20 min)
+docker compose up          # subsequent starts
+```
+
+**Laptop (x86_64):**
+```bash
+cd ~/TeamBowl/teambowl_docker
+xhost +local:docker        # allow X11 forwarding (macOS: XQuartz must be running)
+./build.laptop.sh          # build image + drop to bash (first run ~10 min)
+# Inside container:
+ros2 launch bringup bringup.launch.py foxglove:=true
+```
+
+Override workspace path: `TEAMBOWL_WS=/my/path ./build.laptop.sh`
+
+## Key design decisions
+
+- **Robot base**: `nvcr.io/nvidia/l4t-jetpack:r36.4.0` — JetPack ships CUDA-accelerated
+  OpenCV; apt libopencv-dev would overwrite it. `ros-humble-depthai` (C++ SDK) is from
+  the standard ROS apt mirror (ARM64 packages available there).
+- **Laptop base**: `ros:humble-ros-base-jammy` — ROS2 already set up; uses standard
+  apt `libopencv-dev`. Skips all depthai-ros packages (`SKIP_DEPTHAI=1` env var in
+  entrypoint) because `ros-humble-depthai` is not in the x86_64 ROS apt mirror and
+  the OAK-D is never attached to a laptop.
+- **`SKIP_DEPTHAI=1`**: Set in `Dockerfile.laptop`, read by `entrypoint.sh` to add all
+  5 depthai source packages to `--packages-ignore` at build time.
+- **Workspace mount**: Source code is never copied into the image — always volume-mounted
+  at `/workspaces/teambowl_ws`. Colcon build runs inside the container on first start.
+- **Marker file**: `install/.colcon_build_complete` prevents rebuilding on every start.
+  Delete it to force a rebuild: `rm teambowl_ws/install/.colcon_build_complete`
+
+## 2026-04-16 — Added laptop image + missing nav2 packages
+
+- **`Dockerfile.laptop`**: New x86_64 laptop image. Base `ros:humble-ros-base-jammy`;
+  adds `libopencv-dev`; sets `SKIP_DEPTHAI=1` to skip OAK-D packages at build time.
+- **`Dockerfile`** (robot): Added `ros-humble-robot-localization`,
+  `ros-humble-navigation2`, `ros-humble-pointcloud-to-laserscan`, and `python-can`
+  pip package. These were missing and caused runtime failures in the nav2/EKF stack.
+- **`docker/entrypoint.sh`**: Added `SKIP_DEPTHAI=1` env var check. When set, all 5
+  depthai source packages are added to `--packages-ignore` in colcon build.
+- **`docker-compose.yml`**: Parameterized source path with
+  `${TEAMBOWL_WS:-/home/box/TeamBowl/teambowl_ws}` so any user can override it.
+- **`docker-compose.laptop.yml`**: New laptop compose. No privileged/`/dev`; adds X11
+  socket mount + `DISPLAY` env var for rviz2/GUI; defaults command to `bash`.
+- **`build.laptop.sh`**: New build script matching `build.sh` pattern. Accepts
+  `--clean` and respects `TEAMBOWL_WS` env var for workspace path.
+
 ## 2026-03-16 — Added colcon_build.sh and teleop.sh
 
 - **`colcon_build.sh`**: Incrementally rebuilds `robstride_can_interfaces`,
