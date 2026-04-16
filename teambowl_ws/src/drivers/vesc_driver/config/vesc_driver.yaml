@@ -12,6 +12,10 @@ cmd_vel_to_vesc:
     cmd_timeout_s: 0.5
     baud: 115200
     serial_timeout_s: 0.05
-    left_sign: 1
+    left_sign: -1
     right_sign: -1
     print_RPM_cmds: false
+    left_wheel_vel_topic: /wheel_vel_left
+    right_wheel_vel_topic: /wheel_vel_right
+    feedback_poll_rate_hz: 20.0
+    publish_wheel_feedback: true

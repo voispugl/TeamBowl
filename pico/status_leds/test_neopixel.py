@@ -3,7 +3,7 @@ import time
 import rp2
 
 # NeoPixel configuration
-NUM_PIXELS = 30
+NUM_PIXELS = 10
 PIN_NUM = 28
 BRIGHTNESS = 0.3
 
@@ -34,8 +34,9 @@ def set_pixels(r, g, b):
 
 # Define our color sequence: Red, Green, Yellow, Purple
 colors = [
-    (255, 0, 0),    # Red
+   
     (0, 255, 0),    # Green
+    (255, 0, 0),    # Red
     (255, 255, 0),  # Yellow
     (128, 0, 128)   # Purple
 ]

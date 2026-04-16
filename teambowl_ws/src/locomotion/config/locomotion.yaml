@@ -7,6 +7,15 @@ hold_position_controller:
     publish_rate_hz: 50.0
     rs00_joints: [joint_rs00_1, joint_rs00_2]
 
+driving_leg_controller:
+  ros__parameters:
+    mode_topic: /robot_mode
+    estop_topic: /estop
+    joint_commands_topic: /joint_commands
+    torque_ff: 0.0
+    publish_rate_hz: 50.0
+    rs00_joints: [joint_rs00_1, joint_rs00_2]
+
 vel_cmd_mux:
   ros__parameters:
     mode_topic: /robot_mode

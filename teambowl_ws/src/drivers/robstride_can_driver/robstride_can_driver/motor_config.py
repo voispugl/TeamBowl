@@ -161,6 +161,9 @@ def load_config(yaml_path: str | Path) -> DriverConfig:
         else:
             can_id = int(can_id_raw)
 
+        if not motor_data.get("enabled", True):
+            continue  # motor disabled in config — skip entirely
+
         motors[joint_name] = MotorConfig(
             joint_name=joint_name,
             motor_type=motor_type,

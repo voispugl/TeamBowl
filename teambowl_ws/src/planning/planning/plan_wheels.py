@@ -64,12 +64,12 @@ class PlanWheels(Node):
         self.declare_parameter('k_angular', 1.8)
 
         # Limits
-        self.declare_parameter('max_linear_x', 0.8)
-        self.declare_parameter('max_angular_z', 1.2)
+        self.declare_parameter('max_linear_x', 0.2)
+        self.declare_parameter('max_angular_z', 0.8)
 
         # Optional reverse behavior
         self.declare_parameter('allow_reverse', False)
-        self.declare_parameter('max_reverse_x', 0.25)
+        self.declare_parameter('max_reverse_x', 0.2)
 
         # Turn-in-place behavior
         self.declare_parameter('turn_in_place_angle_only', False)

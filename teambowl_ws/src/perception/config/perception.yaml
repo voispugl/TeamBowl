@@ -13,3 +13,10 @@ cam_ops_node:
     min_depth_m: 0.2
     max_depth_m: 8.0
     depth_window_radius_px: 2
+    point_cloud:
+      i_enable_feature: true
+      i_output_frame: "oak_rgb_camera_optical_frame"
+      i_num_threads: 2
+    stereo:
+      i_align_depth: true
+      i_publish_topic: true

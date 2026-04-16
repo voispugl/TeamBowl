@@ -64,31 +64,11 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
+from mjlab.terrains import TerrainImporterCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.velocity import mdp as vel_mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
-
-
-# ---------------------------------------------------------------------------
-# Floor helper
-# ---------------------------------------------------------------------------
-# mjlab's attach() does NOT copy worldbody geoms from the entity XML into the
-# scene (only bodies/joints/actuators/sensors are attached). The floor defined
-# inside teambowl_mjlab.xml is therefore absent at runtime.  We add it back
-# via spec_fn so the robot has something to stand on.
-
-def _add_floor(spec: "mujoco.MjSpec") -> None:  # noqa: F821
-    """Inject a flat ground plane at z = -0.3 (matches teambowl_mjlab.xml)."""
-    import mujoco  # local import avoids top-level dependency on display
-
-    floor = spec.worldbody.add_geom()
-    floor.name = "floor"
-    floor.type = mujoco.mjtGeom.mjGEOM_PLANE
-    floor.pos = [0.0, 0.0, -0.3]
-    floor.size = [0.0, 0.0, 0.05]
-    # Friction / contact props match teambowl_mjlab.xml defaults
-    floor.friction = [1.0, 0.005, 0.0001]
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +105,12 @@ def teambowl_balance_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     # ── Scene ────────────────────────────────────────────────────────────────
     scene = SceneCfg(
         num_envs=num_envs,
-        env_spacing=8.0,         # 8 m spacing between parallel envs
-        terrain=None,
-        spec_fn=_add_floor,      # inject floor plane (worldbody geoms not copied by attach)
+        env_spacing=8.0,
+        terrain=TerrainImporterCfg(
+            terrain_type="plane",
+            env_spacing=8.0,
+            num_envs=num_envs,
+        ),
         entities={"robot": get_robot_cfg()},
     )
 

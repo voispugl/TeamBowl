@@ -13,6 +13,7 @@ setup(
         ('share/' + package_name + '/config', [
             'config/locomotion.yaml',
             'config/balance_controller.yaml',
+            'config/driving_controller.yaml',
             'config/ekf.yaml',
             'config/lid_controller.yaml',
         ]),
@@ -36,6 +37,7 @@ setup(
             'driving_leg_controller = locomotion.driving_leg_controller:main',
             'hold_position_controller = locomotion.hold_position_controller:main',
             'balance_controller = locomotion.balance_controller:main',
+            'driving_controller = locomotion.driving_controller:main',
             'wheel_odom = locomotion.wheel_odom:main',
             'lid_controller = locomotion.lid_controller:main',
         ],

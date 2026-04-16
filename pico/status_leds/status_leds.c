@@ -12,7 +12,7 @@
 
 // ── Hardware config ────────────────────────────────────────────────────────────
 #define PIN_TX       28
-#define NUM_PIXELS   30
+#define NUM_PIXELS   10
 #define BRIGHTNESS   0.3f
 
 #define I2C_SDA_PIN  4
@@ -90,8 +90,9 @@ static const uint8_t base_colors[4][3] = {
 typedef struct { led_mode_t mode; uint8_t r, g, b; } led_step_t;
 
 static const led_step_t steps[] = {
-    {MODE_STATIC,     255,   0,   0},   // Red
     {MODE_STATIC,       0, 255,   0},   // Green
+    {MODE_STATIC,     255,   0,   0},   // Red
+
     {MODE_STATIC,     255, 255,   0},   // Yellow
     {MODE_STATIC,     128,   0, 128},   // Purple
     {MODE_WAVE_RIGHT, 255, 120,   0},   // Wave right  (orange)
