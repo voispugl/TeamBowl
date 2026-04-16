@@ -190,3 +190,23 @@ lifecycle_manager_navigation:
     use_sim_time: false
     autostart: true
     node_names: ["planner_server", "controller_server"]
+
+trajectory_test:
+  ros__parameters:
+    planner_action_name: /compute_path_to_pose
+    controller_action_name: /follow_path
+    planner_id: GridBased
+    controller_id: FollowPath
+    goal_checker_id: goal_checker
+    odom_topic: /odometry/filtered
+    mode_topic: /robot_mode
+    estop_topic: /estop
+    path_topic: /trajectory_path
+    status_topic: /trajectory_status
+    goal_topic: /trajectory_goal
+    cmd_topic: /trajectory_cmd
+    cmd_vel_topic: /cmd_vel_auto
+    replan_rate_hz: 2.0
+    min_goal_change_m: 0.10
+    min_goal_change_rad: 0.20
+    odom_timeout_s: 0.5

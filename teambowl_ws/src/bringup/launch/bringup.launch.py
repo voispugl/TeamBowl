@@ -428,6 +428,17 @@ def generate_launch_description():
             parameters=[planning_config],
         ),
 
+        # Trajectory test — Foxglove-driven goal → nav2 plan + execute
+        # Idle outside "driving" mode. Publish JSON goal to /trajectory_goal,
+        # then "go" to /trajectory_cmd to start live-replanning execution.
+        Node(
+            package='planning',
+            executable='trajectory_test',
+            name='trajectory_test',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',

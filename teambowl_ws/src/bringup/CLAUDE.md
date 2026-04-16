@@ -1,5 +1,15 @@
 # bringup
 
+## 2026-04-16 — Added trajectory_test node + trajectory_test.launch.py
+
+- **`launch/bringup.launch.py`**: Added `trajectory_test` node (planning pkg,
+  `planning.yaml` config). Always launched; idle outside `"driving"` mode.
+- **`launch/trajectory_test.launch.py`**: New one-command launch file for
+  trajectory tuning sessions. Includes full bringup with
+  `velocity_controller:=driving leg_controller:=driving` and auto-sets
+  robot mode to `"driving"` after 3 s via `TimerAction` + `ExecuteProcess`.
+  Usage: `ros2 launch bringup trajectory_test.launch.py`
+
 ## 2026-04-13 — Added lid_controller to bringup
 
 - **`launch/bringup.launch.py`**: Added `lid_controller` node (locomotion pkg, `lid_controller.yaml`).
