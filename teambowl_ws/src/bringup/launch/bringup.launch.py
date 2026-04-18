@@ -243,11 +243,11 @@ def generate_launch_description():
         ),
 
         Node(
-            package='management',
-            executable='led_controller',
-            name='led_controller',
+            package='safety',
+            executable='pico_bridge',
+            name='pico_bridge',
             output='screen',
-            parameters=[management_config],
+            parameters=[safety_config],
         ),
 
         Node(

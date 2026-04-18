@@ -11,15 +11,17 @@
 #include "ws2812.pio.h"
 
 // ── Hardware config ────────────────────────────────────────────────────────────
-#define PIN_TX       28
-#define NUM_PIXELS   10
-#define BRIGHTNESS   0.3f
+#define PIN_TX            28
+#define NUM_PIXELS        10
+#define BRIGHTNESS        0.3f
 
-#define I2C_SDA_PIN  4
-#define I2C_SCL_PIN  5
-#define I2C_ADDR     0x2A   // slave address seen by the I2C master
+#define I2C_SDA_PIN       4
+#define I2C_SCL_PIN       5
+#define I2C_ADDR          0x2A   // slave address seen by the I2C master
 
-// ── I2C command bytes ──────────────────────────────────────────────────────────
+#define KILL_SWITCH_PIN   15     // active-low, internal pull-up; GND when pressed
+
+// ── I2C / USB-serial command bytes ────────────────────────────────────────────
 // 1-byte commands:
 //   0x00–0x03   set predefined color index (Red/Green/Yellow/Purple)
 //   0x20        wave right (moving dot with fade tail)
@@ -27,16 +29,21 @@
 //   0x22        stop animation → static
 //   0x30        sequential fill right (Corvette-style)
 //   0x31        sequential fill left
-// 4-byte command:
+// 4-byte commands:
 //   0x10 R G B  set custom RGB color (static)
+//   0x40 R G B  blink with given RGB color (~3 Hz)
 #define CMD_CUSTOM_RGB  0x10
 #define CMD_WAVE_RIGHT  0x20
 #define CMD_WAVE_LEFT   0x21
 #define CMD_STOP        0x22
 #define CMD_SEQ_RIGHT   0x30
 #define CMD_SEQ_LEFT    0x31
+#define CMD_BLINK       0x40
 
 #define WAVE_TAIL_LEN   6   // pixels in the fade tail behind the wave head
+
+// Blink toggle period: loop tick is ~20ms, 17 ticks ≈ 333ms per half-cycle → ~3 Hz
+#define BLINK_TICKS     17
 
 // ── LED animation mode ─────────────────────────────────────────────────────────
 typedef enum {
@@ -45,6 +52,7 @@ typedef enum {
     MODE_WAVE_LEFT,
     MODE_SEQ_RIGHT,   // Corvette sequential fill, left→right
     MODE_SEQ_LEFT,    // Corvette sequential fill, right→left
+    MODE_BLINK,       // on/off blink at ~3 Hz for "stuck" indication
 } led_mode_t;
 
 // ── BOOTSEL button (RP2350 — must run from RAM) ────────────────────────────────
@@ -78,7 +86,7 @@ static inline void put_pixel(uint32_t pixel_grb) {
     pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
 }
 
-// ── Predefined colors (raw RGB) — used by I2C 0x00–0x03 commands ──────────────
+// ── Predefined colors (raw RGB) — used by I2C/serial 0x00–0x03 commands ───────
 static const uint8_t base_colors[4][3] = {
     {255,   0,   0},   // 0 Red
     {  0, 255,   0},   // 1 Green
@@ -111,15 +119,83 @@ static bool led_blink_cb(repeating_timer_t *rt) {
 // Wave tail brightness ramp (index 0 = head)
 static const float tail_scales[WAVE_TAIL_LEN] = {1.0f, 0.7f, 0.5f, 0.3f, 0.2f, 0.1f};
 
+// ── Command parser (shared between I2C and USB serial) ─────────────────────────
+// Returns true if a complete command was consumed and state was updated.
+static bool apply_command(uint8_t *cmd_buf, int cmd_len,
+                          led_mode_t *mode,
+                          uint8_t *cur_r, uint8_t *cur_g, uint8_t *cur_b,
+                          int *wave_pos, int *seq_pos, int *seq_hold,
+                          int *blink_ticks, bool *blink_on)
+{
+    if (cmd_buf[0] <= 0x03 && cmd_len == 1) {
+        uint8_t idx = cmd_buf[0];
+        *cur_r = base_colors[idx][0];
+        *cur_g = base_colors[idx][1];
+        *cur_b = base_colors[idx][2];
+        *mode = MODE_STATIC;
+        return true;
+
+    } else if (cmd_buf[0] == CMD_CUSTOM_RGB && cmd_len == 4) {
+        *cur_r = cmd_buf[1];
+        *cur_g = cmd_buf[2];
+        *cur_b = cmd_buf[3];
+        *mode = MODE_STATIC;
+        return true;
+
+    } else if (cmd_buf[0] == CMD_BLINK && cmd_len == 4) {
+        *cur_r = cmd_buf[1];
+        *cur_g = cmd_buf[2];
+        *cur_b = cmd_buf[3];
+        *mode = MODE_BLINK;
+        *blink_ticks = 0;
+        *blink_on    = true;
+        return true;
+
+    } else if (cmd_buf[0] == CMD_WAVE_RIGHT && cmd_len == 1) {
+        *mode = MODE_WAVE_RIGHT;
+        *wave_pos = 0;
+        return true;
+
+    } else if (cmd_buf[0] == CMD_WAVE_LEFT && cmd_len == 1) {
+        *mode = MODE_WAVE_LEFT;
+        *wave_pos = NUM_PIXELS - 1;
+        return true;
+
+    } else if (cmd_buf[0] == CMD_STOP && cmd_len == 1) {
+        *mode = MODE_STATIC;
+        return true;
+
+    } else if (cmd_buf[0] == CMD_SEQ_RIGHT && cmd_len == 1) {
+        *mode = MODE_SEQ_RIGHT;
+        *seq_pos  = 0;
+        *seq_hold = 0;
+        return true;
+
+    } else if (cmd_buf[0] == CMD_SEQ_LEFT && cmd_len == 1) {
+        *mode = MODE_SEQ_LEFT;
+        *seq_pos  = 0;
+        *seq_hold = 0;
+        return true;
+    }
+
+    return false;
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 int main() {
-    stdio_init_all();
+    stdio_init_all();   // enables USB CDC (configured in CMakeLists)
 
     // Built-in green LED — blinks at 2 Hz always
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     repeating_timer_t blink_timer;
     add_repeating_timer_ms(-250, led_blink_cb, NULL, &blink_timer);
+
+    // Kill switch — GPIO15, active-low with internal pull-up
+    gpio_init(KILL_SWITCH_PIN);
+    gpio_set_dir(KILL_SWITCH_PIN, GPIO_IN);
+    gpio_pull_up(KILL_SWITCH_PIN);
+    bool kill_switch_last = false;   // tracks last reported state (true = pressed)
 
     // PIO — WS2812
     PIO pio = pio0;
@@ -142,17 +218,31 @@ int main() {
     uint8_t cur_g    = steps[0].g;
     uint8_t cur_b    = steps[0].b;
 
-    int  wave_pos  = 0;
-    int  seq_pos   = 0;
-    int  seq_hold  = 0;
+    int  wave_pos    = 0;
+    int  seq_pos     = 0;
+    int  seq_hold    = 0;
+    int  blink_ticks = 0;
+    bool blink_on    = true;
 
     bool last_button_state = false;
 
-    // I2C receive buffer (max 4 bytes per command)
+    // Shared command buffer (used by both I2C and USB-serial parsers)
     uint8_t cmd_buf[4];
     int     cmd_len = 0;
 
+    // Separate USB-serial receive buffer
+    uint8_t usb_buf[4];
+    int     usb_len = 0;
+
     while (true) {
+
+        // ── Kill switch polling ───────────────────────────────────────────────
+        // GPIO15 is active-low: gpio_get returns 0 when switch is pressed.
+        bool kill_pressed = !gpio_get(KILL_SWITCH_PIN);
+        if (kill_pressed != kill_switch_last) {
+            kill_switch_last = kill_pressed;
+            printf("K%d\n", kill_pressed ? 1 : 0);
+        }
 
         // ── BOOTSEL button ────────────────────────────────────────────────────
         bool btn = get_bootsel_button();
@@ -161,7 +251,6 @@ int main() {
             const led_step_t *s = &steps[step_idx];
             cur_r = s->r;  cur_g = s->g;  cur_b = s->b;
             mode  = s->mode;
-            // reset animation counters when entering a new mode
             wave_pos = (mode == MODE_WAVE_LEFT) ? NUM_PIXELS - 1 : 0;
             seq_pos  = 0;
             seq_hold = 0;
@@ -169,58 +258,32 @@ int main() {
         }
         last_button_state = btn;
 
+        // ── USB-serial command polling ────────────────────────────────────────
+        {
+            int c;
+            while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
+                usb_buf[usb_len++] = (uint8_t)c;
+
+                bool done = apply_command(usb_buf, usb_len, &mode,
+                                          &cur_r, &cur_g, &cur_b,
+                                          &wave_pos, &seq_pos, &seq_hold,
+                                          &blink_ticks, &blink_on);
+                // Flush if complete or buffer full
+                if (done || usb_len >= 4) usb_len = 0;
+            }
+        }
+
         // ── I2C command polling ───────────────────────────────────────────────
         while (i2c_get_read_available(i2c0)) {
             uint8_t b;
             i2c_read_raw_blocking(i2c0, &b, 1);
             cmd_buf[cmd_len++] = b;
 
-            bool done = false;
-
-            if (cmd_buf[0] <= 0x03 && cmd_len == 1) {
-                // Predefined color index
-                uint8_t idx = cmd_buf[0];
-                cur_r = base_colors[idx][0];
-                cur_g = base_colors[idx][1];
-                cur_b = base_colors[idx][2];
-                mode = MODE_STATIC;
-                done = true;
-
-            } else if (cmd_buf[0] == CMD_CUSTOM_RGB && cmd_len == 4) {
-                cur_r = cmd_buf[1];
-                cur_g = cmd_buf[2];
-                cur_b = cmd_buf[3];
-                mode = MODE_STATIC;
-                done = true;
-
-            } else if (cmd_buf[0] == CMD_WAVE_RIGHT && cmd_len == 1) {
-                mode = MODE_WAVE_RIGHT;
-                wave_pos = 0;
-                done = true;
-
-            } else if (cmd_buf[0] == CMD_WAVE_LEFT && cmd_len == 1) {
-                mode = MODE_WAVE_LEFT;
-                wave_pos = NUM_PIXELS - 1;
-                done = true;
-
-            } else if (cmd_buf[0] == CMD_STOP && cmd_len == 1) {
-                mode = MODE_STATIC;
-                done = true;
-
-            } else if (cmd_buf[0] == CMD_SEQ_RIGHT && cmd_len == 1) {
-                mode = MODE_SEQ_RIGHT;
-                seq_pos = 0;
-                seq_hold = 0;
-                done = true;
-
-            } else if (cmd_buf[0] == CMD_SEQ_LEFT && cmd_len == 1) {
-                mode = MODE_SEQ_LEFT;
-                seq_pos = 0;
-                seq_hold = 0;
-                done = true;
-            }
-
-            if (cmd_len >= 4) done = true;   // garbage or completed 4-byte cmd
+            bool done = apply_command(cmd_buf, cmd_len, &mode,
+                                      &cur_r, &cur_g, &cur_b,
+                                      &wave_pos, &seq_pos, &seq_hold,
+                                      &blink_ticks, &blink_on);
+            if (cmd_len >= 4) done = true;
             if (done) cmd_len = 0;
         }
 
@@ -253,14 +316,12 @@ int main() {
 
             case MODE_SEQ_RIGHT:
             case MODE_SEQ_LEFT: {
-                // Render current fill level
                 for (int i = 0; i < NUM_PIXELS; i++) {
                     bool lit = (mode == MODE_SEQ_RIGHT)
                         ? (i < seq_pos)
                         : (i >= NUM_PIXELS - seq_pos);
                     put_pixel(lit ? pixel_color(cur_r, cur_g, cur_b, 1.0f) : 0);
                 }
-                // Advance: fill one LED per frame; hold briefly when full; reset
                 if (seq_pos < NUM_PIXELS) {
                     seq_pos++;
                 } else if (seq_hold < 5) {
@@ -270,6 +331,20 @@ int main() {
                     seq_hold = 0;
                 }
                 sleep_ms(40);
+                break;
+            }
+
+            case MODE_BLINK: {
+                uint32_t color = blink_on
+                    ? pixel_color(cur_r, cur_g, cur_b, 1.0f)
+                    : 0;
+                for (int i = 0; i < NUM_PIXELS; i++)
+                    put_pixel(color);
+                if (++blink_ticks >= BLINK_TICKS) {
+                    blink_ticks = 0;
+                    blink_on    = !blink_on;
+                }
+                sleep_ms(20);
                 break;
             }
         }

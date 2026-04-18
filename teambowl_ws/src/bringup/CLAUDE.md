@@ -1,5 +1,21 @@
 # bringup
 
+## 2026-04-17 — Replaced led_controller with pico_bridge
+
+- **`launch/bringup.launch.py`**: Replaced `management/led_controller` node with `safety/pico_bridge`. The pico_bridge node handles both LED state signaling (via Pico USB-serial) and the physical kill switch / lid toggle button. Uses `safety_config` (safety.yaml) for parameters.
+
+## 2026-04-16 — Added sim.launch.py for MuJoCo simulation tuning
+
+- **`launch/sim.launch.py`**: Minimal launch stack for controller tuning on Ubuntu VM.
+  Launches `mujoco_bridge` (simulation pkg) + `mode_manager` + `vel_cmd_mux` +
+  `collision_guard` + `balance_controller` or `driving_controller` (conditional) +
+  `foxglove_bridge`. Does NOT launch hardware drivers (robstride, vesc, xsens, depthai),
+  EKF, or nav2 stack.
+  - `velocity_controller` arg: `balance` (default) or `driving`
+  - Static TF: `base_link→imu_link` (identity, sim IMU = body frame)
+  - Static TF: `map→odom` (identity, no SLAM in sim)
+  - Usage: `ros2 launch bringup sim.launch.py`
+
 ## 2026-04-16 — Added trajectory_test node + trajectory_test.launch.py
 
 - **`launch/bringup.launch.py`**: Added `trajectory_test` node (planning pkg,

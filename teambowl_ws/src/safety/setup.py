@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'system_health = safety.system_health:main',
             'heartbeat_publisher = safety.heartbeat_publisher:main',
+            'pico_bridge = safety.pico_bridge:main',
         ],
     },
 )

@@ -1,5 +1,18 @@
 # status_leds
 
+## 2026-04-17 — USB CDC serial + kill switch + blink mode
+
+- **`status_leds.c`**:
+  - Added `MODE_BLINK` enum value — all pixels toggle on/off at ~3 Hz (17 × 20 ms ticks per half-cycle)
+  - Added `CMD_BLINK 0x40` — 4-byte command `0x40 R G B`, starts blink mode with given color
+  - Added kill switch on **GP15** (active-low, internal pull-up); sends `K1\n` on press, `K0\n` on release over USB CDC
+  - Added USB-serial command reception via `getchar_timeout_us(0)` — mirrors I2C protocol
+  - Refactored command parsing into shared `apply_command()` helper used by both I2C and USB-serial paths
+  - `stdio_init_all()` already activated USB CDC (CMakeLists had `stdio_usb 1` set previously)
+- **`README.md`**: Added kill switch wiring section, serial port discovery guide, ROS2 LED state table, and `CMD_BLINK` documentation
+
+
+
 C firmware for Pico 2 (RP2350). Drives 30 WS2812 LEDs on GPIO28 via PIO. Built with Pico SDK 2.2.0.
 
 ## Recent Changes

@@ -23,6 +23,19 @@ GND ─────────────────────────�
 
 > **Why a level shifter?** The Pico's GPIO outputs 3.3 V; WS2812B strips running at 5 V require a data HIGH of ≥ 3.5 V. The 74AHCT125 translates 3.3 V → 5 V logic.
 
+### Kill switch / lid button (GP15)
+
+Wire a normally-open momentary switch between **GP15 (pin 20)** and **GND (any GND pin)**. The firmware enables the internal pull-up — no external resistor needed.
+
+| Terminal | Connect to |
+|----------|-----------|
+| A        | GP15 (pin 20) |
+| B        | GND (e.g. pin 18) |
+
+**Behavior (decided by the `pico_bridge` ROS2 node):**
+- **While moving** — press asserts `/kill_switch true` → `system_health` triggers e-stop, LEDs go red.
+- **While stopped** — press publishes `"toggle"` to `/lid_command` → lid opens or closes.
+
 ### I2C (slave)
 
 | Signal | Pico 2 pin | GPIO |
@@ -71,7 +84,52 @@ Pressing the button while an animation is running switches back to static mode w
 
 ---
 
-## I2C command reference
+## Finding the Pico serial port
+
+The Pico appears as a USB CDC device. Use the stable `by-id` symlink so the path doesn't change if USB devices are re-ordered.
+
+```bash
+ls /dev/serial/by-id/
+```
+
+Look for an entry containing `Raspberry_Pi_Pico` or `RP2350`, e.g.:
+
+```
+usb-Raspberry_Pi_Pico_2_E6614103E3536E28-if00
+```
+
+Copy the **full path** into `safety.yaml`:
+
+```yaml
+pico_bridge:
+  ros__parameters:
+    serial_port: "/dev/serial/by-id/usb-Raspberry_Pi_Pico_2_E6614103E3536E28-if00"
+```
+
+Alternatively, enumerate ports with Python:
+
+```bash
+python3 -c "import serial.tools.list_ports; [print(p.device, p.description) for p in serial.tools.list_ports.comports()]"
+```
+
+---
+
+## ROS2 LED states
+
+The `pico_bridge` node maps robot state to LED colors automatically. Manual overrides are possible by sending raw bytes to the serial port.
+
+| State | Color | Pattern |
+|-------|-------|---------|
+| E-stopped | Red | Solid |
+| Turning right | Orange | Wave right |
+| Turning left | Orange | Wave left |
+| Moving forward/back | Yellow | Solid |
+| Stuck (`/robot_stuck true`) | Purple | Blink ~3 Hz |
+| Lid open / Alive | Green | Solid |
+
+---
+
+## I2C / USB-serial command reference
 
 **Slave address:** `0x2A`  
 **Bus speed:** 100 kHz
@@ -104,6 +162,14 @@ Sets a custom static color. R, G, B are 0–255.
 | `0x22` | **Stop** — return to static with current color |
 | `0x30` | **Sequential fill right** — LEDs fill one-by-one left→right (Corvette indicator), loops |
 | `0x31` | **Sequential fill left** — fills right→left, loops |
+
+### Blink — 4 bytes
+
+```
+0x40  R  G  B
+```
+
+Starts a ~3 Hz blink using the given color (all pixels toggle on/off). Used for "stuck" indication (purple: `0x40 0x80 0x00 0x80`).
 
 Animations use the **last set color** (from button press or I2C color command). To change the animation color, send a color command first, then an animation command.
 
@@ -148,6 +214,6 @@ send([0x30])                 # start fill
 
 | File | Purpose |
 |------|---------|
-| `status_leds.c` | Main firmware — PIO init, I2C slave, animation loop |
+| `status_leds.c` | Main firmware — PIO init, I2C slave, USB-serial, kill switch, animation loop |
 | `ws2812.pio` | PIO assembly for WS2812 bit timing |
-| `CMakeLists.txt` | Build configuration (Pico SDK, PIO header generation) |
+| `CMakeLists.txt` | Build configuration (Pico SDK, PIO header gen, USB CDC enabled) |
