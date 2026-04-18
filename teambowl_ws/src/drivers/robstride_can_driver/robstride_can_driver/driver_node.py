@@ -105,6 +105,9 @@ class RobstrideCanDriverNode(Node):
 
         # --- Open CAN buses ---
         self._buses: Dict[str, can.Bus] = {}
+        self._bus_fail_counts: Dict[str, int] = {}   # consecutive TX failures per bus
+        _BUS_FAIL_DISABLE = 5                         # disable TX after this many consecutive failures
+        self._BUS_FAIL_DISABLE = _BUS_FAIL_DISABLE
         for bus_name, bus_cfg in self.cfg.buses.items():
             try:
                 bus = can.Bus(
@@ -118,9 +121,9 @@ class RobstrideCanDriverNode(Node):
                 )
             except Exception as exc:
                 self.get_logger().error(
-                    f"Failed to open CAN bus '{bus_name}' ({bus_cfg.interface}): {exc}"
+                    f"Failed to open CAN bus '{bus_name}' ({bus_cfg.interface}): {exc} "
+                    f"— motors on this bus will be skipped."
                 )
-                raise
 
         # --- Shutdown hooks ---
         atexit.register(self._shutdown)
@@ -190,18 +193,31 @@ class RobstrideCanDriverNode(Node):
 
     def _send(self, bus_name: str, arb_id: int, data: bytes) -> None:
         """Send a single CAN frame. Thread-safe (python-can send is thread-safe)."""
+        bus = self._buses.get(bus_name)
+        if bus is None:
+            return  # bus unavailable (failed to open), silently skip
+        if self._bus_fail_counts.get(bus_name, 0) >= self._BUS_FAIL_DISABLE:
+            return  # bus disabled after repeated TX failures, silently skip
         try:
-            bus = self._buses[bus_name]
             msg = can.Message(
                 arbitration_id=arb_id,
                 data=data,
                 is_extended_id=True,
             )
             bus.send(msg)
+            self._bus_fail_counts[bus_name] = 0  # reset on success
         except Exception as exc:
-            self.get_logger().error(
-                f"CAN send error on '{bus_name}' (arb_id=0x{arb_id:08X}): {exc}"
-            )
+            count = self._bus_fail_counts.get(bus_name, 0) + 1
+            self._bus_fail_counts[bus_name] = count
+            if count < self._BUS_FAIL_DISABLE:
+                self.get_logger().error(
+                    f"CAN send error on '{bus_name}' (arb_id=0x{arb_id:08X}): {exc}"
+                )
+            elif count == self._BUS_FAIL_DISABLE:
+                self.get_logger().error(
+                    f"CAN bus '{bus_name}' disabled after {count} consecutive TX failures "
+                    f"(no device ACKing). Check that motors are powered and connected."
+                )
 
     # -----------------------------------------------------------------------
     # RX thread
@@ -304,6 +320,11 @@ class RobstrideCanDriverNode(Node):
     def _startup_safe(self) -> None:
         """Read mechPos for each motor and hold that position."""
         for motor in self.cfg.motors.values():
+            if motor.bus not in self._buses:
+                self.get_logger().warn(
+                    f"startup_safe: bus '{motor.bus}' unavailable, skipping '{motor.joint_name}'"
+                )
+                continue
             value_bytes = self._read_param_sync(motor, PARAM_MECH_POS, timeout=0.5)
             if value_bytes is not None:
                 position = struct.unpack('<f', value_bytes)[0]
@@ -322,6 +343,11 @@ class RobstrideCanDriverNode(Node):
     def _startup_home(self) -> None:
         """Command each motor to its YAML home_position_rad."""
         for motor in self.cfg.motors.values():
+            if motor.bus not in self._buses:
+                self.get_logger().warn(
+                    f"startup_home: bus '{motor.bus}' unavailable, skipping '{motor.joint_name}'"
+                )
+                continue
             motor.commanded_position = motor.home_position_rad
             motor.commanded_velocity = 0.0
             self.get_logger().info(

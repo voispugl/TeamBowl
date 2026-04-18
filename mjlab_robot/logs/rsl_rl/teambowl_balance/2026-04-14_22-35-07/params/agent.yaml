@@ -1,0 +1,47 @@
+seed: 42
+num_steps_per_env: 16
+max_iterations: 5
+obs_groups:
+  policy: !!python/tuple
+  - policy
+  critic: !!python/tuple
+  - critic
+save_interval: 5
+experiment_name: teambowl_balance
+run_name: ''
+logger: tensorboard
+wandb_project: mjlab
+wandb_tags: !!python/tuple []
+resume: false
+load_run: .*
+load_checkpoint: model_.*.pt
+clip_actions: null
+class_name: OnPolicyRunner
+policy:
+  init_noise_std: 0.5
+  noise_std_type: scalar
+  actor_obs_normalization: false
+  critic_obs_normalization: false
+  actor_hidden_dims: !!python/tuple
+  - 256
+  - 128
+  - 64
+  critic_hidden_dims: !!python/tuple
+  - 256
+  - 128
+  - 64
+  activation: elu
+algorithm:
+  num_learning_epochs: 5
+  num_mini_batches: 4
+  learning_rate: 0.0003
+  schedule: adaptive
+  gamma: 0.99
+  lam: 0.95
+  entropy_coef: 0.005
+  desired_kl: 0.01
+  max_grad_norm: 1.0
+  value_loss_coef: 1.0
+  use_clipped_value_loss: true
+  clip_param: 0.2
+  normalize_advantage_per_mini_batch: false

@@ -11,7 +11,9 @@ Runs natively on a Jetson AGX Orin.
 TeamBowl/
 ├── teambowl_docker/        Docker image and compose file (optional)
 └── teambowl_ws/            ROS2 workspace
-    ├── build.sh            Clean build + launch full stack
+    ├── full_rebuild.sh     Clean build
+    ├── source.sh           Source environment
+    ├── launch.sh           Source environment + launch full stack
     └── src/
         ├── bringup/        System-wide launch file (see bringup/README.md)
         ├── locomotion/     Leg controllers, velocity mux, collision guard
@@ -170,9 +172,3 @@ Common packages to rebuild after edits:
   `mttcan` module loading at boot (`/etc/modules-load.d/mttcan.conf`), and verify
   after a cold reboot.
 
-- [ ] **Refactor codebase as planned** — see the target architecture below.
-  `LocomotionManager` (marked X) is intentionally removed; `TerrainAssessor` feeds
-  directly into `LocalPlanner` and `LegController`. `WheelController` and
-  `LegController` replace the current flat locomotion nodes.
-
-  ![Target UML Architecture](teambowl_ws/src/bringup/assets/uml_state_diagram.png)

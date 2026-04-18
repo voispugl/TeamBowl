@@ -1,0 +1,4 @@
+[submodule "teambowl_ws/src/drivers/xsens_mti_ros_driver_repo"]
+	path = teambowl_ws/src/drivers/xsens_mti_ros_driver_repo
+	url = https://github.com/xsenssupport/Xsens_MTi_ROS_Driver_and_Ntrip_Client.git
+	branch = ros2

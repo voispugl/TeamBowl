@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./test_lid.sh
-#eeeeeeee
+#
 # Workflow:
 #   1. Edit teambowl_ws/src/locomotion/config/lid_controller.yaml
 #   2. Run this script to restart the controller and test the new angles.
@@ -58,8 +58,9 @@ sleep 1
 ros2 run locomotion lid_controller --ros-args --params-file ${LID_CONFIG} > /tmp/lid_controller_test.log 2>&1 &
 LID_PID=$!
 
-echo "[lid_test] Lid controller started (PID: ${LID_PID}) with config: teambowl_ws/src/locomotion/config/lid_controller.yaml"
-echo "[lid_test] Log available at: /tmp/lid_controller_test.log"
+echo "[lid_test] Lid controller started (PID: ${LID_PID})"
+echo "[lid_test] Config: teambowl_ws/src/locomotion/config/lid_controller.yaml"
+echo "[lid_test] Log:    tail -f /tmp/lid_controller_test.log"
 sleep 2
 
 # --------------------------------------------------------------------------- #
@@ -74,6 +75,9 @@ echo "    [o] Open Lid"
 echo "    [c] Close Lid"
 echo "    [t] Toggle Lid"
 echo "    [s] Show /lid_state"
+echo "    [m] Monitor Position/Effort (Debug)"
+echo "    [f] Check Motor Faults/Mode (Debug)"
+echo "    [e] Re-send Enable Motors Service"
 echo "    [q] Quit (kills test node)"
 echo "=========================================="
 echo ""
@@ -105,11 +109,25 @@ while true; do
             echo "[lid_test] Current Lid State:"
             ros2 topic echo /lid_state --once
             ;;
+        [mM]*)
+            echo "[lid_test] Monitoring joint_rs05_1 (Ctrl+C to stop)..."
+            # Use a python script to filter joint states for just the lid
+            ros2 topic echo /joint_states --once | grep -A 20 "joint_rs05_1" || echo "No joint_rs05_1 found in /joint_states"
+            echo "--- (Showing one snapshot. Use 'ros2 topic echo /joint_states' for live stream) ---"
+            ;;
+        [fF]*)
+            echo "[lid_test] Checking /motor_faults for joint_rs05_1..."
+            ros2 topic echo /motor_faults --once | grep -A 15 "joint_rs05_1" || echo "No fault data for joint_rs05_1"
+            ;;
+        [eE]*)
+            echo "[lid_test] Calling /enable_motors service..."
+            ros2 service call /enable_motors std_srvs/srv/Trigger {}
+            ;;
         [qQ]*)
             cleanup
             ;;
         *)
-            echo "[lid_test] Unknown command. Use o, c, t, s, or q."
+            echo "[lid_test] Unknown command. Use o, c, t, s, m, f, e, or q."
             ;;
     esac
 done

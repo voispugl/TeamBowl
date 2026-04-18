@@ -1,0 +1,129 @@
+# TeamBowl — Laptop / Developer Image (x86_64, Ubuntu 22.04, no GPU)
+#
+# Use this image on your MacBook/PC for:
+#   - Building and editing workspace packages without hardware
+#   - Running Foxglove bridge to visualize topics from a live robot
+#   - Testing non-hardware nodes (planning, management, state_estimation, etc.)
+#   - Nav2 path planning and visualization in rviz2
+#
+# Hardware drivers that WON'T work (no hardware):
+#   - depthai_ros_driver (OAK-D camera) — skipped in build, no SDK needed
+#   - xsens_mti_ros2_driver (IMU) — built but not runnable without hardware
+#   - vesc_driver (VESC serial) — built but not runnable without hardware
+#   - robstride_can_driver (CAN bus) — built but not runnable without hardware
+#
+# Build:
+#   ./build.laptop.sh
+#
+# Run:
+#   docker compose -f docker-compose.laptop.yml run --rm teambowl-laptop bash
+
+FROM ros:humble-ros-base-jammy AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-c"]
+
+# Locale (ros:humble-ros-base-jammy usually has this, but be explicit)
+RUN apt-get update && apt-get install -y locales && \
+    locale-gen en_US en_US.UTF-8 && \
+    update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
+    rm -rf /var/lib/apt/lists/*
+ENV LANG=en_US.UTF-8
+
+# Tools + USB/CAN/serial utilities
+# libopencv-dev is safe on x86_64 (no CUDA conflict — laptop has no Jetson GPU OpenCV)
+RUN apt-get update && apt-get install -y \
+    bash-completion \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    vim \
+    nano \
+    tmux \
+    python3-pip \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    python3-vcstool \
+    python3-argcomplete \
+    python3-serial \
+    python3-can \
+    python3-yaml \
+    usbutils \
+    can-utils \
+    libusb-1.0-0-dev \
+    libeigen3-dev \
+    libopencv-dev \
+    python3-opencv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Core ROS2 Humble packages — same set as robot image
+RUN apt-get update && apt-get install -y \
+    ros-humble-twist-mux \
+    ros-humble-robot-state-publisher \
+    ros-humble-joint-state-publisher \
+    ros-humble-camera-info-manager \
+    ros-humble-xacro \
+    ros-humble-rviz2 \
+    ros-humble-foxglove-bridge \
+    ros-humble-vision-msgs \
+    ros-humble-nmea-msgs \
+    ros-humble-cv-bridge \
+    ros-humble-tf2 \
+    ros-humble-tf2-ros \
+    ros-humble-tf2-geometry-msgs \
+    ros-humble-image-transport \
+    ros-humble-image-transport-plugins \
+    ros-humble-image-pipeline \
+    ros-humble-diagnostic-updater \
+    ros-humble-diagnostic-msgs \
+    ros-humble-stereo-msgs \
+    ros-humble-rclcpp-components \
+    ros-humble-composition-interfaces \
+    ros-humble-message-filters \
+    ros-humble-ffmpeg-image-transport-msgs \
+    ros-humble-mavros-msgs \
+    ros-humble-visualization-msgs \
+    ros-humble-foxglove-msgs \
+    ros-humble-imu-tools \
+    ros-humble-depth-image-proc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Nav2 planning stack + EKF + pointcloud converter (same as robot)
+RUN apt-get update && apt-get install -y \
+    ros-humble-robot-localization \
+    ros-humble-navigation2 \
+    ros-humble-pointcloud-to-laserscan \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies — same as robot
+# python-can: required by robstride_can_driver
+RUN pip3 install --no-cache-dir \
+    numpy \
+    websockets \
+    # pyvesc==0.2.2 \
+    # python-can
+
+# rosdep
+RUN rosdep init || true
+RUN rosdep update || true
+
+# Create workspace mount point
+RUN mkdir -p /workspaces/teambowl_ws/src
+
+# Auto-source ROS in interactive shells
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
+    echo "if [ -f /workspaces/teambowl_ws/install/setup.bash ]; then source /workspaces/teambowl_ws/install/setup.bash; fi" >> /root/.bashrc
+
+# Tell the entrypoint to skip depthai-ros packages:
+# The OAK-D C++ SDK (ros-humble-depthai) is only published for ARM64 in the
+# standard ROS apt mirror. On x86_64 it would require adding Luxonis' own apt repo,
+# which is unnecessary since we never attach an OAK-D to a laptop anyway.
+ENV SKIP_DEPTHAI=1
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+WORKDIR /workspaces/teambowl_ws
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

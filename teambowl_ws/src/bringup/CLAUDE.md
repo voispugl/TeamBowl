@@ -1,5 +1,36 @@
 # bringup
 
+## 2026-04-17 — Added stuck_detector + nvblox setup guide
+
+- **`launch/bringup.launch.py`**: Added `stuck_detector` node (safety pkg, safety_config).
+- **`nvblox_setup.md`**: New step-by-step guide for installing Isaac ROS nvblox on the Jetson AGX Orin. Covers apt repo setup, install, depth topic discovery, launch file changes, and Nav2 costmap layer config. Implement later — stuck_detector is the active terrain detection feature.
+
+## 2026-04-17 — Replaced led_controller with pico_bridge
+
+- **`launch/bringup.launch.py`**: Replaced `management/led_controller` node with `safety/pico_bridge`. The pico_bridge node handles both LED state signaling (via Pico USB-serial) and the physical kill switch / lid toggle button. Uses `safety_config` (safety.yaml) for parameters.
+
+## 2026-04-16 — Added sim.launch.py for MuJoCo simulation tuning
+
+- **`launch/sim.launch.py`**: Minimal launch stack for controller tuning on Ubuntu VM.
+  Launches `mujoco_bridge` (simulation pkg) + `mode_manager` + `vel_cmd_mux` +
+  `collision_guard` + `balance_controller` or `driving_controller` (conditional) +
+  `foxglove_bridge`. Does NOT launch hardware drivers (robstride, vesc, xsens, depthai),
+  EKF, or nav2 stack.
+  - `velocity_controller` arg: `balance` (default) or `driving`
+  - Static TF: `base_link→imu_link` (identity, sim IMU = body frame)
+  - Static TF: `map→odom` (identity, no SLAM in sim)
+  - Usage: `ros2 launch bringup sim.launch.py`
+
+## 2026-04-16 — Added trajectory_test node + trajectory_test.launch.py
+
+- **`launch/bringup.launch.py`**: Added `trajectory_test` node (planning pkg,
+  `planning.yaml` config). Always launched; idle outside `"driving"` mode.
+- **`launch/trajectory_test.launch.py`**: New one-command launch file for
+  trajectory tuning sessions. Includes full bringup with
+  `velocity_controller:=driving leg_controller:=driving` and auto-sets
+  robot mode to `"driving"` after 3 s via `TimerAction` + `ExecuteProcess`.
+  Usage: `ros2 launch bringup trajectory_test.launch.py`
+
 ## 2026-04-13 — Added lid_controller to bringup
 
 - **`launch/bringup.launch.py`**: Added `lid_controller` node (locomotion pkg, `lid_controller.yaml`).
@@ -29,6 +60,12 @@
   Previously the camera defaulted to `camera.yaml`, which doesn't set `i_resolution: '720'`
   for the OAK-D-W — causing the camera to run at full/default resolution. Now 720p is
   correctly enforced.
+
+## 2026-03-24 — Switched default leg controller to driving_leg_controller
+
+- **`launch/bringup.launch.py`**: Changed `leg_controller` default from `hold` to `driving`.
+  Robot now moves to and holds the YAML target positions on enable instead of freezing at
+  current positions.
 
 ## 2026-03-18 — Added leg_controller launch argument + README
 

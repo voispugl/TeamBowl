@@ -8,18 +8,13 @@ mode (Type 1 CAN frames via the robstride_can_driver).
 Behaviour:
 - RUNNING (mode != "off" AND NOT estop):
     Publishes /joint_commands at publish_rate_hz for the RS04 joints only.
-    Positions come from driving_leg_pos.yaml; velocity = 0, torque_ff = 1 Nm.
+    Positions come from driving_leg_pos.yaml; velocity = 0, torque_ff = 0 Nm.
     Calls /enable_motors on first transition into RUNNING.
 - STOPPED (mode == "off" OR estop active):
     Calls /stop_motors and stops publishing.
 
-RS00 coast setup (once at startup, after services are available):
-    - /set_gains → kp=0, kd=0 for each RS00 joint
-    - /write_motor_param → damper param (0x702A) = 1 (disable anti-backdrive)
-    This makes the driver send Type 1 frames with zero gain/torque for RS00,
-    so those motors see no commanded torque and spin freely.
-
-RS05 is unplugged and is completely ignored by this node.
+RS00 and RS05 are not controlled by this node. RS00 gains are set to zero
+in motors.yaml so they freewheel by default.
 """
 
 import os
@@ -31,10 +26,6 @@ from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
-from robstride_can_interfaces.srv import SetGains, ReadMotorParam, WriteMotorParam
-
-# RS00 anti-backdrive damper parameter index.  Value 1 = damping disabled.
-_PARAM_DAMPER = 0x702A
 
 
 class DrivingLegController(Node):
@@ -53,9 +44,10 @@ class DrivingLegController(Node):
         self.declare_parameter('mode_topic', '/robot_mode')
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('joint_commands_topic', '/joint_commands')
-        self.declare_parameter('torque_ff', 1.0)
+        self.declare_parameter('torque_ff', 0.0)
         self.declare_parameter('publish_rate_hz', 50.0)
-        self.declare_parameter('rs00_joints', ['joint_rs00_1', 'joint_rs00_2'])
+        self.declare_parameter('auto_start', True)
+        self.declare_parameter('auto_start_delay_s', 8.0)
 
         config_path = self.get_parameter('config_path').value
         mode_topic = self.get_parameter('mode_topic').value
@@ -63,7 +55,8 @@ class DrivingLegController(Node):
         joint_cmds_topic = self.get_parameter('joint_commands_topic').value
         self._torque_ff = self.get_parameter('torque_ff').value
         publish_rate_hz = self.get_parameter('publish_rate_hz').value
-        self._rs00_joints = list(self.get_parameter('rs00_joints').value)
+        auto_start = self.get_parameter('auto_start').value
+        auto_start_delay_s = self.get_parameter('auto_start_delay_s').value
 
         # ------------------------------------------------------------------ #
         # Load joint positions from YAML
@@ -79,7 +72,6 @@ class DrivingLegController(Node):
         self._mode = 'off'
         self._estop = False
         self._running = False
-        self._coast_setup_done = False
         self._current_positions: dict = {}   # joint_name → float, from /joint_states
 
         # ------------------------------------------------------------------ #
@@ -99,20 +91,18 @@ class DrivingLegController(Node):
         # ------------------------------------------------------------------ #
         self._enable_client = self.create_client(Trigger, '/enable_motors')
         self._stop_client = self.create_client(Trigger, '/stop_motors')
-        self._set_gains_client = self.create_client(SetGains, '/set_gains')
-        self._read_param_client = self.create_client(ReadMotorParam, '/read_motor_param')
-        self._write_param_client = self.create_client(
-            WriteMotorParam, '/write_motor_param'
-        )
 
         # ------------------------------------------------------------------ #
         # Timers
         # ------------------------------------------------------------------ #
         period = 1.0 / publish_rate_hz
         self._publish_timer = self.create_timer(period, self._publish_commands)
+        self._status_timer = self.create_timer(5.0, self._print_status)
 
-        # Deferred coast setup: wait 3 s then configure RS00 gains
-        self._coast_timer = self.create_timer(3.0, self._setup_coast_mode)
+        if auto_start:
+            self._auto_start_timer = self.create_timer(
+                auto_start_delay_s, self._auto_start_callback
+            )
 
         self.get_logger().info('DrivingLegController ready.')
 
@@ -155,6 +145,12 @@ class DrivingLegController(Node):
     # ---------------------------------------------------------------------- #
     # State machine
     # ---------------------------------------------------------------------- #
+
+    def _auto_start_callback(self):
+        self._auto_start_timer.cancel()
+        if not self._running:
+            self.get_logger().info('auto_start: enabling leg controller.')
+            self._transition_to_running()
 
     def _should_run(self) -> bool:
         return self._mode != 'off' and not self._estop
@@ -221,84 +217,25 @@ class DrivingLegController(Node):
         self._cmd_pub.publish(msg)
 
     # ---------------------------------------------------------------------- #
-    # RS00 coast setup (one-shot, deferred)
+    # Status print
     # ---------------------------------------------------------------------- #
 
-    def _setup_coast_mode(self):
-        # Cancel the one-shot timer immediately.
-        self._coast_timer.cancel()
-
-        if not self._rs00_joints:
-            return
-
-        self.get_logger().info(
-            f'Configuring RS00 coast mode for: {self._rs00_joints}'
-        )
-
-        # Wait for services.
-        for client, name in [
-            (self._set_gains_client, '/set_gains'),
-            (self._read_param_client, '/read_motor_param'),
-            (self._write_param_client, '/write_motor_param'),
-        ]:
-            if not client.wait_for_service(timeout_sec=5.0):
-                self.get_logger().warn(
-                    f'Service {name} not available — RS00 coast setup skipped.'
+    def _print_status(self):
+        state = 'RUNNING' if self._running else 'STOPPED'
+        for name, target in zip(self._joint_names, self._joint_positions):
+            actual = self._current_positions.get(name)
+            if actual is not None:
+                err = target - actual
+                print(
+                    f'[DRIVE/{state}]  {name}: target={target:+.4f}  '
+                    f'actual={actual:+.4f}  err={err:+.4f}',
+                    flush=True,
                 )
-                return
-
-        for joint in self._rs00_joints:
-            # Zero gains → Type 1 frames carry no position/velocity error torque.
-            gains_req = SetGains.Request()
-            gains_req.joint_name = joint
-            gains_req.kp = 0.0
-            gains_req.kd = 0.0
-            future = self._set_gains_client.call_async(gains_req)
-            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-            if future.done() and future.result() and future.result().success:
-                self.get_logger().info(f'  {joint}: gains set to kp=0, kd=0')
             else:
-                self.get_logger().warn(f'  {joint}: /set_gains call failed')
-
-            # Read current damper value before deciding whether to write.
-            read_req = ReadMotorParam.Request()
-            read_req.joint_name = joint
-            read_req.param_index = _PARAM_DAMPER
-            future = self._read_param_client.call_async(read_req)
-            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-
-            if not (future.done() and future.result() and future.result().success):
-                self.get_logger().warn(
-                    f'  {joint}: could not read damper param — skipping write'
+                print(
+                    f'[DRIVE/{state}]  {name}: target={target:+.4f}  actual=no_data',
+                    flush=True,
                 )
-                continue
-
-            current_damper = int(round(future.result().value_float))
-            if current_damper == 1:
-                self.get_logger().info(
-                    f'  {joint}: damper already disabled (0x702A=1) — skipping write'
-                )
-                continue
-
-            # Damper is enabled (0) — disable it now (1 = freewheel).
-            self.get_logger().info(
-                f'  {joint}: damper currently {current_damper} — disabling (0x702A→1)'
-            )
-            param_req = WriteMotorParam.Request()
-            param_req.joint_name = joint
-            param_req.param_index = _PARAM_DAMPER
-            param_req.value = 1.0
-            param_req.value_type = 'float'
-            future = self._write_param_client.call_async(param_req)
-            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-            if future.done() and future.result() and future.result().success:
-                self.get_logger().info(f'  {joint}: damper disabled (0x702A=1)')
-            else:
-                self.get_logger().warn(
-                    f'  {joint}: /write_motor_param damper call failed'
-                )
-
-        self._coast_setup_done = True
 
     # ---------------------------------------------------------------------- #
     # Service helper

@@ -44,6 +44,9 @@ class SystemHealthNode(Node):
         # Subscribe to heartbeat
         self.sub = self.create_subscription(Empty, self.heartbeat_topic, self._hb_reader, qos)
 
+        # Subscribe to physical kill switch (published by pico_bridge)
+        self.create_subscription(Bool, '/kill_switch', self._kill_switch_cb, qos)
+
         # Publish estop state
         self.pub = self.create_publisher(Bool, self.estop_topic, qos)
 
@@ -60,6 +63,11 @@ class SystemHealthNode(Node):
         # Heartbeat arrived -> update time
         self.last_heartbeat_time = self.get_clock().now()
 
+    def _kill_switch_cb(self, msg: Bool):
+        # Physical kill switch immediately asserts e-stop; release does not clear it
+        if msg.data:
+            self.estop = True
+
     def _tick(self):
         # Logic to estop if no heartbeat is heard
         now = self.get_clock().now()
@@ -73,7 +81,7 @@ class SystemHealthNode(Node):
         # Publish estop state
         msg = Bool()
         msg.data = self.estop
-        # self.pub.publish(msg)
+        self.pub.publish(msg)
 
 def main():
     rclpy.init()

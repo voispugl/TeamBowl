@@ -9,6 +9,19 @@ Pure stateless encode/decode for the RobStride Private Protocol (CAN 2.0, 1 Mbps
 
 **Key encoding rule:** Type 1 torque feedforward occupies bits 23–8 of the CAN ID (not the data bytes). Type 2/24 feedback has mode status and fault flags in bits 23–16 of the received CAN ID.
 
+### driver_node.py (2026-03-24 changes)
+- **Bus open failure**: no longer raises — logs an error and continues. Motors on the missing
+  bus are silently skipped in `_send`, `_startup_safe`, and `_startup_home`. Prevents the node
+  from crashing and eliminates log spam when can1 is not connected.
+- `_send`: uses `self._buses.get(bus_name)` and returns immediately if `None`. Also tracks
+  consecutive TX failures per bus (`_bus_fail_counts`); after 5 consecutive failures the bus
+  is silently disabled with a one-time error log. Fixes ENOBUFS spam when a bus is up but
+  no motors are ACKing (TX queue saturation).
+
+**motor_config.py (2026-03-24):** Motor entries in motors.yaml can include `enabled: false`
+to exclude a motor from the driver entirely (no CAN frames sent, not in /joint_states).
+Omitting `enabled` or setting it to `true` behaves as before. RS05 is currently disabled.
+
 ### driver_node.py
 ROS2 Humble node `RobstrideCanDriverNode`. Loads `motors.yaml` at startup via `load_config()`. Opens one `can.Bus` per CAN bus (socketcan, 1 Mbps). Runs one RX thread per bus that decodes Type 2 / Type 24 active report frames into `_motor_states` (lock-protected). A 100 Hz timer sends Type 1 Operation Control frames for all motors using their current commanded position/velocity and current Kp/Kd (node state only — not written to motor). Services for enable, stop, gains, CAN ID change, zeroing (3 methods), param read/write, and flash save. Two startup modes: `startup_safe` (read mechPos → hold) and `startup_home` (go to YAML home position). Emergency stop via `/e_stop` Bool topic.
 

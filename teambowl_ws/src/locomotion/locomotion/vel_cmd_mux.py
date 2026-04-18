@@ -35,7 +35,7 @@ class VelCmdMuxNode(Node):
       - /cmd_vel_selected (teleop cmd, auto cmd, or zero cmd)
     """
 
-    VALID_MODES = {'off', 'teleop', 'auton'}
+    VALID_MODES = {'off', 'teleop', 'auton', 'driving'}
 
     def __init__(self):
         super().__init__('vel_cmd_mux')
@@ -177,6 +177,16 @@ class VelCmdMuxNode(Node):
                 self.pub_out.publish(self.last_auto)
             else:
                 if self.debug: self.get_logger().info('MUX: mode=auton, auto stale -> zero')
+                self.pub_out.publish(zero_twist())
+            return
+
+        # Handle driving mode (autonomous nav with locked legs — same routing as auton)
+        if self.robot_mode == 'driving':
+            if self._fresh(self.last_auto_time, self.auto_timeout):
+                if self.debug: self.get_logger().info(f'MUX: mode=driving, fresh -> cmd {self.last_auto}')
+                self.pub_out.publish(self.last_auto)
+            else:
+                if self.debug: self.get_logger().info('MUX: mode=driving, auto stale -> zero')
                 self.pub_out.publish(zero_twist())
             return
 

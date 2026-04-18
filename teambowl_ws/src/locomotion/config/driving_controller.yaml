@@ -1,0 +1,46 @@
+driving_controller:
+  ros__parameters:
+
+    # ── Velocity PID (outer loop, 50 Hz) ─────────────────────────────────────
+    # Tracks commanded velocity from /cmd_vel_safe.
+    # Tune first with pitch correction disabled (kp_pitch=0, kd_pitch=0).
+    # Raise kp_vel until crisp response without oscillation.
+    # Add kd_vel to damp overshoot. Add ki_vel for steady-state error.
+    kp_vel:  2.0    # [m/s command / m/s error]
+    ki_vel:  0.5    # [m/s command / (m/s · s)] — 2-second sliding window
+    kd_vel:  0.05   # [m/s command · s / m/s error]
+
+    # ── Pitch PID (inner loop, 100 Hz) ───────────────────────────────────────
+    # Corrects nose-dive during deceleration by reducing effective braking.
+    # Derivative uses a 3-sample weighted FIR to reduce IMU noise (~15 ms lag).
+    # Tune after velocity PID: command a hard stop, raise kp_pitch until
+    # nose-dip is clearly reduced, then add kd_pitch to damp oscillation.
+    kp_pitch: 5.0   # [m/s correction / rad]
+    kd_pitch: 1.0   # [m/s correction / (rad/s)]
+    ki_pitch: 0.0   # [m/s correction / (rad · s)] — start at 0
+
+    # ── Decel feedforward ─────────────────────────────────────────────────────
+    # Anticipates pitch from commanded velocity change.
+    # If nose dips before pitch PID reacts, raise kff_decel slightly (0.02–0.1).
+    kff_decel: 0.0  # [rad / (m/s²)]
+
+    # ── Pitch reference offset ────────────────────────────────────────────────
+    # Static pitch trim. Positive shifts theta_ref forward (nose-down setpoint).
+    # Use to correct persistent lean bias after velocity PID is tuned.
+    theta_eq_offset: 0.0   # [rad]
+
+    # ── Pitch limit (WARN only — no estop) ───────────────────────────────────
+    # At this angle the robot is likely contacting the ground.
+    # Zeroing velocity mid-contact risks frame damage, so we log only.
+    theta_max_pitch: 0.35  # [rad] ≈ 20°
+
+    # ── Output clamp ──────────────────────────────────────────────────────────
+    v_max: 3.0  # [m/s]
+
+    # ── Control rates ─────────────────────────────────────────────────────────
+    outer_rate_hz:  50.0   # velocity PID (EKF odometry is 50 Hz)
+    inner_rate_hz: 100.0   # pitch PID + output (IMU is 100 Hz)
+
+    # ── Odometry staleness ────────────────────────────────────────────────────
+    # If EKF odometry is older than this, outer loop falls back to v_actual=0.
+    odom_timeout_s: 0.30

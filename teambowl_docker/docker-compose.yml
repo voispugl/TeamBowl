@@ -14,7 +14,7 @@ services:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
     volumes:
-      - /home/box/TeamBowl/teambowl_ws:/workspaces/teambowl_ws
+      - ${TEAMBOWL_WS:-/home/box/TeamBowl/teambowl_ws}:/workspaces/teambowl_ws
       - /dev:/dev
     working_dir: /workspaces/teambowl_ws
     command: ros2 launch bringup bringup.launch.py

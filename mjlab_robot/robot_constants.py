@@ -31,6 +31,7 @@ from pathlib import Path
 
 import mujoco
 
+from mjlab.actuator import XmlVelocityActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 from mjlab.utils.os import update_assets
 from mjlab.utils.spec_config import CollisionCfg
@@ -90,10 +91,10 @@ MAX_MOTOR_SPEED_RIGHT: float = MAX_WHEEL_SURFACE_SPEED_MS / WHEEL_RADIUS * GEAR_
 ##
 
 # Frame body z so wheels (local z ≈ -0.056 m from Frame, radius 0.154 m)
-# rest on the floor (z = -0.3 m in teambowl_mjlab.xml):
+# rest on the terrain floor (z = 0 from TerrainImporterCfg "plane"):
 #   Frame_z = floor_z + wheel_radius + |wheel_local_z|
-#           = -0.3     + 0.154       + 0.056195       = -0.0898 m
-_SPAWN_Z: float = -0.090
+#           = 0.0     + 0.154       + 0.056195       = 0.210 m
+_SPAWN_Z: float = 0.210
 
 HOME_KEYFRAME = EntityCfg.InitialStateCfg(
     pos=(0.0, 0.0, _SPAWN_Z),
@@ -134,10 +135,15 @@ WHEEL_FOOT_COLLISION = CollisionCfg(
 # Articulation config.
 ##
 
-# Velocity actuators are defined entirely in the XML (teambowl_mjlab.xml).
-# mjlab does not need to manage them through BuiltinActuatorCfg — pass an
-# empty actuator tuple so mjlab leaves the XML actuators untouched.
-ROBOT_ARTICULATION = EntityArticulationInfoCfg(actuators=())
+# Wrap the XML <velocity> actuators so mjlab knows which joints are actuated.
+# XmlVelocityActuatorCfg does NOT create new actuators — it finds the existing
+# <velocity> actuators in teambowl_mjlab.xml by matching their target joint names.
+# This is required so JointVelocityActionCfg can resolve joint IDs at runtime.
+_XML_VELOCITY_ACTUATOR = XmlVelocityActuatorCfg(
+    target_names_expr=("left_motor_0", "right_motor_0"),
+)
+
+ROBOT_ARTICULATION = EntityArticulationInfoCfg(actuators=(_XML_VELOCITY_ACTUATOR,))
 
 
 ##

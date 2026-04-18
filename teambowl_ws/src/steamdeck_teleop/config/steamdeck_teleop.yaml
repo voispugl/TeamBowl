@@ -1,0 +1,50 @@
+steamdeck_ws_teleop:
+  ros__parameters:
+    # WebSocket server
+    ws_host: '0.0.0.0'
+    ws_port: 8888
+
+    # Joy processing rate
+    joy_rate_hz: 20.0
+
+    # Diagnostics + map push rate (type=push messages to browser)
+    map_push_rate_hz: 2.0
+    coarse_map_size: 20     # NxN grid — 20x20 over 10m = 0.5m/cell
+
+    # Goal accumulation sensitivity
+    goal_scale_m_per_tick: 0.02   # meters per tick @ 20 Hz = 0.4 m/s max goal travel
+    yaw_scale_rad_per_tick: 0.03  # rad per tick = ~0.6 rad/s max
+    max_goal_dist_m: 3.0
+
+    # Controller mapping — Steam Deck / Xbox layout via Web Gamepad API
+    # Verify indices with: open http://ROBOT_IP:8888, press buttons, watch console
+    dead_man_axis: 5        # right trigger (0.0 rest, 1.0 full press)
+    dead_man_threshold: 0.5
+    forward_axis: 1         # left stick Y (positive = push up = forward)
+    strafe_axis: 0          # left stick X (positive = push left = +Y in base_link)
+    yaw_axis: 3             # right stick X (positive = push left = +yaw / CCW)
+    confirm_button: 0       # A button
+    cancel_button: 1        # B button
+    estop_button: 8         # Menu (Start/hamburger) button
+
+    # Nav2 action servers
+    planner_action_name: /compute_path_to_pose
+    controller_action_name: /follow_path
+    planner_id: GridBased
+    controller_id: FollowPath
+    goal_checker_id: goal_checker
+
+    # Topics
+    odom_topic: /odometry/filtered
+    mode_topic: /robot_mode
+    mode_set_topic: /robot_mode_set
+    estop_topic: /estop
+    costmap_topic: /global_costmap/costmap
+    stuck_topic: /robot_stuck
+    kill_switch_topic: /kill_switch
+    lid_state_topic: /lid_state
+    preview_topic: /steamdeck/goal_preview
+
+    # Startup: auto-set robot to "driving" mode after a delay
+    auto_set_driving_mode: true
+    driving_mode_delay_s: 5.0

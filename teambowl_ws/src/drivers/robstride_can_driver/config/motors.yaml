@@ -52,8 +52,8 @@ motors:
     type: RS04
     bus: can0
     can_id: 0x0A          # PLACEHOLDER — set to your actual CAN ID
-    default_kp: 100.0     # Kp used in Type 1 control frame (NOT written to motor flash)
-    default_kd: 2.0       # Kd used in Type 1 control frame (NOT written to motor flash)
+    default_kp: 40.0      # Kp used in Type 1 control frame (NOT written to motor flash)
+    default_kd: 20.0       # Kd used in Type 1 control frame (NOT written to motor flash)
     default_torque_ff: 0.0
     home_position_rad: 0.0   # Target position for startup_home mode
 
@@ -61,8 +61,8 @@ motors:
     type: RS04
     bus: can0
     can_id: 0x0B
-    default_kp: 100.0
-    default_kd: 2.0
+    default_kp: 80.0
+    default_kd: 20.0
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
@@ -70,8 +70,8 @@ motors:
     type: RS04
     bus: can0
     can_id: 0x0C
-    default_kp: 100.0
-    default_kd: 2.0
+    default_kp: 80.0
+    default_kd: 20.0
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
@@ -79,8 +79,8 @@ motors:
     type: RS04
     bus: can0
     can_id: 0x14
-    default_kp: 100.0
-    default_kd: 2.0
+    default_kp: 40.0
+    default_kd: 20.0
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
@@ -88,8 +88,8 @@ motors:
     type: RS04
     bus: can0
     can_id: 0x15
-    default_kp: 100.0
-    default_kd: 2.0
+    default_kp: 80.0
+    default_kd: 20.0
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
@@ -97,8 +97,8 @@ motors:
     type: RS04
     bus: can0
     can_id: 0x16
-    default_kp: 100.0
-    default_kd: 2.0
+    default_kp: 80.0
+    default_kd: 20.0
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
@@ -107,8 +107,8 @@ motors:
     type: RS00
     bus: can1
     can_id: 0x0D
-    default_kp: 80.0
-    default_kd: 1.5
+    default_kp: 0.0    # zero gains → freewheel by default (wheel motors)
+    default_kd: 0.0
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
@@ -116,12 +116,13 @@ motors:
     type: RS00
     bus: can1
     can_id: 0x17
-    default_kp: 80.0
-    default_kd: 1.5
+    default_kp: 0.0    # zero gains → freewheel by default (wheel motors)
+    default_kd: 0.0
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
   joint_rs05_1:
+    enabled: true
     type: RS05
     bus: can1
     can_id: 0x1E
