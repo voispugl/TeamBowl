@@ -7,6 +7,10 @@ steamdeck_ws_teleop:
     # Joy processing rate
     joy_rate_hz: 20.0
 
+    # Diagnostics + map push rate (type=push messages to browser)
+    map_push_rate_hz: 2.0
+    coarse_map_size: 20     # NxN grid — 20x20 over 10m = 0.5m/cell
+
     # Goal accumulation sensitivity
     goal_scale_m_per_tick: 0.02   # meters per tick @ 20 Hz = 0.4 m/s max goal travel
     yaw_scale_rad_per_tick: 0.03  # rad per tick = ~0.6 rad/s max
@@ -35,6 +39,10 @@ steamdeck_ws_teleop:
     mode_topic: /robot_mode
     mode_set_topic: /robot_mode_set
     estop_topic: /estop
+    costmap_topic: /global_costmap/costmap
+    stuck_topic: /robot_stuck
+    kill_switch_topic: /kill_switch
+    lid_state_topic: /lid_state
     preview_topic: /steamdeck/goal_preview
 
     # Startup: auto-set robot to "driving" mode after a delay
