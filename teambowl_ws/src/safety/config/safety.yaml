@@ -1,3 +1,12 @@
+stuck_detector:
+  ros__parameters:
+    wheel_radius_m: 0.153988       # must match vesc_driver.yaml
+    cmd_threshold_ms: 0.05         # m/s — below this the robot is considered stopped
+    slip_ratio: 0.2                # stall: measured < 20% of commanded speed
+    accel_threshold_ms2: 0.3       # m/s² — IMU accel below this = free-spinning
+    stuck_timeout_s: 2.0           # seconds condition must persist before asserting stuck
+    publish_rate_hz: 10.0
+
 pico_bridge:
   ros__parameters:
     # Full udev by-id path for the Pico — run `ls /dev/serial/by-id/` to find yours

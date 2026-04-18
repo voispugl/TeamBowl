@@ -1,5 +1,10 @@
 # bringup
 
+## 2026-04-17 — Added stuck_detector + nvblox setup guide
+
+- **`launch/bringup.launch.py`**: Added `stuck_detector` node (safety pkg, safety_config).
+- **`nvblox_setup.md`**: New step-by-step guide for installing Isaac ROS nvblox on the Jetson AGX Orin. Covers apt repo setup, install, depth topic discovery, launch file changes, and Nav2 costmap layer config. Implement later — stuck_detector is the active terrain detection feature.
+
 ## 2026-04-17 — Replaced led_controller with pico_bridge
 
 - **`launch/bringup.launch.py`**: Replaced `management/led_controller` node with `safety/pico_bridge`. The pico_bridge node handles both LED state signaling (via Pico USB-serial) and the physical kill switch / lid toggle button. Uses `safety_config` (safety.yaml) for parameters.

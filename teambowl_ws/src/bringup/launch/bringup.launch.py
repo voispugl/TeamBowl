@@ -252,6 +252,14 @@ def generate_launch_description():
 
         Node(
             package='safety',
+            executable='stuck_detector',
+            name='stuck_detector',
+            output='screen',
+            parameters=[safety_config],
+        ),
+
+        Node(
+            package='safety',
             executable='heartbeat_publisher',
             name='heartbeat_publisher',
             output='screen',
