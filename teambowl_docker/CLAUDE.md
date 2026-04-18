@@ -48,6 +48,26 @@ Override workspace path: `TEAMBOWL_WS=/my/path ./build.laptop.sh`
 - **Marker file**: `install/.colcon_build_complete` prevents rebuilding on every start.
   Delete it to force a rebuild: `rm teambowl_ws/install/.colcon_build_complete`
 
+## 2026-04-16 — Added sim image for MuJoCo simulation on Ubuntu 24.04 VM
+
+- **`Dockerfile.sim`**: New x86_64 sim image. `FROM teambowl:laptop`; adds `mujoco` pip
+  package (CPU-only forward simulation, no GPU). Creates `/workspaces/teambowl_mjlab/`
+  mount point for the MJCF model files.
+- **`docker-compose.sim.yml`**: Sim compose. Extra volume mounts:
+  - `${TEAMBOWL_WS}` → `/workspaces/teambowl_ws` (workspace source)
+  - `${TEAMBOWL_ROOT}/mjlab_robot` → `/workspaces/teambowl_mjlab` (MJCF + meshes)
+  - The meshes symlink (`mjlab_robot/meshes/ → ../teambowl_ws/sim/mujoco/meshes`) resolves
+    correctly because both directories are mounted at sibling paths.
+  - Auto-launches: `ros2 launch bringup sim.launch.py`
+- **`build.sim.sh`**: New build script. Builds `teambowl:laptop` first (dep), then
+  `teambowl:sim`. Accepts `--clean`. Respects `TEAMBOWL_ROOT` and `TEAMBOWL_WS` env vars.
+
+## 2026-04-17 — Added websockets pip dependency
+
+- **`Dockerfile`** and **`Dockerfile.laptop`**: Added `websockets` to pip install.
+  Required by `steamdeck_teleop` package (`steamdeck_ws_teleop` node runs a WebSocket
+  server on port 8888 for Steam Deck browser-based gamepad teleop).
+
 ## 2026-04-16 — Added laptop image + missing nav2 packages
 
 - **`Dockerfile.laptop`**: New x86_64 laptop image. Base `ros:humble-ros-base-jammy`;

@@ -100,8 +100,9 @@ RUN apt-get update && apt-get install -y \
 # python-can: required by robstride_can_driver
 RUN pip3 install --no-cache-dir \
     numpy \
-    pyvesc==0.2.2 \
-    python-can
+    websockets \
+    # pyvesc==0.2.2 \
+    # python-can
 
 # rosdep
 RUN rosdep init || true

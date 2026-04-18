@@ -107,7 +107,8 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --no-cache-dir \
     numpy \
     pyvesc==0.2.2 \
-    python-can
+    python-can \
+    websockets
 
 # rosdep init may already be done in the base image
 RUN rosdep init || true
