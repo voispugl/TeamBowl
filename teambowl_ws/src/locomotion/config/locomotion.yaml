@@ -34,5 +34,5 @@ collision_guard:
     input_topic: /cmd_vel_selected
     estop_topic: /estop
     output_topic: /cmd_vel_safe   # balance_controller subscribes here; it passes through to /cmd_vel
-    max_linear_x: 0.15
-    max_angular_z: 0.4
+    max_linear_x: 2.0
+    max_angular_z: 0.5

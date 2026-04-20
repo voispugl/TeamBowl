@@ -19,3 +19,12 @@ cmd_vel_to_vesc:
     right_wheel_vel_topic: /wheel_vel_right
     feedback_poll_rate_hz: 50.0
     publish_wheel_feedback: true
+    # Velocity / yaw closed-loop PI (default 0.0 = open-loop, no change to existing behaviour)
+    kp_v: 0.0
+    ki_v: 0.0
+    kp_w: 0.0
+    ki_w: 0.0
+    vesc_integral_max: 2.0
+    vesc_gains_echo_topic: /vesc_gains_echo
+    vesc_gains_topic: /vesc_gains
+    robot_mode_topic: /robot_mode

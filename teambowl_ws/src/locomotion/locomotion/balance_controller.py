@@ -96,6 +96,7 @@ class BalanceController(Node):
         self.declare_parameter('ki_pitch', 0.0)    # [cmd_vel / (rad·s)] sliding-window I
         self.declare_parameter('kp_yaw', 5.0)
         self.declare_parameter('kd_yaw', 0.5)    # [cmd_vel·s / rad]
+        self.declare_parameter('ki_yaw', 0.0)    # [cmd_vel / (rad/s·s)] sliding-window I
 
         # Outer PI gains
         self.declare_parameter('kp_vel', 0.30)     # [rad / (m/s)]
@@ -150,8 +151,11 @@ class BalanceController(Node):
         self._v_integral = 0.0
         self._theta_ref  = 0.0
 
-        # Inner pitch I: 2-second sliding window
+        # Inner pitch I: 0.5-second sliding window
         self._pitch_i_window = deque()  # (ros_time_sec, contribution) pairs
+
+        # Yaw I: 1-second sliding window
+        self._yaw_i_window = deque()    # (ros_time_sec, contribution) pairs
 
         # ------------------------------------------------------------------ #
         # QoS
@@ -236,12 +240,14 @@ class BalanceController(Node):
         if new_mode != self.BALANCE_MODE:
             self._v_integral = 0.0
             self._pitch_i_window.clear()
+            self._yaw_i_window.clear()
 
     def _on_estop(self, msg: Bool):
         self._estop = msg.data
         if self._estop:
             self._v_integral = 0.0
             self._pitch_i_window.clear()
+            self._yaw_i_window.clear()
 
     def _on_gains(self, msg: String):
         """
@@ -251,7 +257,7 @@ class BalanceController(Node):
         """
         FLOAT_PARAMS = {
             'kp_pitch', 'kd_pitch', 'ki_pitch',
-            'kp_yaw', 'kd_yaw',
+            'kp_yaw', 'kd_yaw', 'ki_yaw',
             'kp_vel', 'ki_vel', 'kff_pitch',
             'theta_max_cmd', 'theta_max_fallover', 'theta_eq_offset', 'l_com',
         }
@@ -296,6 +302,7 @@ class BalanceController(Node):
             'ki_pitch':           self.get_parameter('ki_pitch').value,
             'kp_yaw':             self.get_parameter('kp_yaw').value,
             'kd_yaw':             self.get_parameter('kd_yaw').value,
+            'ki_yaw':             self.get_parameter('ki_yaw').value,
             'kp_vel':             self.get_parameter('kp_vel').value,
             'ki_vel':             self.get_parameter('ki_vel').value,
             'kff_pitch':          self.get_parameter('kff_pitch').value,
@@ -383,10 +390,10 @@ class BalanceController(Node):
         kd_pitch = float(self.get_parameter('kd_pitch').value)
         ki_pitch = float(self.get_parameter('ki_pitch').value)
 
-        # Rolling 2-second pitch integral
+        # Rolling 0.5-second pitch integral
         now_sec = now.nanoseconds * 1e-9
         self._pitch_i_window.append((now_sec, pitch_err * self._dt_inner))
-        while self._pitch_i_window and now_sec - self._pitch_i_window[0][0] > 2.0:
+        while self._pitch_i_window and now_sec - self._pitch_i_window[0][0] > 0.5:
             self._pitch_i_window.popleft()
         pitch_integral = sum(v for _, v in self._pitch_i_window)
 
@@ -394,10 +401,18 @@ class BalanceController(Node):
                     + ki_pitch * pitch_integral
                     + kd_pitch * self._theta_dot)
 
-        kp_yaw  = float(self.get_parameter('kp_yaw').value)
-        kd_yaw  = float(self.get_parameter('kd_yaw').value)
+        kp_yaw = float(self.get_parameter('kp_yaw').value)
+        kd_yaw = float(self.get_parameter('kd_yaw').value)
+        ki_yaw = float(self.get_parameter('ki_yaw').value)
         yaw_err = self._omega_cmd - self._yaw_dot
-        yaw_out = kp_yaw * yaw_err - kd_yaw * self._yaw_dot
+
+        # Rolling 1-second yaw integral
+        self._yaw_i_window.append((now_sec, yaw_err * self._dt_inner))
+        while self._yaw_i_window and now_sec - self._yaw_i_window[0][0] > 1.0:
+            self._yaw_i_window.popleft()
+        yaw_integral = sum(v for _, v in self._yaw_i_window)
+
+        yaw_out = kp_yaw * yaw_err + ki_yaw * yaw_integral - kd_yaw * self._yaw_dot
 
         self._publish_cmd(u_balance, yaw_out)
 

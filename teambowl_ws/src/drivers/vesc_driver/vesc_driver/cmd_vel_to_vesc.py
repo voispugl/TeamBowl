@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import math
 import serial
 import struct
@@ -12,9 +13,9 @@ from pyvesc.VESC.messages import SetRPM, SetCurrent, SetDutyCycle
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Bool, Float64
+from std_msgs.msg import Bool, Float64, String
 
 
 COMM_GET_VALUES = 4
@@ -107,6 +108,18 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('left_sign', 1)
         self.declare_parameter('right_sign', -1)
 
+        # Velocity / yaw PI gains (default 0.0 = open-loop, existing behaviour)
+        self.declare_parameter('kp_v', 0.0)
+        self.declare_parameter('ki_v', 0.0)
+        self.declare_parameter('kp_w', 0.0)
+        self.declare_parameter('ki_w', 0.0)
+        self.declare_parameter('vesc_integral_max', 2.0)  # m/s integral clamp
+
+        # Gain echo / update topics
+        self.declare_parameter('vesc_gains_echo_topic', '/vesc_gains_echo')
+        self.declare_parameter('vesc_gains_topic',      '/vesc_gains')
+        self.declare_parameter('robot_mode_topic',      '/robot_mode')
+
         # Debugging options
         self.declare_parameter('print_RPM_cmds', False)
         self.declare_parameter('left_wheel_vel_topic', '/wheel_vel_left')
@@ -141,8 +154,16 @@ class CmdVelToVescNode(Node):
         self.feedback_poll_rate_hz = float(self.get_parameter('feedback_poll_rate_hz').value)
         self.publish_wheel_feedback = bool(self.get_parameter('publish_wheel_feedback').value)
 
+        # PI gains (live-tunable via /vesc_gains)
+        self._kp_v = float(self.get_parameter('kp_v').value)
+        self._ki_v = float(self.get_parameter('ki_v').value)
+        self._kp_w = float(self.get_parameter('kp_w').value)
+        self._ki_w = float(self.get_parameter('ki_w').value)
+        self._integral_max = float(self.get_parameter('vesc_integral_max').value)
+
         # State
         self.estop = False
+        self._coasting = False
         self.last_cmd_time = None
         self.left_ser = None
         self.right_ser = None
@@ -158,6 +179,12 @@ class CmdVelToVescNode(Node):
         self.left_voltage = None
         self.right_voltage = None
 
+        # PI state
+        self._v_cmd = 0.0
+        self._w_cmd = 0.0
+        self._integral_v = 0.0
+        self._integral_w = 0.0
+
         # QoS
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -165,14 +192,26 @@ class CmdVelToVescNode(Node):
             depth=1,
         )
 
+        transient_local = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+
         # Subscribers
         self.sub_cmd = self.create_subscription(Twist, self.cmd_vel_topic, self._cmd_reader, qos)
         self.sub_estop = self.create_subscription(Bool, self.estop_topic, self._estop_reader, qos)
+        self.create_subscription(String, self.get_parameter('robot_mode_topic').value,
+                                 self._mode_cb, transient_local)
 
         self.declare_parameter('battery_voltage_topic', '/vesc/battery_voltage')
         self.left_wheel_vel_pub = self.create_publisher(Float64, self.left_wheel_vel_topic, 10)
         self.right_wheel_vel_pub = self.create_publisher(Float64, self.right_wheel_vel_topic, 10)
         self.battery_voltage_pub = self.create_publisher(Float64, self.get_parameter('battery_voltage_topic').value, 10)
+        self._vesc_gains_echo_pub = self.create_publisher(String, self.get_parameter('vesc_gains_echo_topic').value, 10)
+        self.create_subscription(String, self.get_parameter('vesc_gains_topic').value, self._on_vesc_gains, 10)
+        self.create_timer(0.5, self._publish_vesc_gains_echo)
 
         self._shutdown = False
         self._error_since = {'left': None, 'right': None}  # tracks first error time per side
@@ -240,68 +279,119 @@ class CmdVelToVescNode(Node):
 
         self.estop = new_estop
 
+    def _mode_cb(self, msg: String):
+        mode = msg.data.strip().lower()
+        if mode == 'off':
+            if not self._coasting:
+                self.get_logger().info('Robot mode → off: coasting wheel motors.')
+            self._coasting = True
+            self._send_stop()
+        else:
+            if self._coasting:
+                self.get_logger().info(f'Robot mode → {mode}: resuming motor control.')
+            self._coasting = False
+
     def _cmd_reader(self, msg: Twist):
         self.last_cmd_time = self.get_clock().now()
-
         if self.estop:
-            self.target_left_erpm = 0
-            self.target_right_erpm = 0
+            self._v_cmd = 0.0
+            self._w_cmd = 0.0
             return
+        self._v_cmd = msg.linear.x
+        self._w_cmd = msg.angular.z
 
-        v = msg.linear.x
-        w = msg.angular.z
-
-        # Differential-drive wheel linear velocities [m/s]
-        v_left = v - 0.5 * self.track_width_m * w
+    def _cmd_to_erpm(self, v: float, w: float) -> tuple:
+        """Convert (v m/s, w rad/s) → (left_erpm, right_erpm)."""
+        v_left  = v - 0.5 * self.track_width_m * w
         v_right = v + 0.5 * self.track_width_m * w
-
-        # Wheel angular velocity [rad/s]
-        omega_left = v_left / self.wheel_radius_m
-        omega_right = v_right / self.wheel_radius_m
-
-        # Wheel RPM
-        wheel_rpm_left = omega_left * 60.0 / (2.0 * math.pi)
-        wheel_rpm_right = omega_right * 60.0 / (2.0 * math.pi)
-
-        # Convert wheel RPM -> VESC ERPM
-        erpm_left = int(round(wheel_rpm_left * self.erpm_per_wheel_rpm * self.left_sign))
+        wheel_rpm_left  = (v_left  / self.wheel_radius_m) * 60.0 / (2.0 * math.pi)
+        wheel_rpm_right = (v_right / self.wheel_radius_m) * 60.0 / (2.0 * math.pi)
+        erpm_left  = int(round(wheel_rpm_left  * self.erpm_per_wheel_rpm * self.left_sign))
         erpm_right = int(round(wheel_rpm_right * self.erpm_per_wheel_rpm * self.right_sign))
-
-        # Clamp
-        erpm_left = max(-self.max_erpm, min(self.max_erpm, erpm_left))
+        erpm_left  = max(-self.max_erpm, min(self.max_erpm, erpm_left))
         erpm_right = max(-self.max_erpm, min(self.max_erpm, erpm_right))
-
-        self.target_left_erpm = erpm_left
-        self.target_right_erpm = erpm_right
+        return erpm_left, erpm_right
 
     def _tick(self):
-        if self.estop:
+        if self._coasting:
             self._send_stop()
             return
 
+        if self.estop:
+            self._send_stop()
+            self._integral_v = 0.0
+            self._integral_w = 0.0
+            return
+
         if self.last_cmd_time is None:
-            self.target_left_erpm = 0
-            self.target_right_erpm = 0
             self._send_erpm(0, 0)
             return
 
         if (self.get_clock().now() - self.last_cmd_time) > self.cmd_timeout:
             self.get_logger().warn('cmd_vel timeout. Stopping motors.')
             self._send_stop()
+            self._integral_v = 0.0
+            self._integral_w = 0.0
             return
-        
-        self.cmd_left_erpm = self._slew(
-            self.cmd_left_erpm,
-            self.target_left_erpm,
-            self.max_erpm_step_per_tick
-        )
-        self.cmd_right_erpm = self._slew(
-            self.cmd_right_erpm,
-            self.target_right_erpm,
-            self.max_erpm_step_per_tick
-        )
+
+        # Measured velocities from wheel feedback (already sign-corrected in _feedback_loop)
+        v_measured = (self.left_measured_rad_s + self.right_measured_rad_s) * 0.5 * self.wheel_radius_m
+        w_measured = (self.right_measured_rad_s - self.left_measured_rad_s) * self.wheel_radius_m / self.track_width_m
+
+        # Velocity PI
+        dt = 0.05
+        v_err = self._v_cmd - v_measured
+        w_err = self._w_cmd - w_measured
+        self._integral_v = max(-self._integral_max, min(self._integral_max, self._integral_v + v_err * dt))
+        self._integral_w = max(-self._integral_max, min(self._integral_max, self._integral_w + w_err * dt))
+        v_eff = self._v_cmd + self._kp_v * v_err + self._ki_v * self._integral_v
+        w_eff = self._w_cmd + self._kp_w * w_err + self._ki_w * self._integral_w
+
+        target_left, target_right = self._cmd_to_erpm(v_eff, w_eff)
+
+        self.cmd_left_erpm  = self._slew(self.cmd_left_erpm,  target_left,  self.max_erpm_step_per_tick)
+        self.cmd_right_erpm = self._slew(self.cmd_right_erpm, target_right, self.max_erpm_step_per_tick)
 
         self._send_erpm(self.cmd_left_erpm, self.cmd_right_erpm)
+
+    def _publish_vesc_gains_echo(self):
+        v_measured = (self.left_measured_rad_s + self.right_measured_rad_s) * 0.5 * self.wheel_radius_m
+        w_measured = (self.right_measured_rad_s - self.left_measured_rad_s) * self.wheel_radius_m / self.track_width_m
+        msg = String()
+        msg.data = json.dumps({
+            'kp_v':          round(self._kp_v, 6),
+            'ki_v':          round(self._ki_v, 6),
+            'kp_w':          round(self._kp_w, 6),
+            'ki_w':          round(self._ki_w, 6),
+            'integral_max':  round(self._integral_max, 4),
+            '_v_measured':   round(v_measured, 4),
+            '_w_measured':   round(w_measured, 4),
+        })
+        self._vesc_gains_echo_pub.publish(msg)
+
+    def _on_vesc_gains(self, msg: String):
+        try:
+            gains = json.loads(msg.data)
+        except (json.JSONDecodeError, ValueError):
+            self.get_logger().warn('vesc_gains: invalid JSON')
+            return
+        _KEYS = {'kp_v', 'ki_v', 'kp_w', 'ki_w', 'integral_max'}
+        for k, v in gains.items():
+            if k not in _KEYS:
+                continue
+            try:
+                val = float(v)
+            except (TypeError, ValueError):
+                continue
+            if k == 'kp_v':         self._kp_v = val
+            elif k == 'ki_v':       self._ki_v = val; self._integral_v = 0.0
+            elif k == 'kp_w':       self._kp_w = val
+            elif k == 'ki_w':       self._ki_w = val; self._integral_w = 0.0
+            elif k == 'integral_max': self._integral_max = val
+        self.get_logger().info(
+            f'vesc_gains updated: kp_v={self._kp_v} ki_v={self._ki_v} '
+            f'kp_w={self._kp_w} ki_w={self._ki_w}'
+        )
 
     def _write_erpm(self, ser, erpm: int, side: str):
         if ser is None:

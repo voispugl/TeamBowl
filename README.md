@@ -179,7 +179,9 @@ Navigate to `http://ROBOT_IP:8888` from any browser (Steam Deck, laptop, phone).
 - **Mode buttons** — Driving / Balance / Auton / Off
 - **Lid control** — Open / Close / Toggle
 - **Trajectory Goal form** — x/y/θ inputs + relative checkbox + Go/Stop/Reset
-- **Balance Gains editor** — all 12 gains pre-filled from live `/balance_gains_echo`, Apply to update
+- **Balance Gains panel** — 13 gains (including `ki_yaw`) with **Receive** / **Send** buttons; live θ and v readout
+- **Motor Driver Gains panel** — per-joint kp/kd table (from `/driver_gains_echo`), Receive / Send
+- **VESC Velocity/Yaw PI panel** — kp_v, ki_v, kp_w, ki_w with live measured v/ω; Receive / Send
 - **Status indicators** — Battery voltage (green/yellow/red), Planner ready, Legs running
 
 No ROS2 or software installation needed on the client device.

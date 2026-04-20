@@ -18,5 +18,8 @@ source /opt/ros/humble/setup.bash
 echo "[build] Sourcing workspace overlay..."
 source install/setup.bash
 
+export RCUTILS_COLORIZE_OUTPUT=1
+export RCUTILS_LOGGING_USE_STDOUT=1
+
 echo "[build] Launching bringup..."
 ros2 launch bringup bringup.launch.py

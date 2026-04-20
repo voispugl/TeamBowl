@@ -218,11 +218,11 @@ def generate_launch_description():
 
     velocity_controller_arg = DeclareLaunchArgument(
         'velocity_controller',
-        default_value='balance',
-        description='Velocity/balance controller: balance (default) or driving. '
+        default_value='driving',
+        description='Velocity controller: driving (default) or balance. '
+                    'driving runs the locked-leg velocity+pitch+yaw PID for autonomous nav. '
                     'balance runs the self-balancing cascaded PID. '
-                    'driving runs the locked-leg velocity+pitch PID for autonomous nav. '
-                    'balance and driving cannot run simultaneously.')
+                    'driving and balance cannot run simultaneously.')
     vel_ctrl = LaunchConfiguration('velocity_controller')
 
     verbose_controllers_arg = DeclareLaunchArgument(

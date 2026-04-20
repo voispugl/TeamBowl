@@ -1,5 +1,38 @@
 # locomotion
 
+## 2026-04-20 — Driving controller ki windows reduced from 2.0 s → 0.5 s
+
+**`locomotion/driving_controller.py`**: All three integral sliding windows (velocity, pitch, yaw) now prune samples older than 0.5 s (was 2.0 s). Faster windup decay; reduces overshoot from sustained error in any axis.
+
+## 2026-04-20 — Driving controller redesigned: parallel velocity + pitch + yaw PIDs
+
+**`locomotion/driving_controller.py`**:
+- Removed two-timer cascade (50 Hz outer + 100 Hz inner). Replaced with a **single `_tick` at `control_rate_hz` (default 100 Hz)**.
+- Three PIDs run in parallel each tick:
+  - **Velocity PID**: `u_vel = kp_vel*v_err + ki_vel*∫ + kd_vel*dv_err/dt`
+  - **Pitch PID** (nose-dive correction, 3-sample FIR derivative): `u_pitch = kp_pitch*pitch_err + kd_pitch*d_pitch + ki_pitch*∫`
+  - **Yaw PID** (new): `u_yaw = omega_cmd + kp_yaw*yaw_err + ki_yaw*∫ + kd_yaw*d_yaw` — additive, gains=0 → passthrough
+- `v_out = clamp(u_vel + u_pitch, -v_max, v_max)`, `omega_out = u_yaw`
+- Added `_yaw_dot` (from `angular_velocity.z`), `_yaw_err_prev`, `_yaw_i_window` state vars.
+- `/driving_gains_echo` now includes `kp_yaw`, `ki_yaw`, `kd_yaw`, `_yaw_dot`.
+- `/driving_gains` accepts `kp_yaw`, `ki_yaw`, `kd_yaw` for live tuning.
+
+**`config/driving_controller.yaml`**:
+- Replaced `outer_rate_hz` + `inner_rate_hz` with `control_rate_hz: 100.0`.
+- Added `kp_yaw: 0.0`, `ki_yaw: 0.0`, `kd_yaw: 0.0` with tuning comments.
+
+
+
+## 2026-04-20 — Yaw PD upgraded to PID (added ki_yaw)
+
+**`locomotion/balance_controller.py`**:
+- Added `ki_yaw` parameter (default 0.0, live-tunable via `/balance_gains`).
+- `_inner_tick`: yaw output is now `kp_yaw * yaw_err + ki_yaw * integral + (-kd_yaw * yaw_dot)` where integral uses a 1-second sliding window `_yaw_i_window` (same pattern as pitch integral).
+- `_yaw_i_window` cleared on mode exit (leaving balance mode) and on estop.
+- `/balance_gains_echo` and `_on_gains` updated to include `ki_yaw`.
+
+**`config/balance_controller.yaml`**: added `ki_yaw: 0.0`.
+
 ## 2026-04-19 — driving_leg_controller publishes /leg_controller_running
 
 **`locomotion/driving_leg_controller.py`**: Added a 2 Hz TRANSIENT_LOCAL Bool publisher on
@@ -21,6 +54,10 @@ reference so yaw drifts; wheel odometry provides yaw instead). Roll/pitch still 
 **`src/drivers/xsens_mti_ros2_driver/param/xsens_mti_node.yaml`** — set
 `enable_filter_config: true`, `mti_filter_option: 4` (vru_general — no compass),
 `pub_mag: false`. Built xsens_mti_ros2_driver package for the first time.
+
+## 2026-04-20 — Reduced pitch integral window from 2.0s → 0.5s
+
+**`locomotion/balance_controller.py`** — `_inner_tick()` sliding-window pruning threshold changed from 2.0 → 0.5 seconds. Faster windup decay; reduces overshoot from sustained pitch error.
 
 ## 2026-04-19 — Added balance controller tuning guide
 

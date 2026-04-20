@@ -2,7 +2,7 @@
 # Commanded via MIT mode: torque_ff = 0.0 Nm, velocity = 0.0 rad/s.
 joints:
   joint_rs04_1:  1.0464   # CAN ID 0x0A
-  joint_rs04_2:  6.806   # CAN ID 0x0B
+  joint_rs04_2:  0.5   # CAN ID 0x0B
   joint_rs04_3:  2.427965   # CAN ID 0x0C
   joint_rs04_4:  4.9616   # CAN ID 0x14
   joint_rs04_5:  1.8793   # CAN ID 0x15

@@ -12,6 +12,7 @@ Startup modes (set in motors.yaml):
 """
 
 import atexit
+import json
 import math
 import signal
 import struct
@@ -26,7 +27,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 
 # Custom services
@@ -161,10 +162,15 @@ class RobstrideCanDriverNode(Node):
         # --- Publishers ---
         self._pub_joint_states = self.create_publisher(JointState, '/joint_states', 10)
         self._pub_faults = self.create_publisher(DiagnosticArray, '/motor_faults', 10)
+        self._pub_gains_echo = self.create_publisher(String, '/driver_gains_echo', 10)
 
         # --- Subscribers ---
         self.create_subscription(JointState, '/joint_commands', self._on_joint_commands, 10)
         self.create_subscription(Bool, '/e_stop', self._on_e_stop, 10)
+        self.create_subscription(String, '/driver_gains', self._on_driver_gains, 10)
+
+        # --- Gains echo timer (2 Hz) ---
+        self.create_timer(0.5, self._publish_gains_echo)
 
         # --- Services ---
         self.create_service(Trigger, '/enable_motors', self._srv_enable_motors)
@@ -466,6 +472,40 @@ class RobstrideCanDriverNode(Node):
         if msg.data:
             self.get_logger().warn("E-stop received — stopping all motors.")
             self._stop_all()
+
+    def _publish_gains_echo(self) -> None:
+        gains = {}
+        with self._state_lock:
+            for name, motor in self.cfg.motors.items():
+                gains[name] = {'kp': round(motor.current_kp, 6), 'kd': round(motor.current_kd, 6)}
+        msg = String()
+        msg.data = json.dumps(gains)
+        self._pub_gains_echo.publish(msg)
+
+    def _on_driver_gains(self, msg: String) -> None:
+        try:
+            data = json.loads(msg.data)
+        except (json.JSONDecodeError, ValueError):
+            self.get_logger().warn('driver_gains: invalid JSON')
+            return
+        with self._state_lock:
+            for key, vals in data.items():
+                if not isinstance(vals, dict):
+                    continue
+                kp = vals.get('kp')
+                kd = vals.get('kd')
+                if key == 'all':
+                    for motor in self.cfg.motors.values():
+                        if kp is not None: motor.current_kp = float(kp)
+                        if kd is not None: motor.current_kd = float(kd)
+                else:
+                    motor = self.cfg.motors.get(key)
+                    if motor is None:
+                        self.get_logger().warn(f'driver_gains: unknown joint "{key}"')
+                        continue
+                    if kp is not None: motor.current_kp = float(kp)
+                    if kd is not None: motor.current_kd = float(kd)
+        self.get_logger().info(f'driver_gains updated for: {list(data.keys())}')
 
     # -----------------------------------------------------------------------
     # Motor enable / stop helpers

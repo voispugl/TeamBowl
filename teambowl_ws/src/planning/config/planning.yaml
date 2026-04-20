@@ -14,7 +14,7 @@ plan_wheels:
     max_angular_z: 0.8
     allow_reverse: true
     max_reverse_x: 0.15
-    turn_in_place_angle_only: true
+    turn_in_place_angle_only: false
     turn_only_lateral_threshold_m: 0.5
 
 nav_cloud_filter:
@@ -84,13 +84,13 @@ planner_server:
       angle_quantization_bins: 36             # 10° resolution — faster startup
       analytic_expansion_ratio: 3.5
       analytic_expansion_max_length: 3.0
-      minimum_turning_radius: 0.4          # meters — tune to robot's actual min radius
+      minimum_turning_radius: 0.2          # meters — tune to robot's actual min radius
       reverse_penalty: 1.5                    # >1 prefers forward; 1.0 = equal cost
       change_penalty: 0.05                    # small cost for direction changes
       non_straight_penalty: 1.20
       cost_penalty: 2.0
       retrospective_penalty: 0.015
-      lookup_table_size: 10.0
+      lookup_table_size: 20.0
       cache_obstacle_heuristic: false
       smoother:
         max_iterations: 1000
@@ -103,9 +103,9 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 20.0
-    min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.0
-    min_theta_velocity_threshold: 0.001
+    min_x_velocity_threshold: 0.05
+    min_y_velocity_threshold: 0.05
+    min_theta_velocity_threshold: 0.05
     failure_tolerance: 0.3
     odom_topic: /odometry/filtered
     progress_checker_plugins: ["progress_checker"]
@@ -121,14 +121,14 @@ controller_server:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
       xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.35
+      yaw_goal_tolerance: 0.1
 
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       desired_linear_vel: 0.5
-      lookahead_dist: 0.6
-      min_lookahead_dist: 0.3
-      max_lookahead_dist: 1.0
+      lookahead_dist: 1.0
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 2.0
       use_velocity_scaled_lookahead_dist: true
       regulated_linear_scaling_min_radius: 0.9
       use_rotate_to_heading: false

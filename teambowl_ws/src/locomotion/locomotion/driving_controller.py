@@ -2,44 +2,43 @@
 """
 Driving Controller Node
 =======================
-Velocity-tracking PID with pitch correction for autonomous driving with
-legs locked in place and rear legs dragging.
-
-The robot in this configuration is mechanically stable (not an inverted
-pendulum), but hard deceleration pitches the nose down due to inertia.
-This controller tracks commanded velocity with a fast PID and adds a pitch
-correction term that reduces effective braking when the nose starts to dip.
+Velocity-tracking PID with parallel pitch and yaw correction for autonomous
+driving with legs locked in place and rear legs dragging.
 
 Control architecture
 --------------------
-Outer loop (50 Hz) — Velocity PID:
-  v_err  = v_cmd - v_actual
-  u_vel  = kp_vel * v_err + ki_vel * integral(v_err) + kd_vel * dv_err/dt
-  Written to shared _u_vel, read by inner loop.
+All three PIDs run in a single loop at `control_rate_hz` (default 100 Hz):
 
-Inner loop (100 Hz) — Pitch PID + output:
-  theta_ref = theta_eq_offset + kff_decel * (v_cmd - v_cmd_prev) / dt
-  pitch_err = theta - theta_ref
-  Derivative: 3-sample weighted FIR (weights [0.5, 0.25, 0.25]) to reduce
-              IMU noise without significant lag (~15 ms at 100 Hz).
-  u_pitch   = kp_pitch * pitch_err + kd_pitch * d_pitch + ki_pitch * integral
-  v_out     = clamp(u_vel + u_pitch, -v_max, +v_max)
+  Velocity PID:
+    v_err    = v_cmd - v_actual
+    u_vel    = kp_vel*v_err + ki_vel*∫v_err + kd_vel*dv_err/dt
+
+  Pitch PID (parallel — corrects nose-dive during deceleration):
+    theta_ref = theta_eq_offset + kff_decel * v_cmd_dot
+    pitch_err = theta - theta_ref
+    u_pitch   = kp_pitch*pitch_err + kd_pitch*d_pitch + ki_pitch*∫pitch_err
+    Derivative uses 3-sample weighted FIR to reduce IMU noise (~15 ms lag).
+
+  Yaw PID (parallel — corrects angular velocity error):
+    yaw_err  = omega_cmd - yaw_dot
+    u_yaw    = omega_cmd + kp_yaw*yaw_err + ki_yaw*∫yaw_err + kd_yaw*d_yaw_err
+    Additive: gains=0.0 → pure passthrough on omega.
+
+  Combined output:
+    v_out     = clamp(u_vel + u_pitch, -v_max, +v_max)
+    omega_out = u_yaw
 
 Sign convention:
   theta > 0  — nose down (forward lean), per _quat_to_pitch ZYX convention
   theta_dot  — angular_velocity.y from IMU
+  yaw_dot    — angular_velocity.z from IMU
   linear.x > 0 — forward wheel velocity
-
-Pitch limit:
-  |theta| > theta_max_pitch → WARN log only. No estop. The robot is
-  already contacting the ground at that angle; zeroing velocity mid-contact
-  risks frame damage. Let the pitch loop continue and let navigation respond.
 
 Topics
 ------
 Subscribes:
   /cmd_vel_safe        geometry_msgs/Twist  — desired v_cmd, omega_cmd
-  /imu/data            sensor_msgs/Imu     — pitch angle, pitch rate
+  /imu/data            sensor_msgs/Imu     — pitch angle, pitch rate, yaw rate
   /odometry/filtered   nav_msgs/Odometry   — filtered body velocity (EKF)
   /robot_mode          std_msgs/String     — mode switching
   /estop               std_msgs/Bool       — emergency stop
@@ -54,7 +53,7 @@ Active mode: "driving"  (passthrough in all other modes)
 Foxglove live gain tuning
 --------------------------
 Publish JSON to /driving_gains with any subset of tunable params:
-  {"kp_pitch": 8.0, "kd_pitch": 1.5, "kp_vel": 3.0}
+  {"kp_vel": 3.0, "kp_pitch": 8.0, "kp_yaw": 2.0}
 Read back state + current gains from /driving_gains_echo (2 Hz).
 """
 
@@ -87,10 +86,15 @@ def _quat_to_pitch(qx: float, qy: float, qz: float, qw: float) -> float:
 
 class DrivingController(Node):
     """
-    Velocity-tracking PID with pitch correction for locked-leg driving.
+    Velocity-tracking PID with parallel pitch and yaw correction.
 
-    Outer PI  (50 Hz): velocity error → u_vel (shared with inner loop)
-    Inner PID (100 Hz): pitch correction → u_pitch; v_out = u_vel + u_pitch
+    Single control loop at control_rate_hz:
+      Velocity PID  → u_vel
+      Pitch PID     → u_pitch   (parallel, corrects nose-dive)
+      Yaw PID       → u_yaw     (parallel, additive correction on omega)
+
+    v_out = clamp(u_vel + u_pitch, -v_max, v_max)
+    omega_out = u_yaw  (= omega_cmd when kp/ki/kd_yaw = 0)
     """
 
     DRIVING_MODE = 'driving'
@@ -108,20 +112,25 @@ class DrivingController(Node):
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('cmd_vel_out_topic', '/cmd_vel')
 
-        # Outer velocity PID gains
+        # Velocity PID gains
         self.declare_parameter('kp_vel', 2.0)
         self.declare_parameter('ki_vel', 0.5)
         self.declare_parameter('kd_vel', 0.05)
 
-        # Inner pitch PID gains
+        # Pitch PID gains
         self.declare_parameter('kp_pitch', 5.0)
         self.declare_parameter('kd_pitch', 1.0)
         self.declare_parameter('ki_pitch', 0.0)
 
+        # Yaw PID gains (additive — 0.0 = passthrough)
+        self.declare_parameter('kp_yaw', 0.0)
+        self.declare_parameter('ki_yaw', 0.0)
+        self.declare_parameter('kd_yaw', 0.0)
+
         # Decel feedforward: anticipate pitch from commanded velocity change
         self.declare_parameter('kff_decel', 0.0)
 
-        # Static pitch trim (positive = nose-down offset to trim)
+        # Static pitch trim
         self.declare_parameter('theta_eq_offset', 0.0)
 
         # Pitch limit: WARN only, no estop (robot is already grounded at this angle)
@@ -130,9 +139,8 @@ class DrivingController(Node):
         # Output velocity clamp [m/s]
         self.declare_parameter('v_max', 3.0)
 
-        # Control rates
-        self.declare_parameter('outer_rate_hz', 50.0)
-        self.declare_parameter('inner_rate_hz', 100.0)
+        # Single control rate
+        self.declare_parameter('control_rate_hz', 100.0)
 
         # Odometry staleness timeout
         self.declare_parameter('odom_timeout_s', 0.30)
@@ -147,11 +155,7 @@ class DrivingController(Node):
         estop_topic = self.get_parameter('estop_topic').value
         out_topic   = self.get_parameter('cmd_vel_out_topic').value
 
-        outer_hz = float(self.get_parameter('outer_rate_hz').value)
-        inner_hz = float(self.get_parameter('inner_rate_hz').value)
-
-        self._dt_outer = 1.0 / outer_hz
-        self._dt_inner = 1.0 / inner_hz
+        self._dt = 1.0 / float(self.get_parameter('control_rate_hz').value)
 
         self._odom_timeout = Duration(
             seconds=float(self.get_parameter('odom_timeout_s').value)
@@ -165,6 +169,7 @@ class DrivingController(Node):
 
         self._theta     = 0.0   # pitch angle [rad]
         self._theta_dot = 0.0   # pitch rate from gyro [rad/s]
+        self._yaw_dot   = 0.0   # yaw rate from gyro [rad/s]
         self._v_actual  = 0.0   # EKF-filtered forward velocity [m/s]
 
         self._last_odom_time = None
@@ -174,23 +179,27 @@ class DrivingController(Node):
         # State — command inputs
         # ------------------------------------------------------------------ #
         self._v_cmd      = 0.0
-        self._v_cmd_prev = 0.0   # for decel feedforward (inner tick)
+        self._v_cmd_prev = 0.0
         self._omega_cmd  = 0.0
         self._last_cmd_time = None
 
         # ------------------------------------------------------------------ #
-        # State — outer velocity PID
+        # State — velocity PID
         # ------------------------------------------------------------------ #
-        self._v_err_prev = 0.0
-        self._v_i_window: deque = deque()   # (ros_time_sec, contribution)
-        self._u_vel = 0.0                   # shared: outer writes, inner reads
+        self._v_err_prev  = 0.0
+        self._v_i_window: deque = deque()
 
         # ------------------------------------------------------------------ #
-        # State — inner pitch PID
+        # State — pitch PID
         # ------------------------------------------------------------------ #
-        # 3-sample ring buffer for weighted derivative [k, k-1, k-2]
-        self._pitch_err_buf = [0.0, 0.0, 0.0]
-        self._pitch_i_window: deque = deque()  # 2-s sliding window integral
+        self._pitch_err_buf  = [0.0, 0.0, 0.0]   # ring buffer [k, k-1, k-2]
+        self._pitch_i_window: deque = deque()
+
+        # ------------------------------------------------------------------ #
+        # State — yaw PID
+        # ------------------------------------------------------------------ #
+        self._yaw_err_prev  = 0.0
+        self._yaw_i_window: deque = deque()
 
         # ------------------------------------------------------------------ #
         # QoS profiles
@@ -215,11 +224,8 @@ class DrivingController(Node):
         # ------------------------------------------------------------------ #
         # Publishers
         # ------------------------------------------------------------------ #
-        self._cmd_pub        = self.create_publisher(Twist,  out_topic,              best_effort)
-        self._gains_echo_pub = self.create_publisher(String, '/driving_gains_echo',  reliable)
-        # NOTE: This node intentionally does NOT publish /estop.
-        # If pitch exceeds theta_max_pitch the robot is already grounded;
-        # zeroing velocity mid-contact risks frame damage.
+        self._cmd_pub        = self.create_publisher(Twist,  out_topic,             best_effort)
+        self._gains_echo_pub = self.create_publisher(String, '/driving_gains_echo', reliable)
 
         # ------------------------------------------------------------------ #
         # Subscribers
@@ -234,13 +240,12 @@ class DrivingController(Node):
         # ------------------------------------------------------------------ #
         # Timers
         # ------------------------------------------------------------------ #
-        self.create_timer(self._dt_outer, self._outer_tick)
-        self.create_timer(self._dt_inner, self._inner_tick)
-        self.create_timer(2.0,            self._publish_gains_echo)
+        self.create_timer(self._dt, self._tick)
+        self.create_timer(2.0,      self._publish_gains_echo)
 
         self.get_logger().info(
             f'DrivingController up. Passthrough until mode="{self.DRIVING_MODE}". '
-            f'Outer velocity PID {outer_hz:.0f} Hz, inner pitch PID {inner_hz:.0f} Hz. '
+            f'Parallel velocity + pitch + yaw PIDs at {1.0/self._dt:.0f} Hz. '
             f'safe_in={safe_topic} → cmd_out={out_topic}. '
             f'Foxglove: pub JSON to /driving_gains, read /driving_gains_echo'
         )
@@ -252,7 +257,8 @@ class DrivingController(Node):
     def _on_imu(self, msg: Imu):
         q = msg.orientation
         self._theta     = _quat_to_pitch(q.x, q.y, q.z, q.w)
-        self._theta_dot = msg.angular_velocity.y   # pitch rate, Y-axis
+        self._theta_dot = msg.angular_velocity.y
+        self._yaw_dot   = msg.angular_velocity.z
         self._last_imu_time = self.get_clock().now()
 
     def _on_odom(self, msg: Odometry):
@@ -280,14 +286,11 @@ class DrivingController(Node):
             self._reset_integrators()
 
     def _on_gains(self, msg: String):
-        """
-        Live gain update from Foxglove / CLI.
-        Accepts JSON dict with any subset of tunable params, e.g.:
-          {"kp_pitch": 8.0, "kd_pitch": 1.5, "kp_vel": 3.0}
-        """
+        """Live gain update from Foxglove / web UI. JSON dict with any subset of tunable params."""
         FLOAT_PARAMS = {
             'kp_vel', 'ki_vel', 'kd_vel',
             'kp_pitch', 'kd_pitch', 'ki_pitch',
+            'kp_yaw', 'ki_yaw', 'kd_yaw',
             'kff_decel', 'theta_eq_offset', 'theta_max_pitch', 'v_max',
         }
 
@@ -325,12 +328,12 @@ class DrivingController(Node):
     # ---------------------------------------------------------------------- #
 
     def _reset_integrators(self):
-        """Clear all integrators and derivative history on mode/estop transitions."""
-        self._v_err_prev = 0.0
+        self._v_err_prev    = 0.0
         self._v_i_window.clear()
-        self._u_vel = 0.0
         self._pitch_err_buf = [0.0, 0.0, 0.0]
         self._pitch_i_window.clear()
+        self._yaw_err_prev  = 0.0
+        self._yaw_i_window.clear()
 
     def _publish_cmd(self, v: float, omega: float):
         msg = Twist()
@@ -339,78 +342,46 @@ class DrivingController(Node):
         self._cmd_pub.publish(msg)
 
     # ---------------------------------------------------------------------- #
-    # Gains echo (Foxglove readback)
+    # Gains echo (Foxglove / web UI readback)
     # ---------------------------------------------------------------------- #
 
     def _publish_gains_echo(self):
         gains = {
-            'kp_vel':           self.get_parameter('kp_vel').value,
-            'ki_vel':           self.get_parameter('ki_vel').value,
-            'kd_vel':           self.get_parameter('kd_vel').value,
-            'kp_pitch':         self.get_parameter('kp_pitch').value,
-            'kd_pitch':         self.get_parameter('kd_pitch').value,
-            'ki_pitch':         self.get_parameter('ki_pitch').value,
-            'kff_decel':        self.get_parameter('kff_decel').value,
-            'theta_eq_offset':  self.get_parameter('theta_eq_offset').value,
-            'theta_max_pitch':  self.get_parameter('theta_max_pitch').value,
-            'v_max':            self.get_parameter('v_max').value,
+            'kp_vel':          self.get_parameter('kp_vel').value,
+            'ki_vel':          self.get_parameter('ki_vel').value,
+            'kd_vel':          self.get_parameter('kd_vel').value,
+            'kp_pitch':        self.get_parameter('kp_pitch').value,
+            'kd_pitch':        self.get_parameter('kd_pitch').value,
+            'ki_pitch':        self.get_parameter('ki_pitch').value,
+            'kp_yaw':          self.get_parameter('kp_yaw').value,
+            'ki_yaw':          self.get_parameter('ki_yaw').value,
+            'kd_yaw':          self.get_parameter('kd_yaw').value,
+            'kff_decel':       self.get_parameter('kff_decel').value,
+            'theta_eq_offset': self.get_parameter('theta_eq_offset').value,
+            'theta_max_pitch': self.get_parameter('theta_max_pitch').value,
+            'v_max':           self.get_parameter('v_max').value,
             # Runtime state
             '_mode':      self._mode,
             '_estop':     self._estop,
             '_theta_deg': round(math.degrees(self._theta), 2),
+            '_yaw_dot':   round(self._yaw_dot, 4),
             '_v_actual':  round(self._v_actual, 3),
             '_v_cmd':     round(self._v_cmd, 3),
-            '_u_vel':     round(self._u_vel, 4),
         }
         msg = String()
         msg.data = json.dumps(gains, indent=2)
         self._gains_echo_pub.publish(msg)
 
     # ---------------------------------------------------------------------- #
-    # Control loops
+    # Control loop — single timer, three parallel PIDs
     # ---------------------------------------------------------------------- #
 
-    def _outer_tick(self):
-        """50 Hz — velocity PID → updates shared _u_vel."""
-        if self._estop or self._mode != self.DRIVING_MODE:
-            self._u_vel = 0.0
-            return
-
-        now = self.get_clock().now()
-
-        # Use EKF velocity if fresh, else fall back to 0
-        if self._last_odom_time is None or (now - self._last_odom_time) > self._odom_timeout:
-            v_actual = 0.0
-        else:
-            v_actual = self._v_actual
-
-        kp_vel = float(self.get_parameter('kp_vel').value)
-        ki_vel = float(self.get_parameter('ki_vel').value)
-        kd_vel = float(self.get_parameter('kd_vel').value)
-
-        v_err  = self._v_cmd - v_actual
-        dv_err = (v_err - self._v_err_prev) / self._dt_outer
-        self._v_err_prev = v_err
-
-        # Sliding 2-second window integral (prevents windup)
-        now_sec = now.nanoseconds * 1e-9
-        self._v_i_window.append((now_sec, v_err * self._dt_outer))
-        while self._v_i_window and now_sec - self._v_i_window[0][0] > 2.0:
-            self._v_i_window.popleft()
-        v_integral = sum(c for _, c in self._v_i_window)
-
-        self._u_vel = (kp_vel * v_err
-                     + ki_vel * v_integral
-                     + kd_vel * dv_err)
-
-    def _inner_tick(self):
-        """100 Hz — pitch PID + combined output → /cmd_vel."""
-        # Always zero on estop
+    def _tick(self):
+        """100 Hz — velocity PID + pitch PID + yaw PID in parallel → /cmd_vel."""
         if self._estop:
             self._publish_cmd(0.0, 0.0)
             return
 
-        # Passthrough when not in driving mode
         if self._mode != self.DRIVING_MODE:
             if self._last_cmd_time is not None:
                 self._publish_cmd(self._v_cmd, self._omega_cmd)
@@ -418,59 +389,80 @@ class DrivingController(Node):
                 self._publish_cmd(0.0, 0.0)
             return
 
-        now = self.get_clock().now()
+        now     = self.get_clock().now()
+        now_sec = now.nanoseconds * 1e-9
 
-        theta         = self._theta
-        theta_eq      = float(self.get_parameter('theta_eq_offset').value)
-        theta_max     = float(self.get_parameter('theta_max_pitch').value)
-        kff_decel     = float(self.get_parameter('kff_decel').value)
-
-        # Warn if pitch is extreme (robot likely contacting ground — do NOT estop)
-        if abs(theta) > theta_max:
-            self.get_logger().warn(
-                f'Pitch |theta|={abs(theta):.3f} rad > {theta_max:.3f} rad limit. '
-                f'Robot may be contacting ground. Continuing pitch correction.',
-                throttle_duration_sec=1.0
-            )
-
-        # Desired pitch: static trim + decel feedforward
-        # kff_decel * (v_cmd_dot): when braking hard, lean theta_ref forward
-        # slightly so the pitch correction loop pre-compensates
-        v_cmd_dot  = (self._v_cmd - self._v_cmd_prev) / self._dt_inner
-        self._v_cmd_prev = self._v_cmd
-        theta_ref  = theta_eq + kff_decel * v_cmd_dot
-
-        # Pitch error
-        pitch_err = theta - theta_ref
-
-        # 3-sample weighted FIR derivative (shift ring buffer: [k, k-1, k-2])
-        e0, e1, e2 = self._pitch_err_buf
-        self._pitch_err_buf = [pitch_err, e0, e1]
-        # weights [0.5, 0.25, 0.25] applied to successive differences
-        d_pitch = (0.5 * (pitch_err - e0) + 0.25 * (e0 - e1)) / self._dt_inner
-
+        # Read params once per tick
+        kp_vel   = float(self.get_parameter('kp_vel').value)
+        ki_vel   = float(self.get_parameter('ki_vel').value)
+        kd_vel   = float(self.get_parameter('kd_vel').value)
         kp_pitch = float(self.get_parameter('kp_pitch').value)
         kd_pitch = float(self.get_parameter('kd_pitch').value)
         ki_pitch = float(self.get_parameter('ki_pitch').value)
+        kp_yaw   = float(self.get_parameter('kp_yaw').value)
+        ki_yaw   = float(self.get_parameter('ki_yaw').value)
+        kd_yaw   = float(self.get_parameter('kd_yaw').value)
+        kff_decel  = float(self.get_parameter('kff_decel').value)
+        theta_eq   = float(self.get_parameter('theta_eq_offset').value)
+        theta_max  = float(self.get_parameter('theta_max_pitch').value)
+        v_max      = float(self.get_parameter('v_max').value)
 
-        # Sliding 2-second window integral for pitch
-        now_sec = now.nanoseconds * 1e-9
-        self._pitch_i_window.append((now_sec, pitch_err * self._dt_inner))
-        while self._pitch_i_window and now_sec - self._pitch_i_window[0][0] > 2.0:
+        # ── Velocity PID ──────────────────────────────────────────────────────
+        v_actual = self._v_actual if (
+            self._last_odom_time is not None
+            and (now - self._last_odom_time) <= self._odom_timeout
+        ) else 0.0
+
+        v_err  = self._v_cmd - v_actual
+        dv_err = (v_err - self._v_err_prev) / self._dt
+        self._v_err_prev = v_err
+
+        self._v_i_window.append((now_sec, v_err * self._dt))
+        while self._v_i_window and now_sec - self._v_i_window[0][0] > 0.5:  # 0.5 s window
+            self._v_i_window.popleft()
+        v_integral = sum(c for _, c in self._v_i_window)
+
+        u_vel = self._v_cmd + kp_vel * v_err + ki_vel * v_integral + kd_vel * dv_err
+
+        # ── Pitch PID ─────────────────────────────────────────────────────────
+        if abs(self._theta) > theta_max:
+            self.get_logger().warn(
+                f'Pitch |theta|={abs(self._theta):.3f} rad > {theta_max:.3f} rad limit.',
+                throttle_duration_sec=1.0
+            )
+
+        v_cmd_dot        = (self._v_cmd - self._v_cmd_prev) / self._dt
+        self._v_cmd_prev = self._v_cmd
+        theta_ref        = theta_eq + kff_decel * v_cmd_dot
+        pitch_err        = self._theta - theta_ref
+
+        e0, e1, _ = self._pitch_err_buf
+        self._pitch_err_buf = [pitch_err, e0, e1]
+        d_pitch = (0.5 * (pitch_err - e0) + 0.25 * (e0 - e1)) / self._dt
+
+        self._pitch_i_window.append((now_sec, pitch_err * self._dt))
+        while self._pitch_i_window and now_sec - self._pitch_i_window[0][0] > 0.5:  # 0.5 s window
             self._pitch_i_window.popleft()
         pitch_integral = sum(c for _, c in self._pitch_i_window)
 
-        # Pitch correction:
-        # pitch_err > 0  → nose down during decel → u_pitch > 0 → reduces braking
-        u_pitch = (kp_pitch * pitch_err
-                 + kd_pitch * d_pitch
-                 + ki_pitch * pitch_integral)
+        u_pitch = kp_pitch * pitch_err + kd_pitch * d_pitch + ki_pitch * pitch_integral
 
-        # Combined output
-        v_max = float(self.get_parameter('v_max').value)
-        v_out = max(-v_max, min(v_max, self._u_vel + u_pitch))
+        # ── Yaw PID ───────────────────────────────────────────────────────────
+        yaw_err = self._omega_cmd - self._yaw_dot
+        d_yaw   = (yaw_err - self._yaw_err_prev) / self._dt
+        self._yaw_err_prev = yaw_err
 
-        self._publish_cmd(v_out, self._omega_cmd)
+        self._yaw_i_window.append((now_sec, yaw_err * self._dt))
+        while self._yaw_i_window and now_sec - self._yaw_i_window[0][0] > 0.5:  # 0.5 s window
+            self._yaw_i_window.popleft()
+        yaw_integral = sum(c for _, c in self._yaw_i_window)
+
+        # Additive: gains=0 → omega_out = omega_cmd (pure passthrough)
+        u_yaw = self._omega_cmd + kp_yaw * yaw_err + ki_yaw * yaw_integral + kd_yaw * d_yaw
+
+        # ── Combined output ───────────────────────────────────────────────────
+        v_out = max(-v_max, min(v_max, u_vel + u_pitch))
+        self._publish_cmd(v_out, u_yaw)
 
 
 def main(args=None):

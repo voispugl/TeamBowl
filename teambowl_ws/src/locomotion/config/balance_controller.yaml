@@ -27,32 +27,33 @@ balance_controller:
     # Tune kp_pitch first (increase until oscillation, then back off 30%).
     # Then increase kd_pitch to damp oscillation.
     # ------------------------------------------------------------------ #
-    kp_pitch:  1.0    # proportional: rad → velocity cmd
-    kd_pitch:   0.1    # derivative:   (rad/s) → velocity cmd
-    ki_pitch:   2.0   # integral (2-second sliding window): start at 0, raise slowly
+    kp_pitch:  0.0    # proportional: rad → velocity cmd
+    kd_pitch:   0.0    # derivative:   (rad/s) → velocity cmd
+    ki_pitch:   0.0   # integral (0.5-second sliding window): start at 0, raise slowly
 
     # ------------------------------------------------------------------ #
     # Yaw rate PD gains — yaw rate error → angular.z (differential wheel cmd)
     # u_yaw = kp_yaw * (omega_cmd - yaw_dot) - kd_yaw * yaw_dot
     # Tune: raise kp_yaw until yaw holds, raise kd_yaw to damp oscillation.
     # ------------------------------------------------------------------ #
-    kp_yaw:   0.15     # (rad/s error) → angular.z cmd
-    kd_yaw:   0.15     # derivative damping
+    kp_yaw:   0.5 # (rad/s error) → angular.z cmd
+    kd_yaw:   0.05     # derivative damping
+    ki_yaw:   1      # integral (1-second sliding window) — raise slowly to hold yaw rate
 
     # ------------------------------------------------------------------ #
     # Outer PI gains — velocity error → lean setpoint (theta_ref)
     # theta_ref = kp_vel * v_error + ki_vel * integral(v_error)
     # ------------------------------------------------------------------ #
-    kp_vel:   2.0   # (m/s error) → rad lean
-    ki_vel:    1.0   # integrator term
-    kff_pitch: 0.0   # feed-forward lean ∝ v_cmd — bypasses PI lag (rad/(m/s))
+    kp_vel:   2   # (m/s error) → rad lean
+    ki_vel:    5   # integrator term
+    kff_pitch: 2   # feed-forward lean ∝ v_cmd — bypasses PI lag (rad/(m/s))
 
     # ------------------------------------------------------------------ #
     # Safety limits
     # ------------------------------------------------------------------ #
     theta_max_cmd:      0.25   # max commanded lean setpoint (rad, ~14 deg)
     theta_max_fallover: 0.50   # estop threshold (rad, ~28 deg)
-    theta_eq_offset:    0.00   # true balance point trim (rad) — identify on hardware
+    theta_eq_offset:    0.17   # true balance point trim (rad) — identify on hardware
 
     # ------------------------------------------------------------------ #
     # Robot geometry

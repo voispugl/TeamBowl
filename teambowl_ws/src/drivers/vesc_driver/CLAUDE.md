@@ -1,5 +1,29 @@
 # vesc_driver
 
+## 2026-04-20 — Coast wheel motors when robot mode is 'off'
+
+**`vesc_driver/cmd_vel_to_vesc.py`**:
+- Added `robot_mode_topic` parameter (default `/robot_mode`) with TRANSIENT_LOCAL subscription.
+- Added `self._coasting` flag (bool). Set `True` when mode → `'off'`; cleared when mode → anything else.
+- New `_mode_cb`: on mode `'off'`, calls `_send_stop()` immediately (sends `SetDutyCycle(0)` = coast) and sets `_coasting=True`.
+- `_tick` returns early if `_coasting`, resending `SetDutyCycle(0)` at 20 Hz to hold coast.
+- Added `DurabilityPolicy` to rclpy.qos imports.
+
+**`config/vesc_driver.yaml`**: added `robot_mode_topic: /robot_mode`.
+
+## 2026-04-20 — Added velocity/yaw closed-loop PI
+
+**`vesc_driver/cmd_vel_to_vesc.py`**:
+- Added `kp_v`, `ki_v`, `kp_w`, `ki_w`, `vesc_integral_max` params (default 0.0 — open-loop; existing behaviour unchanged).
+- Moved ERPM computation from `_cmd_reader` (which now just stores `_v_cmd`, `_w_cmd`) into `_tick` via new `_cmd_to_erpm(v, w)` helper.
+- `_tick` computes `v_measured`/`w_measured` from `left_measured_rad_s`/`right_measured_rad_s`, runs PI corrections, then calls `_cmd_to_erpm(v_eff, w_eff)`.
+- Integrals reset to 0 on estop and cmd_vel timeout.
+- Added `_publish_vesc_gains_echo()` (2 Hz) → `/vesc_gains_echo` (JSON: gains + `_v_measured`, `_w_measured`).
+- Added `_on_vesc_gains()` subscriber on `/vesc_gains` — updates gains live, resets integrals when ki changes.
+- Added `import json`; added `String` to std_msgs imports.
+
+**`config/vesc_driver.yaml`**: added `kp_v`, `ki_v`, `kp_w`, `ki_w`, `vesc_integral_max`, `vesc_gains_echo_topic`, `vesc_gains_topic`.
+
 ## Package overview
 
 ROS2 Python package that converts `/cmd_vel` Twist messages into ERPM commands

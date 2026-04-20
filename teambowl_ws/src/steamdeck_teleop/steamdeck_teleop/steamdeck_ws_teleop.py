@@ -30,7 +30,7 @@ import threading
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -67,6 +67,8 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
 .btn-enable:active{background:#2a9b2a}
 .btn-lid{background:#155a8a}
 .btn-lid:active{background:#1e7fc0}
+.btn-reset{background:#5a3a00}
+.btn-reset:active{background:#9a6000}
 .btn-kill{background:#7a1a1a}
 .btn-kill:active{background:#c02020}
 .diag{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px}
@@ -86,6 +88,7 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
 
 <button class="btn btn-enable" onclick="send({type:'set_mode',mode:'driving'})">ENABLE</button>
 <button class="btn btn-lid"    onclick="send({type:'lid_cmd',cmd:'open'})">OPEN LID</button>
+<button class="btn btn-reset"  onclick="send({type:'reset_odom'})">RESET ODOM</button>
 <button class="btn btn-kill"   onclick="send({type:'estop'})">KILL</button>
 
 <div class="diag">
@@ -98,11 +101,54 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
   <div class="row"><span class="key">Battery</span>   <span class="val dim"  id="battery-val">—</span></div>
   <div class="row"><span class="key">Legs</span>      <span class="val dim"  id="legs-val">—</span></div>
   <div class="row"><span class="key">Planner</span>   <span class="val dim"  id="planner-val">—</span></div>
+  <div class="row"><span class="key">Pitch</span>      <span class="val dim"  id="pitch-val">—</span></div>
+  <div class="row"><span class="key">Ctrl in v/ω</span><span class="val dim" id="ctrl-in-val">—</span></div>
+  <div class="row"><span class="key">Motor v/ω</span>  <span class="val dim" id="motor-val">—</span></div>
+</div>
+
+<style>
+.gpanel{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px;margin-top:12px}
+.gpanel h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.grow{display:flex;align-items:center;gap:6px;padding:3px 0}
+.grow label{flex:0 0 150px;color:#888;font-size:12px;text-align:right}
+.grow input{width:80px;background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px}
+.gbtn-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.gbtn{background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:5px 14px;cursor:pointer;font-family:monospace;font-size:13px}
+.gbtn:hover{background:#3a3a3a}
+.ginfo{font-size:11px;color:#666;margin-top:4px}
+.dtbl{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px}
+.dtbl th{color:#666;font-weight:normal;text-align:left;padding:2px 4px;border-bottom:1px solid #333}
+.dtbl td{padding:2px 4px}
+.dtbl input{width:64px;background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px}
+</style>
+
+<!-- Driving Gains -->
+<div class="gpanel" id="p-driving">
+  <h3>Driving Gains &nbsp;<span style="font-size:11px;color:#666">θ=<span id="pd-theta">—</span>° v=<span id="pd-v">—</span>m/s ω=<span id="pd-yaw">—</span>rad/s</span></h3>
+  <div class="grow"><label>kp_vel</label><input id="pd-kp_vel" type="number" step="0.5"></div>
+  <div class="grow"><label>ki_vel</label><input id="pd-ki_vel" type="number" step="0.1"></div>
+  <div class="grow"><label>kd_vel</label><input id="pd-kd_vel" type="number" step="0.01"></div>
+  <div class="grow"><label>kp_pitch</label><input id="pd-kp_pitch" type="number" step="1"></div>
+  <div class="grow"><label>kd_pitch</label><input id="pd-kd_pitch" type="number" step="0.5"></div>
+  <div class="grow"><label>ki_pitch</label><input id="pd-ki_pitch" type="number" step="0.1"></div>
+  <div class="grow"><label>kp_yaw</label><input id="pd-kp_yaw" type="number" step="0.5"></div>
+  <div class="grow"><label>ki_yaw</label><input id="pd-ki_yaw" type="number" step="0.1"></div>
+  <div class="grow"><label>kd_yaw</label><input id="pd-kd_yaw" type="number" step="0.05"></div>
+  <div class="grow"><label>kff_decel</label><input id="pd-kff_decel" type="number" step="0.01"></div>
+  <div class="grow"><label>theta_eq_offset</label><input id="pd-theta_eq_offset" type="number" step="0.005"></div>
+  <div class="gbtn-row">
+    <button class="gbtn" onclick="drvgReceive()">Receive</button>
+    <button class="gbtn" onclick="drvgSend()">Send</button>
+    <span id="pd-msg" class="ginfo"></span>
+  </div>
 </div>
 
 <script>
 const wsUrl = 'ws://' + location.host + '/ws';
 let ws = null;
+let lastDrvGains = {};
+const DRV_KEYS = ['kp_vel','ki_vel','kd_vel','kp_pitch','kd_pitch','ki_pitch','kp_yaw','ki_yaw','kd_yaw','kff_decel','theta_eq_offset'];
+
 function connect() {
   ws = new WebSocket(wsUrl);
   ws.onopen  = () => setWs(true);
@@ -122,6 +168,11 @@ function set(id, text, cls) {
 function setBool(id, val, alarmOnTrue) {
   set(id, val?'YES':'NO', val?(alarmOnTrue?'err':'ok'):(alarmOnTrue?'ok':'warn'));
 }
+function flash(id, txt) {
+  const el=document.getElementById(id); if(!el) return;
+  el.textContent=txt; setTimeout(()=>{el.textContent='';},3000);
+}
+
 function handlePush(d) {
   set('mode-val', d.mode||'—', d.mode==='driving'?'info':d.mode==='balance'?'warn':'dim');
   setBool('estop-val', d.estop,       true);
@@ -131,7 +182,28 @@ function handlePush(d) {
   if(d.battery_v!=null){const v=d.battery_v;set('battery-val',v.toFixed(1)+' V',v<42?'err':v<44?'warn':'ok');}
   if(d.legs_running!=null)  setBool('legs-val',    d.legs_running,  false);
   if(d.planner_ready!=null) setBool('planner-val', d.planner_ready, false);
+  if(d.ctrl_in_vx!=null) set('ctrl-in-val', d.ctrl_in_vx.toFixed(3)+' / '+d.ctrl_in_wz.toFixed(3), 'dim');
+  if(d.motor_vx!=null)   set('motor-val',   d.motor_vx.toFixed(3)+' / '+d.motor_wz.toFixed(3), 'info');
+  if(d.driving_gains){try{
+    const dg=JSON.parse(d.driving_gains); lastDrvGains=dg;
+    if(dg._theta_deg!=null){const td=Math.abs(dg._theta_deg);set('pitch-val',dg._theta_deg+'°',td>15?'err':td>8?'warn':'ok');}
+    const pt=document.getElementById('pd-theta'); if(pt&&dg._theta_deg!=null) pt.textContent=dg._theta_deg;
+    const pv=document.getElementById('pd-v');     if(pv&&dg._v_actual!=null)  pv.textContent=dg._v_actual;
+    const pw=document.getElementById('pd-yaw');   if(pw&&dg._yaw_dot!=null)   pw.textContent=dg._yaw_dot;
+  }catch(_){}}
 }
+
+// Driving gains
+function drvgReceive() {
+  DRV_KEYS.forEach(k=>{const el=document.getElementById('pd-'+k);if(el&&lastDrvGains[k]!=null) el.value=parseFloat(lastDrvGains[k].toPrecision(6));});
+  flash('pd-msg','Received \u2713');
+}
+function drvgSend() {
+  const g={};
+  DRV_KEYS.forEach(k=>{const el=document.getElementById('pd-'+k);if(el&&el.value!=='') g[k]=parseFloat(el.value);});
+  send({type:'driving_gains',gains:g}); flash('pd-msg','Sent \u2713 '+new Date().toLocaleTimeString());
+}
+
 connect();
 </script>
 </body>
@@ -204,6 +276,9 @@ label{color:#888;font-size:12px}
     <div class="row"><span class="key">Odom θ</span><span class="val dim" id="odom-th">—</span></div>
     <div class="row"><span class="key">Planner</span><span class="val dim" id="planner-val">—</span></div>
     <div class="row"><span class="key">Legs</span><span class="val dim" id="legs-val">—</span></div>
+    <div class="row"><span class="key">Pitch</span><span class="val dim" id="pitch-val">—</span></div>
+    <div class="row"><span class="key">Ctrl in (v/ω)</span><span class="val dim" id="ctrl-in-val">—</span></div>
+    <div class="row"><span class="key">Motor cmd (v/ω)</span><span class="val dim" id="motor-val">—</span></div>
   </div>
 
   <!-- Nav map -->
@@ -232,6 +307,7 @@ label{color:#888;font-size:12px}
       <button onclick="send({type:'set_mode',mode:'balance'})">Balance</button>
       <button onclick="send({type:'set_mode',mode:'auton'})">Auton</button>
       <button class="danger" onclick="send({type:'set_mode',mode:'off'})">Off</button>
+      <button style="background:#5a3a00;color:#fff;border-color:#9a6000;font-size:15px;font-weight:bold" onclick="send({type:'reset_odom'})">⟳ Reset Odom</button>
     </div>
   </div>
   <div class="box">
@@ -260,28 +336,28 @@ label{color:#888;font-size:12px}
   </div>
 </div>
 
-<!-- Balance Gains -->
+<!-- Driving Gains -->
 <div class="box">
-  <h3>Balance Gains &nbsp;
-    <span style="font-size:11px;color:#666">&#952;=<span id="bg-theta">—</span>&#176; &nbsp; v=<span id="bg-v">—</span>&nbsp;m/s</span>
+  <h3>Driving Gains &nbsp;
+    <span style="font-size:11px;color:#666">&#952;=<span id="dg-theta">—</span>&#176; &nbsp; v=<span id="dg-v">—</span>&nbsp;m/s &nbsp; &#969;=<span id="dg-yaw">—</span>&nbsp;rad/s</span>
   </h3>
   <div class="gains-grid">
+    <div class="gain-row"><label>kp_vel</label><input id="g-kp_vel" type="number" step="0.5"></div>
+    <div class="gain-row"><label>ki_vel</label><input id="g-ki_vel" type="number" step="0.1"></div>
+    <div class="gain-row"><label>kd_vel</label><input id="g-kd_vel" type="number" step="0.01"></div>
     <div class="gain-row"><label>kp_pitch</label><input id="g-kp_pitch" type="number" step="1"></div>
-    <div class="gain-row"><label>kd_pitch</label><input id="g-kd_pitch" type="number" step="5"></div>
-    <div class="gain-row"><label>ki_pitch</label><input id="g-ki_pitch" type="number" step="5"></div>
+    <div class="gain-row"><label>kd_pitch</label><input id="g-kd_pitch" type="number" step="0.5"></div>
+    <div class="gain-row"><label>ki_pitch</label><input id="g-ki_pitch" type="number" step="0.1"></div>
     <div class="gain-row"><label>kp_yaw</label><input id="g-kp_yaw" type="number" step="0.5"></div>
-    <div class="gain-row"><label>kd_yaw</label><input id="g-kd_yaw" type="number" step="0.1"></div>
-    <div class="gain-row"><label>kp_vel</label><input id="g-kp_vel" type="number" step="0.1"></div>
-    <div class="gain-row"><label>ki_vel</label><input id="g-ki_vel" type="number" step="0.5"></div>
-    <div class="gain-row"><label>kff_pitch</label><input id="g-kff_pitch" type="number" step="0.01"></div>
-    <div class="gain-row"><label>theta_max_cmd</label><input id="g-theta_max_cmd" type="number" step="0.01"></div>
-    <div class="gain-row"><label>theta_max_fallover</label><input id="g-theta_max_fallover" type="number" step="0.01"></div>
+    <div class="gain-row"><label>ki_yaw</label><input id="g-ki_yaw" type="number" step="0.1"></div>
+    <div class="gain-row"><label>kd_yaw</label><input id="g-kd_yaw" type="number" step="0.05"></div>
+    <div class="gain-row"><label>kff_decel</label><input id="g-kff_decel" type="number" step="0.01"></div>
     <div class="gain-row"><label>theta_eq_offset</label><input id="g-theta_eq_offset" type="number" step="0.005"></div>
-    <div class="gain-row"><label>l_com</label><input id="g-l_com" type="number" step="0.01"></div>
   </div>
-  <div style="display:flex;align-items:center;gap:12px">
-    <button onclick="applyGains()">Apply Gains</button>
-    <span id="gains-msg" style="font-size:12px;color:#888"></span>
+  <div class="btn-row">
+    <button onclick="drvgReceive()">Receive</button>
+    <button onclick="drvgSend()">Send</button>
+    <span id="drv-gains-msg" style="font-size:12px;color:#888"></span>
   </div>
 </div>
 
@@ -294,8 +370,8 @@ label{color:#888;font-size:12px}
 const wsUrl = 'ws://' + location.host + '/ws';
 const N = 20;
 let ws = null, gpIndex = null, sendInterval = null, prevDm = false;
-const GAIN_KEYS = ['kp_pitch','kd_pitch','ki_pitch','kp_yaw','kd_yaw','kp_vel','ki_vel','kff_pitch','theta_max_cmd','theta_max_fallover','theta_eq_offset','l_com'];
-const gainsEditing = {};
+const GAIN_KEYS = ['kp_vel','ki_vel','kd_vel','kp_pitch','kd_pitch','ki_pitch','kp_yaw','ki_yaw','kd_yaw','kff_decel','theta_eq_offset'];
+let lastDrvGainsF = {};
 
 // ---- WebSocket ----
 function connect() {
@@ -358,29 +434,23 @@ function handlePush(d) {
   }
   if (d.planner_ready != null) setBool('planner-val', d.planner_ready, false);
   if (d.legs_running != null)  setBool('legs-val',   d.legs_running,  false);
+  if (d.ctrl_in_vx  != null) set('ctrl-in-val', d.ctrl_in_vx.toFixed(3)+' / '+d.ctrl_in_wz.toFixed(3), 'dim');
+  if (d.motor_vx    != null) set('motor-val',   d.motor_vx.toFixed(3)+' / '+d.motor_wz.toFixed(3), 'info');
   if (d.traj_status) {
     try { const ts = JSON.parse(d.traj_status);
       set('traj-state', ts.state||'—', ts.state==='RUNNING'?'info':'dim');
     } catch(_) {}
   }
-  if (d.balance_gains) {
-    try { const bg = JSON.parse(d.balance_gains);
-      for (const k of GAIN_KEYS) {
-        const el = document.getElementById('g-'+k);
-        if (el && !gainsEditing[k] && bg[k] != null)
-          el.value = parseFloat(bg[k].toPrecision(6));
-      }
-      const td = document.getElementById('bg-theta'); if (td && bg._theta_deg != null) td.textContent = bg._theta_deg;
-      const vd = document.getElementById('bg-v');     if (vd && bg._v_actual  != null) vd.textContent = bg._v_actual;
+  if (d.driving_gains) {
+    try { const dg = JSON.parse(d.driving_gains); lastDrvGainsF = dg;
+      if (dg._theta_deg != null) { const td = Math.abs(dg._theta_deg); set('pitch-val', dg._theta_deg+'°', td>15?'err':td>8?'warn':'ok'); }
+      const td = document.getElementById('dg-theta'); if (td && dg._theta_deg != null) td.textContent = dg._theta_deg;
+      const vd = document.getElementById('dg-v');     if (vd && dg._v_actual  != null) vd.textContent = dg._v_actual;
+      const wd = document.getElementById('dg-yaw');   if (wd && dg._yaw_dot   != null) wd.textContent = dg._yaw_dot;
     } catch(_) {}
   }
 }
 
-// Track editing state for gain inputs
-for (const k of GAIN_KEYS) {
-  const el = document.getElementById('g-'+k);
-  if (el) { el.addEventListener('focus', ()=>{ gainsEditing[k]=true; }); el.addEventListener('blur', ()=>{ gainsEditing[k]=false; }); }
-}
 
 // ---- Trajectory ----
 function trajGo() {
@@ -393,18 +463,19 @@ function trajGo() {
   setTimeout(()=>send({type:'traj_cmd',cmd:'go'}), 80);
 }
 
-// ---- Balance Gains ----
-function applyGains() {
-  const gains = {};
-  for (const k of GAIN_KEYS) {
-    const el = document.getElementById('g-'+k);
-    if (el && el.value !== '') gains[k] = parseFloat(el.value);
-  }
-  send({type:'balance_gains', gains});
-  const msg = document.getElementById('gains-msg');
-  msg.textContent = 'Sent \u2713 '+new Date().toLocaleTimeString();
-  setTimeout(()=>{ msg.textContent=''; }, 3000);
+// ---- Driving Gains ----
+function drvgReceive() {
+  for (const k of GAIN_KEYS) { const el=document.getElementById('g-'+k); if(el&&lastDrvGainsF[k]!=null) el.value=parseFloat(lastDrvGainsF[k].toPrecision(6)); }
+  flash('drv-gains-msg','Received \u2713');
 }
+function drvgSend() {
+  const gains={};
+  for (const k of GAIN_KEYS) { const el=document.getElementById('g-'+k); if(el&&el.value!=='') gains[k]=parseFloat(el.value); }
+  send({type:'driving_gains', gains});
+  flash('drv-gains-msg','Sent \u2713 '+new Date().toLocaleTimeString());
+}
+
+function flash(id, txt) { const m=document.getElementById(id); if(!m) return; m.textContent=txt; setTimeout(()=>{m.textContent='';},3000); }
 
 // ---- Helpers ----
 function set(id, text, cls) {
@@ -538,9 +609,18 @@ class SteamDeckWSTeleop(Node):
         self.declare_parameter('lid_command_topic',        '/lid_command')
         self.declare_parameter('balance_gains_topic',      '/balance_gains')
         self.declare_parameter('balance_gains_echo_topic', '/balance_gains_echo')
+        self.declare_parameter('driving_gains_topic',      '/driving_gains')
+        self.declare_parameter('driving_gains_echo_topic', '/driving_gains_echo')
         self.declare_parameter('trajectory_status_topic',  '/trajectory_status')
         self.declare_parameter('leg_running_topic',         '/leg_controller_running')
         self.declare_parameter('battery_voltage_topic',    '/vesc/battery_voltage')
+        self.declare_parameter('cmd_vel_topic',            '/cmd_vel')
+        self.declare_parameter('cmd_vel_safe_topic',       '/cmd_vel_safe')
+        self.declare_parameter('driver_gains_echo_topic',  '/driver_gains_echo')
+        self.declare_parameter('driver_gains_topic',       '/driver_gains')
+        self.declare_parameter('vesc_gains_echo_topic',    '/vesc_gains_echo')
+        self.declare_parameter('vesc_gains_topic',         '/vesc_gains')
+        self.declare_parameter('set_pose_topic',           '/set_pose')
 
         p = self.get_parameter
         _ui_mode = str(p('ui_mode').value)
@@ -570,8 +650,13 @@ class SteamDeckWSTeleop(Node):
         self._lid_state = 'unknown'
         self._balance_gains_echo = ''
         self._traj_status = ''
+        self._driver_gains_echo = ''
+        self._vesc_gains_echo = ''
+        self._driving_gains_echo = ''
         self._leg_running = False
         self._battery_voltage: float | None = None
+        self._latest_cmd_vel: Twist | None = None
+        self._latest_cmd_vel_safe: Twist | None = None
         self._latest_odom: Odometry | None = None
         self._latest_costmap: OccupancyGrid | None = None
 
@@ -613,10 +698,15 @@ class SteamDeckWSTeleop(Node):
         self.create_subscription(Bool,          p('stuck_topic').value,       self._stuck_cb,       best_effort)
         self.create_subscription(Bool,          p('kill_switch_topic').value, self._kill_switch_cb, best_effort)
         self.create_subscription(String,        p('lid_state_topic').value,          self._lid_cb,                reliable)
-        self.create_subscription(String,        p('balance_gains_echo_topic').value, self._balance_gains_echo_cb, reliable)
+        self.create_subscription(String,        p('balance_gains_echo_topic').value,  self._balance_gains_echo_cb,  reliable)
+        self.create_subscription(String,        p('driving_gains_echo_topic').value,  self._driving_gains_echo_cb,  reliable)
         self.create_subscription(String,        p('trajectory_status_topic').value,  self._traj_status_cb,        reliable)
         self.create_subscription(Bool,          p('leg_running_topic').value,        self._leg_running_cb,        reliable_tl)
         self.create_subscription(Float64,       p('battery_voltage_topic').value,    self._battery_voltage_cb,    best_effort)
+        self.create_subscription(Twist,         p('cmd_vel_topic').value,            self._cmd_vel_cb,            best_effort)
+        self.create_subscription(Twist,         p('cmd_vel_safe_topic').value,       self._cmd_vel_safe_cb,       best_effort)
+        self.create_subscription(String,        p('driver_gains_echo_topic').value,  self._driver_gains_echo_cb,  reliable)
+        self.create_subscription(String,        p('vesc_gains_echo_topic').value,    self._vesc_gains_echo_cb,    reliable)
 
         # --- Publishers ---
         self._preview_pub      = self.create_publisher(PoseStamped, p('preview_topic').value,          10)
@@ -625,7 +715,11 @@ class SteamDeckWSTeleop(Node):
         self._traj_goal_pub    = self.create_publisher(String,      p('trajectory_goal_topic').value,  10)
         self._traj_cmd_pub     = self.create_publisher(String,      p('trajectory_cmd_topic').value,   10)
         self._lid_cmd_pub      = self.create_publisher(String,      p('lid_command_topic').value,      10)
-        self._balance_gains_pub = self.create_publisher(String,     p('balance_gains_topic').value,    10)
+        self._balance_gains_pub  = self.create_publisher(String,     p('balance_gains_topic').value,    10)
+        self._driving_gains_pub  = self.create_publisher(String,     p('driving_gains_topic').value,    10)
+        self._driver_gains_pub  = self.create_publisher(String,     p('driver_gains_topic').value,     10)
+        self._vesc_gains_pub    = self.create_publisher(String,     p('vesc_gains_topic').value,       10)
+        self._set_pose_pub      = self.create_publisher(PoseWithCovarianceStamped, p('set_pose_topic').value, 10)
 
         # --- Timers ---
         rate = float(p('joy_rate_hz').value)
@@ -758,8 +852,23 @@ class SteamDeckWSTeleop(Node):
 
         if self._balance_gains_echo:
             msg['balance_gains'] = self._balance_gains_echo
+        if self._driving_gains_echo:
+            msg['driving_gains'] = self._driving_gains_echo
         if self._traj_status:
             msg['traj_status'] = self._traj_status
+        if self._driver_gains_echo:
+            msg['driver_gains'] = self._driver_gains_echo
+        if self._vesc_gains_echo:
+            msg['vesc_gains'] = self._vesc_gains_echo
+
+        if self._latest_cmd_vel_safe is not None:
+            t = self._latest_cmd_vel_safe
+            msg['ctrl_in_vx'] = round(t.linear.x, 3)
+            msg['ctrl_in_wz'] = round(t.angular.z, 3)
+        if self._latest_cmd_vel is not None:
+            t = self._latest_cmd_vel
+            msg['motor_vx'] = round(t.linear.x, 3)
+            msg['motor_wz'] = round(t.angular.z, 3)
 
         return msg
 
@@ -834,6 +943,21 @@ class SteamDeckWSTeleop(Node):
 
     def _battery_voltage_cb(self, msg: Float64):
         self._battery_voltage = float(msg.data)
+
+    def _cmd_vel_cb(self, msg: Twist):
+        self._latest_cmd_vel = msg
+
+    def _cmd_vel_safe_cb(self, msg: Twist):
+        self._latest_cmd_vel_safe = msg
+
+    def _driver_gains_echo_cb(self, msg: String):
+        self._driver_gains_echo = msg.data
+
+    def _vesc_gains_echo_cb(self, msg: String):
+        self._vesc_gains_echo = msg.data
+
+    def _driving_gains_echo_cb(self, msg: String):
+        self._driving_gains_echo = msg.data
 
     # ------------------------------------------------------------------
     # Joy tick — runs at joy_rate_hz (20 Hz) via rclpy timer
@@ -1000,6 +1124,22 @@ class SteamDeckWSTeleop(Node):
         elif t == 'balance_gains':
             msg.data = json.dumps(data.get('gains', {}))
             self._balance_gains_pub.publish(msg)
+        elif t == 'driver_gains':
+            msg.data = json.dumps(data.get('gains', {}))
+            self._driver_gains_pub.publish(msg)
+        elif t == 'vesc_gains':
+            msg.data = json.dumps(data.get('gains', {}))
+            self._vesc_gains_pub.publish(msg)
+        elif t == 'driving_gains':
+            msg.data = json.dumps(data.get('gains', {}))
+            self._driving_gains_pub.publish(msg)
+        elif t == 'reset_odom':
+            pose_msg = PoseWithCovarianceStamped()
+            pose_msg.header.frame_id = 'odom'
+            pose_msg.header.stamp = self.get_clock().now().to_msg()
+            pose_msg.pose.pose.orientation.w = 1.0
+            self._set_pose_pub.publish(pose_msg)
+            self.get_logger().info('Odometry reset to origin.')
 
     # ------------------------------------------------------------------
     # Auto mode setter

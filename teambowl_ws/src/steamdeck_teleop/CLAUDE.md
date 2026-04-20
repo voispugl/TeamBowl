@@ -1,5 +1,56 @@
 # steamdeck_teleop
 
+## 2026-04-20 — Added Reset Odom button to both UIs
+
+**`steamdeck_teleop/steamdeck_ws_teleop.py`**:
+- Added `set_pose_topic` parameter (default `/set_pose`).
+- Added `_set_pose_pub` publisher (`PoseWithCovarianceStamped`).
+- `_handle_panel_cmd` handles `type: 'reset_odom'`: publishes a zero-pose `PoseWithCovarianceStamped` to `/set_pose` (resets the `robot_localization` EKF to the odom origin).
+- `_HTML_PHONE`: added **RESET ODOM** button (amber/brown, full-width, between OPEN LID and KILL).
+- `_HTML_FULL`: added **⟳ Reset Odom** button in the Robot Mode panel.
+- Imported `PoseWithCovarianceStamped` from geometry_msgs.
+
+**`config/steamdeck_teleop.yaml`**: added `set_pose_topic: /set_pose`.
+
+## 2026-04-20 — Replaced Balance/Driver/VESC gains panels with Driving Gains panel
+
+**`steamdeck_teleop/steamdeck_ws_teleop.py`**:
+- Removed Balance Gains, Motor Driver Gains, and VESC Gains panels from both `_HTML_PHONE` and `_HTML_FULL`.
+- Added **Driving Gains** panel to both UIs: fields for `kp_vel, ki_vel, kd_vel, kp_pitch, kd_pitch, ki_pitch, kp_yaw, ki_yaw, kd_yaw, kff_decel, theta_eq_offset`. Live readout: θ, v, ω from `/driving_gains_echo`. Receive + Send buttons.
+- Added subscription to `/driving_gains_echo` → `self._driving_gains_echo`.
+- Added publisher to `/driving_gains`.
+- `_build_push_msg()` includes `driving_gains`.
+- `_handle_panel_cmd()` handles `type: 'driving_gains'`.
+- Added `driving_gains_topic` / `driving_gains_echo_topic` parameters.
+
+**`config/steamdeck_teleop.yaml`**: added `driving_gains_topic` and `driving_gains_echo_topic`.
+
+
+
+## 2026-04-20 — Added Balance, Driver, and VESC gains panels to both UIs
+
+**`steamdeck_teleop/steamdeck_ws_teleop.py`**:
+- Added subscriptions to `/driver_gains_echo` and `/vesc_gains_echo`; state vars `_driver_gains_echo`, `_vesc_gains_echo`.
+- Added publishers `_driver_gains_pub` (`/driver_gains`) and `_vesc_gains_pub` (`/vesc_gains`).
+- `_build_push_msg()` includes `driver_gains` and `vesc_gains` fields.
+- `_handle_panel_cmd()` handles `type: 'driver_gains'` and `type: 'vesc_gains'`.
+- **Balance Gains panel** (both UIs): added `ki_yaw` field; renamed "Apply Gains" → "Send"; added "Receive" button (fills from last push).
+- **Driver Gains panel** (NEW, both UIs): auto-populated table of per-joint kp/kd with Receive + Send buttons. Table is built dynamically from the first `/driver_gains_echo` push.
+- **VESC Gains panel** (NEW, both UIs): kp_v, ki_v, kp_w, ki_w, integral_max inputs with architecture info text, Receive + Send buttons. Shows live `v_measured` and `w_measured` from `/vesc_gains_echo`.
+- All three panels always visible; phone UI now includes all three panels.
+
+**`config/steamdeck_teleop.yaml`**: added `driver_gains_echo_topic`, `driver_gains_topic`, `vesc_gains_echo_topic`, `vesc_gains_topic` params.
+
+## 2026-04-20 — Added motor cmd + controller input display to web UI
+
+**`steamdeck_ws_teleop.py`**:
+- Subscribes to `/cmd_vel` (motor output) and `/cmd_vel_safe` (balance controller input), both BEST_EFFORT.
+- `_build_push_msg()` includes `ctrl_in_vx`, `ctrl_in_wz` (from `/cmd_vel_safe`) and `motor_vx`, `motor_wz` (from `/cmd_vel`).
+- Both `_HTML_FULL` and `_HTML_PHONE` show "Ctrl in v/ω" and "Motor cmd v/ω" rows in the diagnostics panel.
+- `Twist` added to geometry_msgs imports.
+
+**`config/steamdeck_teleop.yaml`**: added `cmd_vel_topic` and `cmd_vel_safe_topic` params.
+
 ## 2026-04-20 — Phone UI + ui_mode parameter; estop panel command
 
 **`steamdeck_ws_teleop.py`**:

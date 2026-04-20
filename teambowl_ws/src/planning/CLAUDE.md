@@ -51,6 +51,12 @@ Loaded by `bringup.launch.py` via native ROS2 YAML parameter loading.
 
 These reduce startup from ~10–15s to ~3–5s with acceptable path quality loss for a robot-radius corridor.
 
+## 2026-04-20 — Enabled use_rotate_to_heading in RPP controller
+
+**`config/planning.yaml`** — `FollowPath` (RegulatedPurePursuitController):
+- `use_rotate_to_heading: true` — robot turns in place to face goal heading near XY tolerance
+- `allow_reversing: false` — required; RPP disallows both flags simultaneously
+
 ## 2026-04-20 — Reduced minimum_turning_radius + enabled plan_wheels reverse
 
 **`config/planning.yaml`**

@@ -43,9 +43,18 @@ steamdeck_ws_teleop:
     lid_command_topic: /lid_command
     balance_gains_topic: /balance_gains
     balance_gains_echo_topic: /balance_gains_echo
+    driving_gains_topic: /driving_gains
+    driving_gains_echo_topic: /driving_gains_echo
     trajectory_status_topic: /trajectory_status
     leg_running_topic: /leg_controller_running
 
+    cmd_vel_topic: /cmd_vel
+    cmd_vel_safe_topic: /cmd_vel_safe
+    driver_gains_echo_topic: /driver_gains_echo
+    driver_gains_topic: /driver_gains
+    vesc_gains_echo_topic: /vesc_gains_echo
+    vesc_gains_topic: /vesc_gains
+    set_pose_topic: /set_pose
     odom_topic: /odometry/filtered
     mode_topic: /robot_mode
     mode_set_topic: /robot_mode_set

@@ -1,4 +1,11 @@
 ---
+## 2026-04-20 — Added gains echo publisher and gains subscriber
+
+**`driver_node.py`**:
+- Added `/driver_gains_echo` String publisher (2 Hz): JSON `{"joint_name": {"kp": x, "kd": y}, ...}` for all enabled motors.
+- Added `/driver_gains` String subscriber: parse JSON, update `motor.current_kp/kd`. Key `"all"` updates every motor; any other key must match a joint name (unknown names logged as WARN).
+- Added `import json`; added `String` to std_msgs imports.
+
 ## Module: robstride_can_driver/
 
 ### motor_config.py
