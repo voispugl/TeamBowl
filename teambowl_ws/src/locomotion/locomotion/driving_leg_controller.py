@@ -26,6 +26,7 @@ from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
 
 class DrivingLegController(Node):
@@ -46,6 +47,7 @@ class DrivingLegController(Node):
         self.declare_parameter('joint_commands_topic', '/joint_commands')
         self.declare_parameter('torque_ff', 0.0)
         self.declare_parameter('publish_rate_hz', 50.0)
+        self.declare_parameter('verbose', False)
         self.declare_parameter('auto_start', True)
         self.declare_parameter('auto_start_delay_s', 8.0)
 
@@ -55,6 +57,7 @@ class DrivingLegController(Node):
         joint_cmds_topic = self.get_parameter('joint_commands_topic').value
         self._torque_ff = self.get_parameter('torque_ff').value
         publish_rate_hz = self.get_parameter('publish_rate_hz').value
+        self._verbose   = self.get_parameter('verbose').value
         auto_start = self.get_parameter('auto_start').value
         auto_start_delay_s = self.get_parameter('auto_start_delay_s').value
 
@@ -78,6 +81,12 @@ class DrivingLegController(Node):
         # Publisher
         # ------------------------------------------------------------------ #
         self._cmd_pub = self.create_publisher(JointState, joint_cmds_topic, 10)
+        transient = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        self._running_pub = self.create_publisher(Bool, '/leg_controller_running', transient)
 
         # ------------------------------------------------------------------ #
         # Subscriptions
@@ -98,6 +107,8 @@ class DrivingLegController(Node):
         period = 1.0 / publish_rate_hz
         self._publish_timer = self.create_timer(period, self._publish_commands)
         self._status_timer = self.create_timer(5.0, self._print_status)
+
+        self.create_timer(0.5, self._publish_running_state)
 
         if auto_start:
             self._auto_start_timer = self.create_timer(
@@ -221,6 +232,8 @@ class DrivingLegController(Node):
     # ---------------------------------------------------------------------- #
 
     def _print_status(self):
+        if not self._verbose:
+            return
         state = 'RUNNING' if self._running else 'STOPPED'
         for name, target in zip(self._joint_names, self._joint_positions):
             actual = self._current_positions.get(name)
@@ -236,6 +249,11 @@ class DrivingLegController(Node):
                     f'[DRIVE/{state}]  {name}: target={target:+.4f}  actual=no_data',
                     flush=True,
                 )
+
+    def _publish_running_state(self):
+        msg = Bool()
+        msg.data = self._running
+        self._running_pub.publish(msg)
 
     # ---------------------------------------------------------------------- #
     # Service helper

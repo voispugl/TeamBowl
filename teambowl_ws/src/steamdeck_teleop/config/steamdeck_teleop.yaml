@@ -27,6 +27,9 @@ steamdeck_ws_teleop:
     cancel_button: 1        # B button
     estop_button: 8         # Menu (Start/hamburger) button
 
+    # TEMPORARY: set false once /estop topic is properly wired up
+    disable_estop: true
+
     # Nav2 action servers
     planner_action_name: /compute_path_to_pose
     controller_action_name: /follow_path
@@ -35,6 +38,14 @@ steamdeck_ws_teleop:
     goal_checker_id: goal_checker
 
     # Topics
+    trajectory_goal_topic: /trajectory_goal
+    trajectory_cmd_topic: /trajectory_cmd
+    lid_command_topic: /lid_command
+    balance_gains_topic: /balance_gains
+    balance_gains_echo_topic: /balance_gains_echo
+    trajectory_status_topic: /trajectory_status
+    leg_running_topic: /leg_controller_running
+
     odom_topic: /odometry/filtered
     mode_topic: /robot_mode
     mode_set_topic: /robot_mode_set
@@ -46,5 +57,5 @@ steamdeck_ws_teleop:
     preview_topic: /steamdeck/goal_preview
 
     # Startup: auto-set robot to "driving" mode after a delay
-    auto_set_driving_mode: true
+    auto_set_driving_mode: false
     driving_mode_delay_s: 5.0

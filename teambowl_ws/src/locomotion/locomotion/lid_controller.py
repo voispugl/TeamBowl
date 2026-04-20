@@ -137,7 +137,8 @@ class LidController(Node):
         try:
             resp = future.result()
             if resp.success:
-                self.get_logger().info('Motors enabled.')
+                self.get_logger().info('Motors enabled — moving lid to closed position.')
+                self._begin_move(_MOVING_CLOSED, self._closed_pos)
             else:
                 self.get_logger().warn(f'enable_motors returned: {resp.message}')
         except Exception as e:

@@ -21,12 +21,12 @@ ekf_filter_node:
     # Use: orientation (rpy), angular velocity (xyz), linear acceleration (xyz)
     # Do NOT fuse position or linear velocity from IMU (they drift)
     imu0_config: [false, false, false,    # x, y, z position
-                  true,  true,  true,     # roll, pitch, yaw orientation
+                  true,  true,  true,    # roll, pitch, yaw
                   false, false, false,    # vx, vy, vz
                   true,  true,  true,     # vroll, vpitch, vyaw (gyro)
-                  true,  true,  false]    # ax, ay (accel), az excluded (gravity axis)
+                  true,  true,  true]    # ax, ay, az
     imu0_differential: false
-    imu0_relative: false
+    imu0_relative: true
     imu0_remove_gravitational_acceleration: true
     imu0_queue_size: 5
 

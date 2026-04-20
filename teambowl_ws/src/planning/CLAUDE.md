@@ -41,6 +41,30 @@ Legacy reactive PD person-follower. Publishes `/cmd_vel_auto` directly.
 Parameters live in `config/planning.yaml` (installed to `share/planning/config/`).
 Loaded by `bringup.launch.py` via native ROS2 YAML parameter loading.
 
+## 2026-04-19 — Faster Nav2 startup: reduced lookup table + increased bond timeout
+
+**`config/planning.yaml`**:
+- `lifecycle_manager_navigation.bond_timeout: 20.0` (was default 4.0) — prevents lifecycle manager
+  from declaring planner_server "unconfigured" before SmacPlannerHybrid finishes its precomputation.
+- `angle_quantization_bins: 36` (was 72, 10° vs 5° resolution) — halves the lookup table entries.
+- `lookup_table_size: 10.0` (was 20.0) — halves the range, further reducing precompute time.
+
+These reduce startup from ~10–15s to ~3–5s with acceptable path quality loss for a robot-radius corridor.
+
+## 2026-04-20 — Reduced minimum_turning_radius + enabled plan_wheels reverse
+
+**`config/planning.yaml`**
+- `minimum_turning_radius: 0.4` m (was 1.0) — allows tighter Reeds-Shepp arcs so the planner can find reverse paths in constrained spaces.
+- `allow_reverse: true` in `plan_wheels` — reactive follower will now back up when the target is closer than `follow_distance_m`.
+
+## 2026-04-19 — Enabled reversing: SmacPlannerHybrid + RPP allow_reversing
+
+**`config/planning.yaml`**
+- Planner switched from `SmacPlanner2D` → `SmacPlannerHybrid` with `motion_model_for_search: "REEDS_SHEPP"` — planner now generates reverse arcs as part of the path.
+- `minimum_turning_radius: 0.40` m (tune if robot turns tighter/wider).
+- `reverse_penalty: 1.5` — robot prefers forward but will reverse when shorter.
+- Controller `allow_reversing: true` — RPP now executes reverse segments from the planner.
+
 ## 2026-04-16 — Added trajectory_test node
 
 - **`planning/trajectory_test.py`**: New node. Foxglove-driven test tool for

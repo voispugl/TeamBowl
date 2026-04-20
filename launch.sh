@@ -18,5 +18,7 @@ source /opt/ros/humble/setup.bash
 echo "[build] Sourcing workspace overlay..."
 source install/setup.bash
 
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
 echo "[build] Launching bringup..."
 ros2 launch bringup bringup.launch.py

@@ -1,5 +1,51 @@
 # bringup
 
+## 2026-04-20 — Added steamdeck_teleop to bringup; phone UI + full UI modes
+
+**`launch/bringup.launch.py`**: Added `steamdeck_ws_teleop` node (optional, same try/except pattern as foxglove_bridge). Added `steamdeck_ui` launch argument (default `phone`):
+- `phone` — 3 huge buttons (ENABLE / OPEN LID / KILL) + diagnostics. Designed for phone browser.
+- `full` — full UI with trajectory goals, mode buttons, balance gains editor, nav map.
+
+**`~/TeamBowl/launch_debug.sh`**: Simplified — no longer launches a separate steamdeck node. Now just: `ros2 launch bringup bringup.launch.py steamdeck_ui:=full`. Removes the background PID management and 3-second sleep.
+
+## 2026-04-19 — Removed follow_goal + follow_executor from bringup
+
+- **`launch/bringup.launch.py`**: Removed `follow_goal` and `follow_executor` nodes.
+  Both held `ActionClient` instances for `/compute_path_to_pose` and `/follow_path`.
+  Having two clients on the same action server (alongside `trajectory_test`) caused
+  "Ignoring unexpected goal response" cross-talk and "Planner rejected goal" failures.
+  These nodes are for "auton" person-following mode; re-add them when that feature is needed.
+
+## 2026-04-19 — Added ekf_test.launch.py
+
+- **`launch/ekf_test.launch.py`**: Minimal launch for testing EKF + IMU fusion without the full robot stack. Launches: Xsens IMU, Oak-D camera (for `/oak/imu/data` + TFs), `diff_drive_odom`, `ekf_filter_node`, and `foxglove_bridge`. No robstride, VESCs, Nav2, or locomotion nodes.
+  Usage: `ros2 launch bringup ekf_test.launch.py`
+  Connect Foxglove to `ws://<robot-ip>:8765`, watch `/odometry/filtered`.
+
+## 2026-04-19 — Added verbose_controllers launch argument
+
+- **`launch/bringup.launch.py`**: Added `verbose_controllers` launch argument (default `false`).
+  Passed as `{'verbose': verbose_controllers}` to both `lid_controller` and
+  `driving_leg_controller` nodes. Suppresses their periodic status logs by default.
+  Enable with: `ros2 launch bringup bringup.launch.py verbose_controllers:=true`
+
+## 2026-04-18 — Made xsens_mti_ros2_driver optional in bringup
+
+- **`launch/bringup.launch.py`**: Wrapped `xsens_imu` launch in a `try/except PackageNotFoundError`
+  block (same pattern as `foxglove_bridge`). If the package isn't built/installed, bringup
+  skips the IMU node and continues. Build the xsens submodule at
+  `teambowl_ws/src/drivers/xsens_mti_ros_driver_repo` to enable it.
+
+## 2026-04-18 — lid_controller debugging + enable_motors bug fix
+
+- **`locomotion/lid_controller.py`**: Fixed bug where `_motors_enabled` was set to `True`
+  before the `/enable_motors` callback confirmed success — failed calls were never retried.
+  Added `_debug_status` timer (2 s): prints `[LID DEBUG]` lines with state, position,
+  motors-enabled flag, joint_states status, and e-stop. Added warning when `joint_rs05_1`
+  is missing from `/joint_states`. Added info log on each enable attempt.
+- **`test_lid.sh`**: Added pre-flight check — warns loudly if `robstride_can_driver` is
+  not running (missing `/enable_motors` service) and asks to continue.
+
 ## 2026-04-17 — Added stuck_detector + nvblox setup guide
 
 - **`launch/bringup.launch.py`**: Added `stuck_detector` node (safety pkg, safety_config).

@@ -5,15 +5,15 @@ lid_controller:
 
     # Lid positions in radians. Tune these to match actual lid geometry.
     # Set the zero first with the robstride commissioning tool, then measure open.
-    open_position_rad: 1.57    # ~90 deg open
-    closed_position_rad: 0.0   # fully closed
+    open_position_rad: 3.0    # ~90 deg open
+    closed_position_rad: 0.37   # fully closed
 
     # MIT mode gains (Type 1 CAN frame). Match RS05 defaults in motors.yaml.
     kp: 60.0
     kd: 1.0
 
     # Feed-forward torque while actively moving. Zero when holding.
-    torque_ff: 0.5             # Nm — enough to overcome lid weight without slamming
+    torque_ff: 1.0             # Nm — enough to overcome lid weight without slamming
 
     # Motion timeout: stop commanding after this many seconds even if not arrived.
     # Prevents infinite commands if lid is blocked or position feedback is off.

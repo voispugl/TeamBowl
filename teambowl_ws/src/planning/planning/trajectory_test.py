@@ -199,8 +199,8 @@ class TrajectoryTestNode(Node):
             if self._estop:
                 self.get_logger().warn('"go" received but estop is active')
                 return
-            if self._robot_mode != 'driving':
-                self.get_logger().warn(f'"go" received but mode is "{self._robot_mode}" (need "driving")')
+            if self._robot_mode not in ('driving', 'balance'):
+                self.get_logger().warn(f'"go" received but mode is "{self._robot_mode}" (need "driving" or "balance")')
                 return
             self._active_goal = self._latest_goal
             self._last_planned_goal = None  # force replan on next tick
@@ -233,8 +233,8 @@ class TrajectoryTestNode(Node):
         prev = self._robot_mode
         self._robot_mode = new_mode
         self.get_logger().info(f'robot_mode: {prev} → {new_mode}')
-        if self._state == self.RUNNING and new_mode != 'driving':
-            self.get_logger().warn('Mode left "driving" — stopping trajectory')
+        if self._state == self.RUNNING and new_mode not in ('driving', 'balance'):
+            self.get_logger().warn('Mode left "driving"/"balance" — stopping trajectory')
             self._stop()
 
     def _estop_cb(self, msg: Bool):
@@ -405,6 +405,11 @@ class TrajectoryTestNode(Node):
         self._state = self.IDLE
         self._active_goal = None
         self._last_planned_goal = None
+        # Cancel in-flight planner goal
+        if self._planner_goal_handle is not None:
+            self._planner_goal_handle.cancel_goal_async()
+            self._planner_goal_handle = None
+            self._planner_request_in_flight = False
         self._cancel_controller_if_needed()
         self._publish_zero_cmd()
 

@@ -45,7 +45,7 @@
         # 3) 2: Use UTCTime from the host device.
         # Note: Ensure "UTC Time" or "Sample Time Fine" is selected in MT Manager under Device Settings > Output Configurations, 
         # or you could also set 'enable_deviceConfig: true' for once to configure output.
-        time_option: 0
+        time_option: 2
 
         # Logging Configuration
         # ---------------------
@@ -70,7 +70,7 @@
         # If you want to configure the filter option, firstly set the 'enable_filter_config', then:
         # For MTi-3/7/8/30/300/G-710/670(G)/680(G): change the 'mti_filter_option' to desired index below for your model.
         # For MTi-620(R)/MTi-630(R), and Sirius/Avior VRU/AHRS models:   change the 'filter_label_rollpitch' and 'filter_label_yaw' to the exact labels.
-        enable_filter_config: false
+        enable_filter_config: true
         # ---------------------------
         # For MTi-670(G): 3 options: 0 = "General", 1 = "GeneralNoBaro", 2 = "GeneralMag"
         # For MTi-680(G), 3 options: 0 = "General_RTK", 1 = "GeneralNoBaro_RTK", 2 = "GeneralMag_RTK"
@@ -80,13 +80,13 @@
         # For MTi-8: 3 options: 0 = "General_RTK", 1 = "GeneralNoBaro_RTK", 2 = "GeneralMag_RTK"
         # For MTi-300: 0 = "general", 1 = "high_mag_dep", 2 = "dynamic", 3 = "lwo_mag_dep", 4 = "vru_general"
         # For MTI-G-710: 3 options: 0 = "General", 1 = "GeneralNoBaro",  2 = "GeneralMag", 3 = "Automotive", 4 = "HighPerformanceEDR"
-        mti_filter_option: 0
+        mti_filter_option: 4  # vru_general — no magnetometer/compass dependency
 
         # For MTi-620(R)/MTi-630(R), and Sirius/Avior VRU/AHRS models:  roll pitch options: "Responsive", "General", "Robust"
         filter_label_rollpitch: "Robust"
         # MTI-620(R) and Sirius/Avior VRU models, yaw has 2 options: "VRU", "VRUAHS" 
         # MTI-630(R) and Sirius/Avior AHRS models, yaw has 3 options: "FixedMagRef", "NorthReference", "VRU", "VRUAHS" 
-        filter_label_yaw: "NorthReference"
+        filter_label_yaw: "VRU"
 
 
         # MTi-2/320/200: filter only has VRU, you could enable the AHS options:
@@ -139,7 +139,7 @@
         pub_acceleration: true
         pub_dq: false
         pub_dv: false
-        pub_mag: true
+        pub_mag: false  # magnetometer disabled — using vru_general filter
         pub_temperature: true
         pub_pressure: true
         pub_accelerationhr: false      #High Rate Data Acceleration, when this is true, set enable_high_rate to true as well
@@ -242,12 +242,14 @@
         # Sensor Standard Deviation (Optional)
         # ------------------------------------
         # Override the covariance matrix in sensor_msgs/Imu and sensor_msgs/MagneticField messages:
-        linear_acceleration_stddev: [0.0, 0.0, 0.0] # [m/s^2] Standard deviation for linear acceleration
-        angular_velocity_stddev: [0.0, 0.0, 0.0]   # [rad/s] Standard deviation for angular velocity
+        # Calibrated 2026-04-19 from Allan variance on imu_calib_20260419_194758
+        # Xsens Sirius 300: ARW=0.526 °/√hr, bias_instability=4.826 °/hr
+        linear_acceleration_stddev: [5.9291e-04, 5.6356e-04, 5.2093e-04]  # [m/s²] VRW per axis
+        angular_velocity_stddev: [1.6271e-04, 1.5955e-04, 1.3671e-04]     # [rad/s] ARW per axis
         magnetic_field_stddev: [0.0, 0.0, 0.0]     # [Tesla] Standard deviation for magnetic field
-        # [rad]   Standard deviation for orientation,  
+        # [rad]   Standard deviation for orientation,
         # for Sirius/Avior, if the pub_euler_stddev is true, will use that value from the sensor and igore this value.
-        orientation_stddev: [0.0, 0.0, 0.0]        
+        orientation_stddev: [1.8414e-05, 2.8706e-05, 2.3078e-05]  # [rad] bias instability per axis
         
 
 

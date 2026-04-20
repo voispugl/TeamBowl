@@ -1,12 +1,12 @@
 cmd_vel_to_vesc:
   ros__parameters:
     cmd_vel_topic: /cmd_vel
-    left_port: /dev/ttyACM0
-    right_port: /dev/ttyACM1
+    left_port: /dev/ttyACM1
+    right_port: /dev/ttyACM0
     estop_topic: /estop
-    wheel_radius_m: 0.153988  # 0.307975 m was the diameter — halved to get radius
+    wheel_radius_m: 0.154     # from robot_constants.py WHEEL_RADIUS
     track_width_m: 0.5588
-    erpm_per_wheel_rpm: 500.0
+    erpm_per_wheel_rpm: 101.5
     max_erpm_step_per_tick: 2000
     max_erpm: 20000
     cmd_timeout_s: 0.5
@@ -17,5 +17,5 @@ cmd_vel_to_vesc:
     print_RPM_cmds: false
     left_wheel_vel_topic: /wheel_vel_left
     right_wheel_vel_topic: /wheel_vel_right
-    feedback_poll_rate_hz: 20.0
+    feedback_poll_rate_hz: 50.0
     publish_wheel_feedback: true

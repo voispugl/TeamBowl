@@ -141,15 +141,19 @@ def generate_launch_description():
         ),
     )
 
-    xsens_imu = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory('xsens_mti_ros2_driver'),
-                'launch',
-                'xsens_mti_node.launch.py'
-            )
-        ),
-    )
+    try:
+        _xsens_launch = os.path.join(
+            get_package_share_directory('xsens_mti_ros2_driver'),
+            'launch',
+            'xsens_mti_node.launch.py',
+        )
+        xsens_imu = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(_xsens_launch)
+        )
+        _xsens_available = True
+    except PackageNotFoundError:
+        xsens_imu = None
+        _xsens_available = False
 
     management_config = os.path.join(
         get_package_share_directory('management'), 'config', 'management.yaml')
@@ -178,10 +182,25 @@ def generate_launch_description():
     # Install: sudo apt install ros-humble-foxglove-bridge
     # Connect: open Foxglove Studio → Open Connection → Rosbridge (ws://robot-ip:8765)
     try:
+        _steamdeck_config = os.path.join(
+            get_package_share_directory('steamdeck_teleop'),
+            'config', 'steamdeck_teleop.yaml')
+        _steamdeck_available = True
+    except PackageNotFoundError:
+        _steamdeck_config = None
+        _steamdeck_available = False
+
+    try:
         get_package_share_directory('foxglove_bridge')
         _foxglove_available = True
     except PackageNotFoundError:
         _foxglove_available = False
+
+    steamdeck_ui_arg = DeclareLaunchArgument(
+        'steamdeck_ui',
+        default_value='phone',
+        description='steamdeck web UI mode: phone (default, 3 big buttons) or full (trajectory/gains/map)')
+    steamdeck_ui = LaunchConfiguration('steamdeck_ui')
 
     foxglove_arg = DeclareLaunchArgument(
         'foxglove',
@@ -206,15 +225,25 @@ def generate_launch_description():
                     'balance and driving cannot run simultaneously.')
     vel_ctrl = LaunchConfiguration('velocity_controller')
 
+    verbose_controllers_arg = DeclareLaunchArgument(
+        'verbose_controllers',
+        default_value='false',
+        description='Enable periodic status logging for lid_controller and '
+                    'driving_leg_controller (2 s and 5 s intervals respectively). '
+                    'Off by default to reduce console noise.')
+    verbose_controllers = LaunchConfiguration('verbose_controllers')
+
     return LaunchDescription([
 
+        steamdeck_ui_arg,
         foxglove_arg,
         leg_controller_arg,
         velocity_controller_arg,
+        verbose_controllers_arg,
 
         oak_camera,
         robstride_driver,
-        xsens_imu,
+        *([xsens_imu] if _xsens_available else []),
 
         # TF: base_link → imu_link (computed from URDF wheel positions)
         Node(
@@ -290,7 +319,7 @@ def generate_launch_description():
             executable='driving_leg_controller',
             name='driving_leg_controller',
             output='screen',
-            parameters=[locomotion_config],
+            parameters=[locomotion_config, {'verbose': verbose_controllers}],
             condition=IfCondition(PythonExpression(["'", leg_ctrl, "' == 'driving'"])),
         ),
 
@@ -420,22 +449,6 @@ def generate_launch_description():
             }],
         ),
 
-        Node(
-            package='planning',
-            executable='follow_goal',
-            name='follow_goal',
-            output='screen',
-            parameters=[planning_config],
-        ),
-
-        Node(
-            package='planning',
-            executable='follow_executor',
-            name='follow_executor',
-            output='screen',
-            parameters=[planning_config],
-        ),
-
         # Trajectory test — Foxglove-driven goal → nav2 plan + execute
         # Idle outside "driving" mode. Publish JSON goal to /trajectory_goal,
         # then "go" to /trajectory_cmd to start live-replanning execution.
@@ -471,8 +484,20 @@ def generate_launch_description():
             executable='lid_controller',
             name='lid_controller',
             output='screen',
-            parameters=[lid_config],
+            parameters=[lid_config, {'verbose': verbose_controllers}],
         ),
+
+        # Steam Deck / phone web UI — port 8888
+        # phone mode (default): 3 big buttons (ENABLE / OPEN LID / KILL) + diagnostics
+        # full mode: trajectory goals, mode buttons, balance gains, nav map
+        # Override: ros2 launch bringup bringup.launch.py steamdeck_ui:=full
+        *([Node(
+            package='steamdeck_teleop',
+            executable='steamdeck_ws_teleop',
+            name='steamdeck_ws_teleop',
+            output='screen',
+            parameters=[_steamdeck_config, {'ui_mode': steamdeck_ui}],
+        )] if _steamdeck_available else []),
 
         # Foxglove bridge — remote visualization + gain tuning topics
         # Disable with: ros2 launch bringup bringup.launch.py foxglove:=false

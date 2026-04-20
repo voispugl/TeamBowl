@@ -8,15 +8,11 @@ Robot: two-wheeled balancer with two rigid (welded) legs.
 MJCF:  teambowl_mjlab.xml   (based on teambowl_balance.xml)
 Meshes: mjlab_robot/meshes/ → symlink to teambowl_ws/sim/mujoco/meshes/
 
-Gearing (from onshape-to-robot equality constraints):
-  Left  wheel: wheel_angle = -(12/145) * motor_angle  →  N_left  = 145/12 ≈ 12.08
-  Right wheel: wheel_angle = -(12/174) * motor_angle  →  N_right = 174/12 = 14.50
-  Direction flip encoded by negative polycoef.
+Gearing: both wheels 14.5:1 (motor turns 14.5× per wheel revolution).
 
 Motor model (VESC hub motors):
   Rotor inertia  I_rotor = 0.6e-4 kg·m²
-  Armature left  = I_rotor * N_left²  = 0.6e-4 * (145/12)²  ≈ 8.76e-3 kg·m²
-  Armature right = I_rotor * N_right² = 0.6e-4 * (174/12)²  ≈ 12.6e-3 kg·m²
+  Armature (both) = I_rotor * 14.5²  = 0.6e-4 * 210.25  ≈ 12.6e-3 kg·m²
   Damping (back-EMF proxy) = 0.05 N·m·s/rad   (set in XML default class)
   Frictionloss (Coulomb)   = 0.10 N·m          (set in XML default class)
 
@@ -70,10 +66,10 @@ def get_spec() -> mujoco.MjSpec:
 ##
 
 #: Left-side gear ratio (motor turns N times for each wheel revolution)
-GEAR_RATIO_LEFT: float = 145.0 / 12.0      # ≈ 12.083
+GEAR_RATIO_LEFT: float = 145.0 / 10.0   # = 14.5
 
 #: Right-side gear ratio
-GEAR_RATIO_RIGHT: float = 174.0 / 12.0     # = 14.5
+GEAR_RATIO_RIGHT: float = 145.0 / 10.0  # = 14.5
 
 #: Wheel radius (metres) — from XML cylinder collision geom size
 WHEEL_RADIUS: float = 0.154

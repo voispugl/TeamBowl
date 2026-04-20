@@ -12,7 +12,7 @@ plan_wheels:
     k_angular: 1.8
     max_linear_x: 0.15
     max_angular_z: 0.8
-    allow_reverse: false
+    allow_reverse: true
     max_reverse_x: 0.15
     turn_in_place_angle_only: true
     turn_only_lateral_threshold_m: 0.5
@@ -73,21 +73,31 @@ planner_server:
     planner_plugins: ["GridBased"]
 
     GridBased:
-      plugin: "nav2_smac_planner/SmacPlanner2D"
-      tolerance: 0.125                      # tolerance for planning if unable to reach exact pose, in meters
-      downsample_costmap: false             # whether or not to downsample the map
-      downsampling_factor: 1                # multiplier for the resolution of the costmap layer (e.g. 2 on a 5cm costmap would be 10cm)
-      allow_unknown: true                   # allow traveling in unknown space
-      max_iterations: 1000000               # maximum total iterations to search for before failing (in case unreachable), set to -1 to disable
-      max_on_approach_iterations: 1000      # maximum number of iterations to attempt to reach goal once in tolerance
-      max_planning_time: 2.0                # max time in s for planner to plan, smooth
-      cost_travel_multiplier: 2.0           # Cost multiplier to apply to search to steer away from high cost areas. Larger values will place in the center of aisles more exactly (if non-`FREE` cost potential field exists) but take slightly longer to compute. To optimize for speed, a value of 1.0 is reasonable. A reasonable tradeoff value is 2.0. A value of 0.0 effective disables steering away from obstacles and acts like a naive binary search A*.
-      use_final_approach_orientation: false # Whether to set the final path pose at the goal's orientation to the requested orientation (false) or in line with the approach angle so the robot doesn't rotate to heading (true)
+      plugin: "nav2_smac_planner/SmacPlannerHybrid"
+      downsample_costmap: false
+      downsampling_factor: 1
+      tolerance: 0.25
+      allow_unknown: true
+      max_iterations: 1000000
+      max_planning_time: 5.0
+      motion_model_for_search: "REEDS_SHEPP"  # supports forward + reverse arcs
+      angle_quantization_bins: 36             # 10° resolution — faster startup
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 3.0
+      minimum_turning_radius: 0.4          # meters — tune to robot's actual min radius
+      reverse_penalty: 1.5                    # >1 prefers forward; 1.0 = equal cost
+      change_penalty: 0.05                    # small cost for direction changes
+      non_straight_penalty: 1.20
+      cost_penalty: 2.0
+      retrospective_penalty: 0.015
+      lookup_table_size: 10.0
+      cache_obstacle_heuristic: false
       smoother:
         max_iterations: 1000
         w_smooth: 0.3
         w_data: 0.2
         tolerance: 1.0e-10
+        do_refinement: true
 
 controller_server:
   ros__parameters:
@@ -104,7 +114,7 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.1
+      required_movement_radius: 0.05
       movement_time_allowance: 10.0
 
     goal_checker:
@@ -121,10 +131,9 @@ controller_server:
       max_lookahead_dist: 1.0
       use_velocity_scaled_lookahead_dist: true
       regulated_linear_scaling_min_radius: 0.9
-      use_rotate_to_heading: true
-      rotate_to_heading_angular_vel: 1.2
+      use_rotate_to_heading: false
       transform_tolerance: 0.2
-      allow_reversing: false
+      allow_reversing: true
 
 global_costmap:
   global_costmap:
@@ -189,6 +198,7 @@ lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: false
     autostart: true
+    bond_timeout: 20.0
     node_names: ["planner_server", "controller_server"]
 
 trajectory_test:

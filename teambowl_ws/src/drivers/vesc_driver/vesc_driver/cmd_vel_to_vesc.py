@@ -2,6 +2,9 @@
 import math
 import serial
 import struct
+import threading
+import os
+import time
 import pyvesc
 
 from pyvesc.VESC.messages import SetRPM, SetCurrent, SetDutyCycle
@@ -49,6 +52,15 @@ def decode_rpm_from_values_payload(payload: bytes) -> int:
     if payload[0] != COMM_GET_VALUES:
         raise ValueError(f'unexpected response id: {payload[0]}')
     return struct.unpack_from('>i', payload, 23)[0]
+
+
+def decode_voltage_from_values_payload(payload: bytes) -> float:
+    """Extract input voltage (V) from COMM_GET_VALUES response. Byte 27: int16 /10."""
+    if len(payload) < 29:
+        raise ValueError(f'payload too short for voltage decode: {len(payload)} bytes')
+    if payload[0] != COMM_GET_VALUES:
+        raise ValueError(f'unexpected response id: {payload[0]}')
+    return struct.unpack_from('>H', payload, 27)[0] / 10.0
 
 
 class CmdVelToVescNode(Node):
@@ -143,6 +155,8 @@ class CmdVelToVescNode(Node):
         self.cmd_right_erpm = 0
         self.left_measured_rad_s = 0.0
         self.right_measured_rad_s = 0.0
+        self.left_voltage = None
+        self.right_voltage = None
 
         # QoS
         qos = QoSProfile(
@@ -155,16 +169,29 @@ class CmdVelToVescNode(Node):
         self.sub_cmd = self.create_subscription(Twist, self.cmd_vel_topic, self._cmd_reader, qos)
         self.sub_estop = self.create_subscription(Bool, self.estop_topic, self._estop_reader, qos)
 
+        self.declare_parameter('battery_voltage_topic', '/vesc/battery_voltage')
         self.left_wheel_vel_pub = self.create_publisher(Float64, self.left_wheel_vel_topic, 10)
         self.right_wheel_vel_pub = self.create_publisher(Float64, self.right_wheel_vel_topic, 10)
+        self.battery_voltage_pub = self.create_publisher(Float64, self.get_parameter('battery_voltage_topic').value, 10)
+
+        self._shutdown = False
+        self._error_since = {'left': None, 'right': None}  # tracks first error time per side
 
         # Timer for timeout supervision
         self.timer = self.create_timer(0.05, self._tick)
-        feedback_period = 1.0 / max(self.feedback_poll_rate_hz, 1.0)
-        self.feedback_timer = self.create_timer(feedback_period, self._poll_feedback)
 
-        # Open serial ports
+        # Open serial ports before starting feedback threads
         self._open_ports()
+
+        # Feedback: serial I/O in daemon threads; ROS timer only publishes shared state
+        feedback_period = 1.0 / max(self.feedback_poll_rate_hz, 1.0)
+        if self.publish_wheel_feedback:
+            for side in ('left', 'right'):
+                t = threading.Thread(
+                    target=self._feedback_loop, args=(side,), daemon=True
+                )
+                t.start()
+        self.feedback_timer = self.create_timer(feedback_period, self._publish_feedback)
 
         self.get_logger().info(
             f'CmdVelToVesc up. cmd_vel={self.cmd_vel_topic}, estop={self.estop_topic}, '
@@ -287,7 +314,9 @@ class CmdVelToVescNode(Node):
                 ser.write(pyvesc.encode(SetRPM(erpm)))
             
         except Exception as e:
-            self.get_logger().error(f'Failed sending SetRPM to {side} VESC: {e}')
+            self.get_logger().error(
+                f'Failed sending SetRPM to {side} VESC: {e}',
+                throttle_duration_sec=5.0)
 
     def _write_stop(self, ser, side: str):
         if ser is None:
@@ -296,7 +325,9 @@ class CmdVelToVescNode(Node):
         try:
             ser.write(pyvesc.encode(SetRPM(0)))
         except Exception as e:
-            self.get_logger().error(f'Failed sending stop to {side} VESC: {e}')
+            self.get_logger().error(
+                f'Failed sending stop to {side} VESC: {e}',
+                throttle_duration_sec=5.0)
 
     def _read_vesc_packet(self, ser) -> bytes | None:
         if ser is None:
@@ -336,44 +367,73 @@ class CmdVelToVescNode(Node):
             )
         return payload
 
-    def _read_erpm(self, ser, side: str) -> int | None:
+    def _read_erpm(self, ser, side: str) -> tuple[int, float] | tuple[None, None]:
+        """Returns (erpm, voltage_V) or (None, None) on failure."""
         if ser is None:
-            return None
+            return None, None
 
         try:
             ser.reset_input_buffer()
             ser.write(get_values_packet())
             payload = self._read_vesc_packet(ser)
             if payload is None:
-                return None
-            return decode_rpm_from_values_payload(payload)
+                return None, None
+            erpm = decode_rpm_from_values_payload(payload)
+            voltage = decode_voltage_from_values_payload(payload)
+            return erpm, voltage
         except Exception as e:
-            self.get_logger().error(f'Failed reading feedback from {side} VESC: {e}')
-            return None
+            self.get_logger().error(
+                f'Failed reading feedback from {side} VESC: {e}',
+                throttle_duration_sec=5.0)
+            return None, None
 
     def _publish_wheel_velocity(self, publisher, value_rad_s: float):
         msg = Float64()
         msg.data = value_rad_s
         publisher.publish(msg)
 
-    def _poll_feedback(self):
+    def _feedback_loop(self, side: str):
+        """Background daemon thread: poll one VESC for ERPM and update shared state."""
+        interval = 1.0 / max(self.feedback_poll_rate_hz, 1.0)
+        sign = self.left_sign if side == 'left' else self.right_sign
+        while not self._shutdown:
+            ser = self.left_ser if side == 'left' else self.right_ser
+            if ser is not None:
+                erpm, voltage = self._read_erpm(ser, side)
+                if erpm is not None:
+                    self._error_since[side] = None  # clear error streak on success
+                    rad_s = (erpm / self.erpm_per_wheel_rpm) * sign * (2.0 * math.pi / 60.0)
+                    if side == 'left':
+                        self.left_measured_rad_s = rad_s
+                        self.left_voltage = voltage
+                    else:
+                        self.right_measured_rad_s = rad_s
+                        self.right_voltage = voltage
+                    time.sleep(interval)
+                else:
+                    now = time.monotonic()
+                    if self._error_since[side] is None:
+                        self._error_since[side] = now
+                    elif now - self._error_since[side] > 30.0:
+                        self.get_logger().fatal(
+                            f'{side} VESC unreachable for 30 s — shutting down node')
+                        os._exit(1)
+                    time.sleep(1.0)  # back off after failure — don't spam at poll rate
+            else:
+                time.sleep(interval)
+
+    def _publish_feedback(self):
+        """ROS timer callback: publish pre-computed wheel velocities (no serial I/O)."""
         if not self.publish_wheel_feedback:
             return
+        self._publish_wheel_velocity(self.left_wheel_vel_pub, self.left_measured_rad_s)
+        self._publish_wheel_velocity(self.right_wheel_vel_pub, self.right_measured_rad_s)
 
-        left_erpm = self._read_erpm(self.left_ser, 'left')
-        right_erpm = self._read_erpm(self.right_ser, 'right')
-
-        if left_erpm is not None:
-            left_wheel_rpm = left_erpm / self.erpm_per_wheel_rpm
-            left_wheel_rpm *= self.left_sign
-            self.left_measured_rad_s = left_wheel_rpm * (2.0 * math.pi / 60.0)
-            self._publish_wheel_velocity(self.left_wheel_vel_pub, self.left_measured_rad_s)
-
-        if right_erpm is not None:
-            right_wheel_rpm = right_erpm / self.erpm_per_wheel_rpm
-            right_wheel_rpm *= self.right_sign
-            self.right_measured_rad_s = right_wheel_rpm * (2.0 * math.pi / 60.0)
-            self._publish_wheel_velocity(self.right_wheel_vel_pub, self.right_measured_rad_s)
+        voltages = [v for v in (self.left_voltage, self.right_voltage) if v is not None]
+        if voltages:
+            msg = Float64()
+            msg.data = min(voltages)  # use minimum (conservative)
+            self.battery_voltage_pub.publish(msg)
 
     def _send_erpm(self, left_erpm: int, right_erpm: int):
         if self.print_RPM_cmds:
@@ -393,6 +453,7 @@ class CmdVelToVescNode(Node):
         self._write_erpm(self.right_ser, 0, 'right')
 
     def destroy_node(self):
+        self._shutdown = True
         # Stop motors before shutting down
         try:
             self._send_stop()

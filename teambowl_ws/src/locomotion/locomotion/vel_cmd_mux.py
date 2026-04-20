@@ -35,7 +35,7 @@ class VelCmdMuxNode(Node):
       - /cmd_vel_selected (teleop cmd, auto cmd, or zero cmd)
     """
 
-    VALID_MODES = {'off', 'teleop', 'auton', 'driving'}
+    VALID_MODES = {'off', 'teleop', 'auton', 'driving', 'balance'}
 
     def __init__(self):
         super().__init__('vel_cmd_mux')
@@ -177,6 +177,19 @@ class VelCmdMuxNode(Node):
                 self.pub_out.publish(self.last_auto)
             else:
                 if self.debug: self.get_logger().info('MUX: mode=auton, auto stale -> zero')
+                self.pub_out.publish(zero_twist())
+            return
+
+        # Handle balance mode — auto if fresh, else teleop if fresh, else zero
+        if self.robot_mode == 'balance':
+            if self._fresh(self.last_auto_time, self.auto_timeout):
+                if self.debug: self.get_logger().info(f'MUX: mode=balance, fresh auto -> cmd {self.last_auto}')
+                self.pub_out.publish(self.last_auto)
+            elif self._fresh(self.last_teleop_time, self.teleop_timeout):
+                if self.debug: self.get_logger().info(f'MUX: mode=balance, fresh teleop -> cmd {self.last_teleop}')
+                self.pub_out.publish(self.last_teleop)
+            else:
+                if self.debug: self.get_logger().info('MUX: mode=balance, both stale -> zero')
                 self.pub_out.publish(zero_twist())
             return
 

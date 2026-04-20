@@ -1,5 +1,89 @@
 # locomotion
 
+## 2026-04-19 — driving_leg_controller publishes /leg_controller_running
+
+**`locomotion/driving_leg_controller.py`**: Added a 2 Hz TRANSIENT_LOCAL Bool publisher on
+`/leg_controller_running` that reflects `self._running`. Used by the steamdeck_teleop web UI
+to show a green/red "Legs" status box without any extra subscription overhead.
+
+## 2026-04-19 — Balance mode now accepts Nav2 autonomous goals
+
+**`locomotion/vel_cmd_mux.py`** — balance mode routing updated.
+Previously: balance mode only routed `/cmd_vel_teleop`.
+Now: balance mode routes `/cmd_vel_auto` if fresh, falls back to `/cmd_vel_teleop` if fresh, else zero.
+Nav2 goals can now drive the self-balancing controller. Teleop still works as a fallback.
+
+## 2026-04-19 — Disabled compass in EKF / IMU config
+
+**`config/ekf.yaml`** — set IMU yaw fusion to `false` (VRU mode has no magnetometer
+reference so yaw drifts; wheel odometry provides yaw instead). Roll/pitch still fused.
+
+**`src/drivers/xsens_mti_ros2_driver/param/xsens_mti_node.yaml`** — set
+`enable_filter_config: true`, `mti_filter_option: 4` (vru_general — no compass),
+`pub_mag: false`. Built xsens_mti_ros2_driver package for the first time.
+
+## 2026-04-19 — Added balance controller tuning guide
+
+**`BALANCE_TUNING.md`**: Step-by-step tuning document for the cascaded PID balance
+controller. Covers architecture, live tuning via Foxglove `/balance_gains`, gain ordering
+(theta_eq_offset → kp_pitch → kd_pitch → ki_pitch → outer PI → yaw), symptom tables,
+safety limits, and Foxglove panel setup.
+
+## 2026-04-19 — Reverted lid_controller from PP mode back to MIT mode
+
+PP position mode was broken in practice. Reverted both files to the pre-PP-mode git HEAD.
+
+**`locomotion/lid_controller.py`** — restored MIT mode: 50 Hz `_control_tick` publishing `/joint_commands`, `kp`/`kd`/`torque_ff` params, removed `WriteMotorParam` client.
+**`config/lid_controller.yaml`** — restored MIT params: `kp: 60.0`, `kd: 1.0`, `torque_ff: 0.5`, `publish_rate_hz: 50.0`.
+
+## 2026-04-19 — Added verbose flag to silence periodic debug output
+
+**`locomotion/lid_controller.py`** and **`locomotion/driving_leg_controller.py`**
+- Added `verbose` parameter (default `false`) to both nodes.
+- `lid_controller._debug_status()` (2 s timer) now returns early unless `verbose=true`.
+- `driving_leg_controller._print_status()` (5 s timer) now returns early unless `verbose=true`.
+- All state-change logs (moves, arrivals, mode transitions, errors) are unaffected and always logged.
+
+**`config/lid_controller.yaml`** — added `verbose: false`
+**`config/locomotion.yaml`** — added `verbose: false` under `driving_leg_controller`
+
+Enable at launch time:
+```
+ros2 launch bringup bringup.launch.py verbose_controllers:=true
+```
+
+## 2026-04-18 — Switched lid_controller to RS05 built-in PP position mode
+
+PP mode is flashed permanently to the motor via `~/TeamBowl/commission_rs05_pp.sh`
+(run once). The motor boots in PP mode every time — no startup sequencing needed.
+
+**`locomotion/lid_controller.py`** — complete rewrite
+- Replaced MIT mode (50 Hz Type 1 streaming) with **PP position mode**: the motor runs
+  its own cascade controller (Position P → Velocity PI → Current PI). The ROS node only
+  writes `loc_ref` (param 0x7016, dec 28694) once per move command via `/write_motor_param`.
+- On estop: writes `loc_ref = current_pos` to hold in place (motor holds autonomously).
+- Removed: `_joint_pub`, 50 Hz control timer, `_publish_joint()`, MIT-mode params
+  (kp, kd, torque_ff, publish_rate_hz), `/set_gains` client, `/lid_gains` subscriber.
+- Added: `_write_param_client` (WriteMotorParam), `_command_position()`,
+  10 Hz lightweight monitor timer for arrival/timeout detection.
+- Kept: `/enable_motors` (wakes motor from standby), all `[LID DEBUG]` status logging.
+
+**`config/lid_controller.yaml`** — updated params
+- Removed: `kp`, `kd`, `torque_ff`, `publish_rate_hz` (all MIT-mode params)
+- PP gains (loc_kp, spd_kp, spd_ki, limit_spd, limit_cur) live on the motor flash, not YAML.
+
+**`~/TeamBowl/commission_rs05_pp.sh`** — one-shot motor flash script
+- NEW file. Enables motor, writes run_mode=1 + PP gains, calls `/save_motor_params`.
+- Run once before first use. Gains survive power cycles.
+
+**`~/TeamBowl/test_lid.sh`** — rewritten as full tuning script
+- Live position readout (`p`), continuous monitor (`m`)
+- Move to arbitrary position (`t <rad>`) via loc_ref write, open/close presets
+- Set mechanical zero (`z`) via `/set_zero` service
+- Live volatile gain writes: `kp`, `vp`, `vi`, `spd`, `cur` → `/write_motor_param`
+- Save calibrated positions to YAML: `sopen`, `sclosed`
+- Restart lid_controller: `r`
+
 ## 2026-04-14 — Upgraded inner pitch loop to PID with 2-second sliding window integral
 
 **`balance_controller`** — `locomotion/balance_controller.py`, **`config/balance_controller.yaml`**

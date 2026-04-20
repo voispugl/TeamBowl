@@ -14,6 +14,7 @@ driving_leg_controller:
     joint_commands_topic: /joint_commands
     torque_ff: 0.0
     publish_rate_hz: 50.0
+    verbose: false
     rs00_joints: [joint_rs00_1, joint_rs00_2]
 
 vel_cmd_mux:

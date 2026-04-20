@@ -31,20 +31,114 @@ import threading
 import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped
-from nav2_msgs.action import ComputePathToPose, FollowPath
-from nav_msgs.msg import OccupancyGrid, Odometry, Path
-from rclpy.action import ActionClient
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Float64, String
 
 import websockets
+from websockets.asyncio.server import serve as ws_serve
+from websockets.datastructures import Headers as WsHeaders
+from websockets.http11 import Response as WsResponse
 
 # ---------------------------------------------------------------------------
-# Embedded control page — served at http://ROBOT_IP:8888/
+# Embedded control pages — served at http://ROBOT_IP:8888/
+# ui_mode='phone' → _HTML_PHONE (3 big buttons + diagnostics, phone-first)
+# ui_mode='full'  → _HTML_FULL  (full gamepad + trajectory + gains + map)
 # ---------------------------------------------------------------------------
 
-_HTML_PAGE = """<!DOCTYPE html>
+_HTML_PHONE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TeamBowl</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480px;margin:auto}
+.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.hdr h2{color:#4af;font-size:20px}
+.ws-dot{width:12px;height:12px;border-radius:50%;background:#f44;display:inline-block;margin-right:6px}
+.ws-dot.ok{background:#4f4}
+#ws-label{font-size:13px}
+.btn{display:block;width:100%;min-height:18vh;font-size:clamp(2.5rem,10vw,5rem);font-weight:bold;
+  border:none;border-radius:16px;margin-bottom:16px;cursor:pointer;color:#fff;letter-spacing:2px}
+.btn-enable{background:#1a6b1a}
+.btn-enable:active{background:#2a9b2a}
+.btn-lid{background:#155a8a}
+.btn-lid:active{background:#1e7fc0}
+.btn-kill{background:#7a1a1a}
+.btn-kill:active{background:#c02020}
+.diag{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px}
+.diag h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #2a2a2a;font-size:15px}
+.row:last-child{border-bottom:none}
+.key{color:#888}
+.val{font-weight:bold}
+.ok{color:#4f4}.warn{color:#fa0}.err{color:#f44}.info{color:#4af}.dim{color:#666}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h2>TeamBowl</h2>
+  <span><span class="ws-dot" id="ws-dot"></span><span id="ws-label">Connecting…</span></span>
+</div>
+
+<button class="btn btn-enable" onclick="send({type:'set_mode',mode:'driving'})">ENABLE</button>
+<button class="btn btn-lid"    onclick="send({type:'lid_cmd',cmd:'open'})">OPEN LID</button>
+<button class="btn btn-kill"   onclick="send({type:'estop'})">KILL</button>
+
+<div class="diag">
+  <h3>Diagnostics</h3>
+  <div class="row"><span class="key">Mode</span>      <span class="val info" id="mode-val">—</span></div>
+  <div class="row"><span class="key">E-stop</span>    <span class="val ok"   id="estop-val">—</span></div>
+  <div class="row"><span class="key">Stuck</span>     <span class="val ok"   id="stuck-val">—</span></div>
+  <div class="row"><span class="key">Kill sw</span>   <span class="val ok"   id="kill-val">—</span></div>
+  <div class="row"><span class="key">Lid</span>       <span class="val dim"  id="lid-val">—</span></div>
+  <div class="row"><span class="key">Battery</span>   <span class="val dim"  id="battery-val">—</span></div>
+  <div class="row"><span class="key">Legs</span>      <span class="val dim"  id="legs-val">—</span></div>
+  <div class="row"><span class="key">Planner</span>   <span class="val dim"  id="planner-val">—</span></div>
+</div>
+
+<script>
+const wsUrl = 'ws://' + location.host + '/ws';
+let ws = null;
+function connect() {
+  ws = new WebSocket(wsUrl);
+  ws.onopen  = () => setWs(true);
+  ws.onclose = () => { setWs(false); setTimeout(connect, 2000); };
+  ws.onerror = () => {};
+  ws.onmessage = (e) => { try { const d=JSON.parse(e.data); if(d.type==='push') handlePush(d); } catch(_){} };
+}
+function setWs(ok) {
+  document.getElementById('ws-dot').className = 'ws-dot'+(ok?' ok':'');
+  document.getElementById('ws-label').textContent = ok ? 'Connected' : 'Disconnected — retrying…';
+}
+function send(obj) { if(ws && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+function set(id, text, cls) {
+  const el=document.getElementById(id); if(!el) return;
+  el.textContent=text; el.className='val '+(cls||'dim');
+}
+function setBool(id, val, alarmOnTrue) {
+  set(id, val?'YES':'NO', val?(alarmOnTrue?'err':'ok'):(alarmOnTrue?'ok':'warn'));
+}
+function handlePush(d) {
+  set('mode-val', d.mode||'—', d.mode==='driving'?'info':d.mode==='balance'?'warn':'dim');
+  setBool('estop-val', d.estop,       true);
+  setBool('stuck-val', d.stuck,       true);
+  setBool('kill-val',  d.kill_switch, true);
+  set('lid-val', d.lid||'—', 'dim');
+  if(d.battery_v!=null){const v=d.battery_v;set('battery-val',v.toFixed(1)+' V',v<42?'err':v<44?'warn':'ok');}
+  if(d.legs_running!=null)  setBool('legs-val',    d.legs_running,  false);
+  if(d.planner_ready!=null) setBool('planner-val', d.planner_ready, false);
+}
+connect();
+</script>
+</body>
+</html>
+"""
+
+_HTML_PAGE = _HTML_FULL = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -59,50 +153,60 @@ h2{color:#4af;margin-bottom:10px;font-size:18px}
 .ws-dot.ok{background:#4f4}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
 @media(max-width:600px){.grid{grid-template-columns:1fr}}
-.box{background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:10px}
+.box{background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:10px;margin-bottom:10px}
 .box h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #2a2a2a}
 .row:last-child{border-bottom:none}
 .key{color:#888;font-size:12px}
 .val{font-weight:bold;font-size:13px}
-.ok  {color:#4f4}
-.warn{color:#fa0}
-.err {color:#f44}
-.info{color:#4af}
-.dim {color:#666}
+.ok{color:#4f4}.warn{color:#fa0}.err{color:#f44}.info{color:#4af}.dim{color:#666}
 #map-canvas{display:block;border:1px solid #444;image-rendering:pixelated;width:240px;height:240px}
 .map-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
 .map-legend{display:flex;gap:10px;font-size:11px;color:#888}
 .swatch{width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:3px}
-.footer{background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px 10px;font-size:12px;color:#888;margin-top:10px}
+.footer{background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px 10px;font-size:12px;color:#888;margin-top:4px}
+button{background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:6px 14px;cursor:pointer;font-family:monospace;font-size:13px}
+button:hover{background:#3a3a3a;border-color:#666}
+button.danger{border-color:#844}
+button.danger:hover{background:#3a2020;border-color:#f44}
+input[type=number]{background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:4px 6px;font-family:monospace;font-size:12px}
+input[type=checkbox]{accent-color:#4af;vertical-align:middle}
+label{color:#888;font-size:12px}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.gains-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:5px;margin-bottom:8px}
+.gain-row{display:flex;align-items:center;gap:6px}
+.gain-row label{flex:0 0 140px;color:#888;font-size:12px;text-align:right}
+.gain-row input{width:78px}
 </style>
 </head>
 <body>
 
 <div class="hdr">
-  <h2>TeamBowl Teleop</h2>
+  <h2>TeamBowl Control Panel</h2>
   <span><span class="ws-dot" id="ws-dot"></span><span id="ws-label">Connecting…</span></span>
 </div>
 
 <div class="grid">
-
-  <!-- Left: diagnostics -->
+  <!-- Diagnostics -->
   <div class="box">
     <h3>Diagnostics</h3>
     <div class="row"><span class="key">Gamepad</span><span class="val dim" id="gp-val">—</span></div>
     <div class="row"><span class="key">Dead-man RT</span><span class="val warn" id="dm-val">DISARMED</span></div>
     <div class="row"><span class="key">Mode</span><span class="val info" id="mode-val">—</span></div>
     <div class="row"><span class="key">Nav state</span><span class="val dim" id="nav-val">—</span></div>
-    <div class="row"><span class="key">Goal (rel)</span><span class="val dim" id="goal-val">—</span></div>
+    <div class="row"><span class="key">Gamepad goal</span><span class="val dim" id="goal-val">—</span></div>
+    <div class="row"><span class="key">Battery</span><span class="val dim" id="battery-val">—</span></div>
     <div class="row"><span class="key">E-stop</span><span class="val ok" id="estop-val">NO</span></div>
     <div class="row"><span class="key">Stuck</span><span class="val ok" id="stuck-val">NO</span></div>
     <div class="row"><span class="key">Kill switch</span><span class="val ok" id="kill-val">NO</span></div>
     <div class="row"><span class="key">Lid</span><span class="val dim" id="lid-val">—</span></div>
     <div class="row"><span class="key">Odom XY</span><span class="val dim" id="odom-xy">—</span></div>
     <div class="row"><span class="key">Odom θ</span><span class="val dim" id="odom-th">—</span></div>
+    <div class="row"><span class="key">Planner</span><span class="val dim" id="planner-val">—</span></div>
+    <div class="row"><span class="key">Legs</span><span class="val dim" id="legs-val">—</span></div>
   </div>
 
-  <!-- Right: nav map -->
+  <!-- Nav map -->
   <div class="box">
     <h3>Nav Map (coarse)</h3>
     <div class="map-wrap">
@@ -110,14 +214,75 @@ h2{color:#4af;margin-bottom:10px;font-size:18px}
       <div class="map-legend">
         <span><span class="swatch" style="background:#e8e8e8"></span>free</span>
         <span><span class="swatch" style="background:#555"></span>unknown</span>
-        <span><span class="swatch" style="background:#222;border:1px solid #555"></span>occupied</span>
+        <span><span class="swatch" style="background:#222;border:1px solid #555"></span>occ</span>
         <span><span class="swatch" style="background:#e44;border-radius:50%"></span>robot</span>
         <span><span class="swatch" style="background:#4af"></span>goal</span>
       </div>
       <div id="map-age" style="font-size:11px;color:#666">No map yet</div>
     </div>
   </div>
+</div>
 
+<!-- Mode + Lid -->
+<div class="grid">
+  <div class="box">
+    <h3>Robot Mode</h3>
+    <div class="btn-row">
+      <button onclick="send({type:'set_mode',mode:'driving'})">Driving</button>
+      <button onclick="send({type:'set_mode',mode:'balance'})">Balance</button>
+      <button onclick="send({type:'set_mode',mode:'auton'})">Auton</button>
+      <button class="danger" onclick="send({type:'set_mode',mode:'off'})">Off</button>
+    </div>
+  </div>
+  <div class="box">
+    <h3>Lid &nbsp;<span class="val dim" id="lid-val2">—</span></h3>
+    <div class="btn-row">
+      <button onclick="send({type:'lid_cmd',cmd:'open'})">Open</button>
+      <button onclick="send({type:'lid_cmd',cmd:'close'})">Close</button>
+      <button onclick="send({type:'lid_cmd',cmd:'toggle'})">Toggle</button>
+    </div>
+  </div>
+</div>
+
+<!-- Trajectory Goal -->
+<div class="box">
+  <h3>Trajectory Goal &nbsp;<span class="val dim" id="traj-state">—</span></h3>
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <label>X&nbsp;<input id="traj-x" type="number" value="2.0" step="0.25" style="width:72px">&nbsp;m</label>
+    <label>Y&nbsp;<input id="traj-y" type="number" value="0.0" step="0.25" style="width:72px">&nbsp;m</label>
+    <label>θ&nbsp;<input id="traj-th" type="number" value="0.0" step="5" style="width:72px">&nbsp;°</label>
+    <label><input id="traj-rel" type="checkbox" checked>&nbsp;Relative</label>
+  </div>
+  <div class="btn-row">
+    <button onclick="trajGo()">&#9654; Go</button>
+    <button onclick="send({type:'traj_cmd',cmd:'stop'})">&#9632; Stop</button>
+    <button onclick="send({type:'traj_cmd',cmd:'reset'})">&#8635; Reset</button>
+  </div>
+</div>
+
+<!-- Balance Gains -->
+<div class="box">
+  <h3>Balance Gains &nbsp;
+    <span style="font-size:11px;color:#666">&#952;=<span id="bg-theta">—</span>&#176; &nbsp; v=<span id="bg-v">—</span>&nbsp;m/s</span>
+  </h3>
+  <div class="gains-grid">
+    <div class="gain-row"><label>kp_pitch</label><input id="g-kp_pitch" type="number" step="1"></div>
+    <div class="gain-row"><label>kd_pitch</label><input id="g-kd_pitch" type="number" step="5"></div>
+    <div class="gain-row"><label>ki_pitch</label><input id="g-ki_pitch" type="number" step="5"></div>
+    <div class="gain-row"><label>kp_yaw</label><input id="g-kp_yaw" type="number" step="0.5"></div>
+    <div class="gain-row"><label>kd_yaw</label><input id="g-kd_yaw" type="number" step="0.1"></div>
+    <div class="gain-row"><label>kp_vel</label><input id="g-kp_vel" type="number" step="0.1"></div>
+    <div class="gain-row"><label>ki_vel</label><input id="g-ki_vel" type="number" step="0.5"></div>
+    <div class="gain-row"><label>kff_pitch</label><input id="g-kff_pitch" type="number" step="0.01"></div>
+    <div class="gain-row"><label>theta_max_cmd</label><input id="g-theta_max_cmd" type="number" step="0.01"></div>
+    <div class="gain-row"><label>theta_max_fallover</label><input id="g-theta_max_fallover" type="number" step="0.01"></div>
+    <div class="gain-row"><label>theta_eq_offset</label><input id="g-theta_eq_offset" type="number" step="0.005"></div>
+    <div class="gain-row"><label>l_com</label><input id="g-l_com" type="number" step="0.01"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <button onclick="applyGains()">Apply Gains</button>
+    <span id="gains-msg" style="font-size:12px;color:#888"></span>
+  </div>
 </div>
 
 <div class="footer">
@@ -129,7 +294,8 @@ h2{color:#4af;margin-bottom:10px;font-size:18px}
 const wsUrl = 'ws://' + location.host + '/ws';
 const N = 20;
 let ws = null, gpIndex = null, sendInterval = null, prevDm = false;
-let lastPush = null;
+const GAIN_KEYS = ['kp_pitch','kd_pitch','ki_pitch','kp_yaw','kd_yaw','kp_vel','ki_vel','kff_pitch','theta_max_cmd','theta_max_fallover','theta_eq_offset','l_com'];
+const gainsEditing = {};
 
 // ---- WebSocket ----
 function connect() {
@@ -138,26 +304,23 @@ function connect() {
   ws.onclose = () => { setWs(false); stopSending(); setTimeout(connect, 2000); };
   ws.onerror = () => {};
   ws.onmessage = (e) => {
-    try {
-      const d = JSON.parse(e.data);
+    try { const d = JSON.parse(e.data);
       if (d.type === 'push')   handlePush(d);
       if (d.type === 'status') handleStatus(d);
     } catch(_) {}
   };
 }
-
 function setWs(ok) {
-  document.getElementById('ws-dot').className   = 'ws-dot' + (ok ? ' ok' : '');
+  document.getElementById('ws-dot').className    = 'ws-dot' + (ok ? ' ok' : '');
   document.getElementById('ws-label').textContent = ok ? 'Connected' : 'Disconnected — retrying…';
 }
+function send(obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
 
 // ---- Gamepad ----
 window.addEventListener('gamepadconnected',    (e) => { gpIndex = e.gamepad.index; set('gp-val', e.gamepad.id.slice(0,30), 'ok'); });
 window.addEventListener('gamepaddisconnected', ()  => { gpIndex = null; set('gp-val', 'Disconnected', 'err'); });
-
 function startSending() { if (!sendInterval) sendInterval = setInterval(sendState, 50); }
 function stopSending()  { if (sendInterval) { clearInterval(sendInterval); sendInterval = null; } }
-
 function sendState() {
   if (gpIndex === null || !ws || ws.readyState !== WebSocket.OPEN) return;
   const gp = navigator.getGamepads()[gpIndex];
@@ -165,111 +328,124 @@ function sendState() {
   const axes    = Array.from(gp.axes);
   const buttons = gp.buttons.map(b => b.pressed ? 1 : 0);
   const dm = (axes.length > 5 ? axes[5] : 0) > 0.5;
-  if (dm !== prevDm) {
-    set('dm-val', dm ? 'ARMED' : 'DISARMED', dm ? 'ok' : 'warn');
-    prevDm = dm;
-  }
+  if (dm !== prevDm) { set('dm-val', dm ? 'ARMED' : 'DISARMED', dm ? 'ok' : 'warn'); prevDm = dm; }
   ws.send(JSON.stringify({axes, buttons}));
 }
 
 // ---- Message handlers ----
 function handleStatus(d) {
-  set('nav-val',  d.state,  d.state === 'RUNNING' ? 'info' : 'dim');
-  set('goal-val', 'x=' + d.goal_x + ' y=' + d.goal_y + ' θ=' + d.goal_theta_deg + '°', 'dim');
+  set('nav-val',  d.state, d.state === 'RUNNING' ? 'info' : 'dim');
+  set('goal-val', 'x='+d.goal_x+' y='+d.goal_y+' \u03b8='+d.goal_theta_deg+'\u00b0', 'dim');
 }
-
 function handlePush(d) {
-  lastPush = d;
-  set('mode-val',  d.mode  || '—', d.mode === 'driving' ? 'info' : 'warn');
-  set('nav-val',   d.state || '—', d.state === 'RUNNING' ? 'info' : 'dim');
+  set('mode-val', d.mode||'—', d.mode==='driving'?'info':d.mode==='balance'?'warn':'dim');
+  set('nav-val',  d.state||'—', d.state==='RUNNING'?'info':'dim');
   setBool('estop-val', d.estop,       true);
   setBool('stuck-val', d.stuck,       true);
   setBool('kill-val',  d.kill_switch, true);
-  set('lid-val',   d.lid  || '—', 'dim');
+  set('lid-val',  d.lid||'—', 'dim');
+  set('lid-val2', d.lid||'—', 'dim');
   if (d.odom_x != null) {
-    set('odom-xy', '(' + d.odom_x + ', ' + d.odom_y + ')', 'dim');
-    set('odom-th', d.odom_theta_deg + '°', 'dim');
+    set('odom-xy', '('+d.odom_x+', '+d.odom_y+')', 'dim');
+    set('odom-th', d.odom_theta_deg+'\u00b0', 'dim');
   }
   if (d.map) drawMap(d);
-  document.getElementById('map-age').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  document.getElementById('map-age').textContent = 'Updated '+new Date().toLocaleTimeString();
+
+  if (d.battery_v != null) {
+    const v = d.battery_v;
+    set('battery-val', v.toFixed(1)+' V', v < 42 ? 'err' : v < 44 ? 'warn' : 'ok');
+  }
+  if (d.planner_ready != null) setBool('planner-val', d.planner_ready, false);
+  if (d.legs_running != null)  setBool('legs-val',   d.legs_running,  false);
+  if (d.traj_status) {
+    try { const ts = JSON.parse(d.traj_status);
+      set('traj-state', ts.state||'—', ts.state==='RUNNING'?'info':'dim');
+    } catch(_) {}
+  }
+  if (d.balance_gains) {
+    try { const bg = JSON.parse(d.balance_gains);
+      for (const k of GAIN_KEYS) {
+        const el = document.getElementById('g-'+k);
+        if (el && !gainsEditing[k] && bg[k] != null)
+          el.value = parseFloat(bg[k].toPrecision(6));
+      }
+      const td = document.getElementById('bg-theta'); if (td && bg._theta_deg != null) td.textContent = bg._theta_deg;
+      const vd = document.getElementById('bg-v');     if (vd && bg._v_actual  != null) vd.textContent = bg._v_actual;
+    } catch(_) {}
+  }
 }
 
+// Track editing state for gain inputs
+for (const k of GAIN_KEYS) {
+  const el = document.getElementById('g-'+k);
+  if (el) { el.addEventListener('focus', ()=>{ gainsEditing[k]=true; }); el.addEventListener('blur', ()=>{ gainsEditing[k]=false; }); }
+}
+
+// ---- Trajectory ----
+function trajGo() {
+  const _pf  = (id) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? 0 : v; };
+  const x     = _pf('traj-x');
+  const y     = _pf('traj-y');
+  const theta = _pf('traj-th') * Math.PI / 180;
+  const rel   = document.getElementById('traj-rel').checked;
+  send({type:'traj_goal', x, y, theta, relative:rel});
+  setTimeout(()=>send({type:'traj_cmd',cmd:'go'}), 80);
+}
+
+// ---- Balance Gains ----
+function applyGains() {
+  const gains = {};
+  for (const k of GAIN_KEYS) {
+    const el = document.getElementById('g-'+k);
+    if (el && el.value !== '') gains[k] = parseFloat(el.value);
+  }
+  send({type:'balance_gains', gains});
+  const msg = document.getElementById('gains-msg');
+  msg.textContent = 'Sent \u2713 '+new Date().toLocaleTimeString();
+  setTimeout(()=>{ msg.textContent=''; }, 3000);
+}
+
+// ---- Helpers ----
 function set(id, text, cls) {
-  const el = document.getElementById(id);
-  el.textContent = text;
-  el.className = 'val ' + (cls || 'dim');
+  const el = document.getElementById(id); if (!el) return;
+  el.textContent = text; el.className = 'val '+(cls||'dim');
 }
 function setBool(id, val, alarmOnTrue) {
-  // alarmOnTrue=true means val=true is bad (estop, stuck, kill)
-  set(id, val ? 'YES' : 'NO', val ? (alarmOnTrue ? 'err' : 'ok') : (alarmOnTrue ? 'ok' : 'warn'));
+  set(id, val?'YES':'NO', val?(alarmOnTrue?'err':'ok'):(alarmOnTrue?'ok':'warn'));
 }
 
-// ---- Map canvas ----
+// ---- Map ----
 function drawMap(d) {
   const canvas = document.getElementById('map-canvas');
-  const ctx    = canvas.getContext('2d');
-  const sz     = canvas.width / N;   // pixels per coarse cell (12px)
-
-  // Background
-  ctx.fillStyle = '#111';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Grid cells
-  for (let row = 0; row < N; row++) {
-    for (let col = 0; col < N; col++) {
-      const c = d.map[row * N + col];
-      ctx.fillStyle = c === '0' ? '#e8e8e8'   // free
-                    : c === '1' ? '#1a1a1a'   // occupied
-                    :             '#505050';   // unknown
-      // Row 0 in OccupancyGrid = bottom of map (y+ up in ROS) → flip
-      ctx.fillRect(col * sz, (N - 1 - row) * sz, sz, sz);
-    }
+  const ctx = canvas.getContext('2d');
+  const sz  = canvas.width / N;
+  ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  for (let row=0;row<N;row++) for (let col=0;col<N;col++) {
+    const c = d.map[row*N+col];
+    ctx.fillStyle = c==='0'?'#e8e8e8':c==='1'?'#1a1a1a':'#505050';
+    ctx.fillRect(col*sz,(N-1-row)*sz,sz,sz);
   }
-
-  // Grid lines (faint)
-  ctx.strokeStyle = '#2a2a2a';
-  ctx.lineWidth = 0.5;
-  for (let i = 1; i < N; i++) {
-    ctx.beginPath(); ctx.moveTo(i*sz, 0); ctx.lineTo(i*sz, canvas.height); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i*sz); ctx.lineTo(canvas.width, i*sz); ctx.stroke();
+  ctx.strokeStyle='#2a2a2a'; ctx.lineWidth=0.5;
+  for (let i=1;i<N;i++) {
+    ctx.beginPath();ctx.moveTo(i*sz,0);ctx.lineTo(i*sz,canvas.height);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,i*sz);ctx.lineTo(canvas.width,i*sz);ctx.stroke();
   }
-
-  if (d.map_cell_m == null || d.odom_x == null) return;
-
-  const ox  = d.map_origin_x, oy = d.map_origin_y, cm = d.map_cell_m;
-
-  // Helper: odom meters → canvas pixels
-  function toCanvas(wx, wy) {
-    return [
-      ((wx - ox) / cm) * sz,
-      (N - (wy - oy) / cm) * sz,
-    ];
+  if (d.map_cell_m==null||d.odom_x==null) return;
+  const ox=d.map_origin_x,oy=d.map_origin_y,cm=d.map_cell_m;
+  function toCanvas(wx,wy){return[((wx-ox)/cm)*sz,(N-(wy-oy)/cm)*sz];}
+  if (d.goal_odom_x!=null) {
+    const [gx,gy]=toCanvas(d.goal_odom_x,d.goal_odom_y),r=sz*0.7;
+    ctx.strokeStyle='#4af';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(gx-r,gy);ctx.lineTo(gx+r,gy);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(gx,gy-r);ctx.lineTo(gx,gy+r);ctx.stroke();
   }
-
-  // Goal marker (blue cross) — only when nav is running or goal is non-zero
-  if (d.goal_odom_x != null) {
-    const [gx, gy] = toCanvas(d.goal_odom_x, d.goal_odom_y);
-    const r = sz * 0.7;
-    ctx.strokeStyle = '#4af';
-    ctx.lineWidth   = 2;
-    ctx.beginPath(); ctx.moveTo(gx-r, gy); ctx.lineTo(gx+r, gy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(gx, gy-r); ctx.lineTo(gx, gy+r); ctx.stroke();
-  }
-
-  // Robot dot (red) + heading line
-  const [rx, ry] = toCanvas(d.odom_x, d.odom_y);
-  const rr = Math.max(sz * 0.55, 5);
-  ctx.fillStyle = '#e44';
-  ctx.beginPath(); ctx.arc(rx, ry, rr, 0, Math.PI*2); ctx.fill();
-
-  if (d.odom_theta_deg != null) {
-    const th = d.odom_theta_deg * Math.PI / 180;
-    // In canvas: x right, y down. ROS: x forward=right, y left=up → canvas y flipped
-    const hx = rx + Math.cos(th)  * rr * 2.5;
-    const hy = ry - Math.sin(th)  * rr * 2.5;
-    ctx.strokeStyle = '#fa0';
-    ctx.lineWidth   = 2;
-    ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(hx, hy); ctx.stroke();
+  const [rx,ry]=toCanvas(d.odom_x,d.odom_y),rr=Math.max(sz*0.55,5);
+  ctx.fillStyle='#e44'; ctx.beginPath();ctx.arc(rx,ry,rr,0,Math.PI*2);ctx.fill();
+  if (d.odom_theta_deg!=null) {
+    const th=d.odom_theta_deg*Math.PI/180;
+    ctx.strokeStyle='#fa0';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(rx,ry);ctx.lineTo(rx+Math.cos(th)*rr*2.5,ry-Math.sin(th)*rr*2.5);ctx.stroke();
   }
 }
 
@@ -323,6 +499,7 @@ class SteamDeckWSTeleop(Node):
         super().__init__('steamdeck_ws_teleop')
 
         # --- Parameters ---
+        self.declare_parameter('ui_mode', 'phone')  # 'phone' or 'full'
         self.declare_parameter('ws_host', '0.0.0.0')
         self.declare_parameter('ws_port', 8888)
         self.declare_parameter('joy_rate_hz', 20.0)
@@ -339,6 +516,7 @@ class SteamDeckWSTeleop(Node):
         self.declare_parameter('confirm_button', 0)
         self.declare_parameter('cancel_button', 1)
         self.declare_parameter('estop_button', 8)
+        self.declare_parameter('disable_estop', False)  # TEMP: set true when estop topic not wired up
         self.declare_parameter('planner_action_name', '/compute_path_to_pose')
         self.declare_parameter('controller_action_name', '/follow_path')
         self.declare_parameter('planner_id', 'GridBased')
@@ -355,8 +533,18 @@ class SteamDeckWSTeleop(Node):
         self.declare_parameter('preview_topic', '/steamdeck/goal_preview')
         self.declare_parameter('auto_set_driving_mode', True)
         self.declare_parameter('driving_mode_delay_s', 5.0)
+        self.declare_parameter('trajectory_goal_topic',    '/trajectory_goal')
+        self.declare_parameter('trajectory_cmd_topic',     '/trajectory_cmd')
+        self.declare_parameter('lid_command_topic',        '/lid_command')
+        self.declare_parameter('balance_gains_topic',      '/balance_gains')
+        self.declare_parameter('balance_gains_echo_topic', '/balance_gains_echo')
+        self.declare_parameter('trajectory_status_topic',  '/trajectory_status')
+        self.declare_parameter('leg_running_topic',         '/leg_controller_running')
+        self.declare_parameter('battery_voltage_topic',    '/vesc/battery_voltage')
 
         p = self.get_parameter
+        _ui_mode = str(p('ui_mode').value)
+        self._html = _HTML_PHONE if _ui_mode == 'phone' else _HTML_FULL
         self._ws_host           = str(p('ws_host').value)
         self._ws_port           = int(p('ws_port').value)
         self._map_push_rate     = float(p('map_push_rate_hz').value)
@@ -372,12 +560,7 @@ class SteamDeckWSTeleop(Node):
         self._confirm_btn       = int(p('confirm_button').value)
         self._cancel_btn        = int(p('cancel_button').value)
         self._estop_btn         = int(p('estop_button').value)
-        self._planner_action    = str(p('planner_action_name').value)
-        self._controller_action = str(p('controller_action_name').value)
-        self._planner_id        = str(p('planner_id').value)
-        self._controller_id     = str(p('controller_id').value)
-        self._goal_checker_id   = str(p('goal_checker_id').value)
-
+        self._disable_estop     = bool(p('disable_estop').value)
         # --- State ---
         self._state = self.IDLE
         self._robot_mode = 'off'
@@ -385,6 +568,10 @@ class SteamDeckWSTeleop(Node):
         self._robot_stuck = False
         self._kill_switch = False
         self._lid_state = 'unknown'
+        self._balance_gains_echo = ''
+        self._traj_status = ''
+        self._leg_running = False
+        self._battery_voltage: float | None = None
         self._latest_odom: Odometry | None = None
         self._latest_costmap: OccupancyGrid | None = None
 
@@ -395,12 +582,6 @@ class SteamDeckWSTeleop(Node):
         self._prev_confirm = 0
         self._prev_cancel  = 0
         self._prev_estop   = 0
-
-        self._active_goal: PoseStamped | None = None
-        self._planner_request_in_flight = False
-        self._controller_cancel_in_flight = False
-        self._planner_goal_handle = None
-        self._controller_goal_handle = None
 
         # Shared joy state (written by WS thread, read by rclpy timer)
         self._lock = threading.Lock()
@@ -431,16 +612,20 @@ class SteamDeckWSTeleop(Node):
         self.create_subscription(OccupancyGrid, p('costmap_topic').value,     self._costmap_cb,     reliable_tl)
         self.create_subscription(Bool,          p('stuck_topic').value,       self._stuck_cb,       best_effort)
         self.create_subscription(Bool,          p('kill_switch_topic').value, self._kill_switch_cb, best_effort)
-        self.create_subscription(String,        p('lid_state_topic').value,   self._lid_cb,         reliable)
+        self.create_subscription(String,        p('lid_state_topic').value,          self._lid_cb,                reliable)
+        self.create_subscription(String,        p('balance_gains_echo_topic').value, self._balance_gains_echo_cb, reliable)
+        self.create_subscription(String,        p('trajectory_status_topic').value,  self._traj_status_cb,        reliable)
+        self.create_subscription(Bool,          p('leg_running_topic').value,        self._leg_running_cb,        reliable_tl)
+        self.create_subscription(Float64,       p('battery_voltage_topic').value,    self._battery_voltage_cb,    best_effort)
 
         # --- Publishers ---
-        self._preview_pub  = self.create_publisher(PoseStamped, p('preview_topic').value,  10)
-        self._mode_set_pub = self.create_publisher(String,      p('mode_set_topic').value, 10)
-        self._estop_pub    = self.create_publisher(Bool,        p('estop_topic').value,    10)
-
-        # --- Action clients ---
-        self._planner_client    = ActionClient(self, ComputePathToPose, self._planner_action)
-        self._controller_client = ActionClient(self, FollowPath, self._controller_action)
+        self._preview_pub      = self.create_publisher(PoseStamped, p('preview_topic').value,          10)
+        self._mode_set_pub     = self.create_publisher(String,      p('mode_set_topic').value,         10)
+        self._estop_pub        = self.create_publisher(Bool,        p('estop_topic').value,            10)
+        self._traj_goal_pub    = self.create_publisher(String,      p('trajectory_goal_topic').value,  10)
+        self._traj_cmd_pub     = self.create_publisher(String,      p('trajectory_cmd_topic').value,   10)
+        self._lid_cmd_pub      = self.create_publisher(String,      p('lid_command_topic').value,      10)
+        self._balance_gains_pub = self.create_publisher(String,     p('balance_gains_topic').value,    10)
 
         # --- Timers ---
         rate = float(p('joy_rate_hz').value)
@@ -467,12 +652,17 @@ class SteamDeckWSTeleop(Node):
         asyncio.run(self._ws_main())
 
     async def _ws_main(self):
-        async def process_request(path, request_headers):
-            upgrade = request_headers.get('Upgrade', '').lower()
+        async def process_request(connection, request):
+            upgrade = request.headers.get('Upgrade', '').lower()
             if upgrade != 'websocket':
-                return http.HTTPStatus.OK, [('Content-Type', 'text/html')], _HTML_PAGE.encode()
+                body = self._html.encode()
+                headers = WsHeaders([
+                    ('Content-Type', 'text/html; charset=utf-8'),
+                    ('Content-Length', str(len(body))),
+                ])
+                return WsResponse(200, 'OK', headers, body)
 
-        async with websockets.serve(
+        async with ws_serve(
             self._ws_handler,
             self._ws_host,
             self._ws_port,
@@ -481,7 +671,7 @@ class SteamDeckWSTeleop(Node):
             self.get_logger().info(f'WebSocket server listening on port {self._ws_port}')
             await asyncio.Future()  # run forever
 
-    async def _ws_handler(self, websocket, path):
+    async def _ws_handler(self, websocket):
         remote = websocket.remote_address
         self.get_logger().info(f'Steam Deck connected from {remote}')
         push_task = asyncio.create_task(self._push_loop(websocket))
@@ -490,6 +680,9 @@ class SteamDeckWSTeleop(Node):
                 try:
                     data = json.loads(raw)
                 except json.JSONDecodeError:
+                    continue
+                if 'type' in data:
+                    self._handle_panel_cmd(data)
                     continue
                 with self._lock:
                     self._joy_state = data
@@ -557,6 +750,17 @@ class SteamDeckWSTeleop(Node):
             msg['map_origin_y'] = round(g.info.origin.position.y, 3)
             msg['map_cell_m']   = round(g.info.resolution * g.info.width / N, 3)
 
+        msg['planner_ready'] = '/compute_path_to_pose/_action/send_goal' in \
+            [s for s, _ in self.get_service_names_and_types()]
+        msg['legs_running']  = self._leg_running
+        if self._battery_voltage is not None:
+            msg['battery_v'] = round(self._battery_voltage, 1)
+
+        if self._balance_gains_echo:
+            msg['balance_gains'] = self._balance_gains_echo
+        if self._traj_status:
+            msg['traj_status'] = self._traj_status
+
         return msg
 
     def _encode_coarse_map(self) -> str | None:
@@ -599,6 +803,8 @@ class SteamDeckWSTeleop(Node):
         self._latest_odom = msg
 
     def _estop_cb(self, msg: Bool):
+        if self._disable_estop:
+            return
         new_val = bool(msg.data)
         if new_val and not self._estop:
             self.get_logger().warn('Estop received — stopping navigation')
@@ -616,6 +822,18 @@ class SteamDeckWSTeleop(Node):
 
     def _lid_cb(self, msg: String):
         self._lid_state = msg.data.strip()
+
+    def _balance_gains_echo_cb(self, msg: String):
+        self._balance_gains_echo = msg.data
+
+    def _traj_status_cb(self, msg: String):
+        self._traj_status = msg.data
+
+    def _leg_running_cb(self, msg: Bool):
+        self._leg_running = bool(msg.data)
+
+    def _battery_voltage_cb(self, msg: Float64):
+        self._battery_voltage = float(msg.data)
 
     # ------------------------------------------------------------------
     # Joy tick — runs at joy_rate_hz (20 Hz) via rclpy timer
@@ -681,8 +899,8 @@ class SteamDeckWSTeleop(Node):
     # ------------------------------------------------------------------
 
     def _on_confirm_pressed(self):
-        if self._robot_mode != 'driving':
-            self.get_logger().warn(f'A pressed but mode is "{self._robot_mode}" — need "driving"')
+        if self._robot_mode not in ('driving', 'balance'):
+            self.get_logger().warn(f'A pressed but mode is "{self._robot_mode}" — need "driving" or "balance"')
             return
         if self._estop:
             self.get_logger().warn('A pressed but estop is active')
@@ -696,13 +914,19 @@ class SteamDeckWSTeleop(Node):
             f'Sending goal: ({goal_pose.pose.position.x:.2f}, {goal_pose.pose.position.y:.2f})'
         )
 
-        if self._state == self.RUNNING:
-            self._active_goal = goal_pose
-            self._cancel_controller_if_needed(next_path=None)
-        else:
-            self._active_goal = goal_pose
-            self._state = self.RUNNING
-            self._request_path(goal_pose)
+        # Route through trajectory_test (avoids duplicate action clients)
+        goal_msg = String()
+        goal_msg.data = json.dumps({
+            'x': goal_pose.pose.position.x,
+            'y': goal_pose.pose.position.y,
+            'theta': _yaw_from_quat(goal_pose.pose.orientation),
+            'relative': False,
+        })
+        self._traj_goal_pub.publish(goal_msg)
+        cmd_msg = String()
+        cmd_msg.data = 'go'
+        self._traj_cmd_pub.publish(cmd_msg)
+        self._state = self.RUNNING
 
     def _on_cancel_pressed(self):
         if self._state == self.RUNNING:
@@ -711,6 +935,8 @@ class SteamDeckWSTeleop(Node):
         else:
             self._goal_x = self._goal_y = self._goal_theta = 0.0
             self.get_logger().info('B pressed (idle) — goal accumulator reset')
+            msg = String(); msg.data = 'reset'
+            self._traj_cmd_pub.publish(msg)
 
     def _on_estop_pressed(self):
         self.get_logger().warn('Menu pressed — E-STOP')
@@ -743,6 +969,39 @@ class SteamDeckWSTeleop(Node):
         return pose
 
     # ------------------------------------------------------------------
+    # Panel command handler (called from WS thread — publish is thread-safe)
+    # ------------------------------------------------------------------
+
+    def _handle_panel_cmd(self, data: dict):
+        t = data.get('type')
+        msg = String()
+        if t == 'estop':
+            estop_msg = Bool(); estop_msg.data = True
+            self._estop_pub.publish(estop_msg)
+            msg.data = 'off'
+            self._mode_set_pub.publish(msg)
+        elif t == 'set_mode':
+            msg.data = str(data.get('mode', 'off'))
+            self._mode_set_pub.publish(msg)
+        elif t == 'traj_goal':
+            msg.data = json.dumps({
+                'x':        float(data.get('x', 0.0)),
+                'y':        float(data.get('y', 0.0)),
+                'theta':    float(data.get('theta', 0.0)),
+                'relative': bool(data.get('relative', True)),
+            })
+            self._traj_goal_pub.publish(msg)
+        elif t == 'traj_cmd':
+            msg.data = str(data.get('cmd', 'stop'))
+            self._traj_cmd_pub.publish(msg)
+        elif t == 'lid_cmd':
+            msg.data = str(data.get('cmd', 'toggle'))
+            self._lid_cmd_pub.publish(msg)
+        elif t == 'balance_gains':
+            msg.data = json.dumps(data.get('gains', {}))
+            self._balance_gains_pub.publish(msg)
+
+    # ------------------------------------------------------------------
     # Auto mode setter
     # ------------------------------------------------------------------
 
@@ -753,131 +1012,13 @@ class SteamDeckWSTeleop(Node):
         self.get_logger().info('Auto-set robot mode to "driving"')
 
     # ------------------------------------------------------------------
-    # Nav2 action chain (mirrors trajectory_test.py)
-    # ------------------------------------------------------------------
-
-    def _request_path(self, goal_pose: PoseStamped):
-        if not self._planner_client.server_is_ready():
-            self.get_logger().warn('Planner not ready yet')
-            self._state = self.IDLE
-            return
-        goal = ComputePathToPose.Goal()
-        goal.goal = goal_pose
-        goal.planner_id = self._planner_id
-        goal.use_start = False
-        self._planner_request_in_flight = True
-        self._planner_client.send_goal_async(goal).add_done_callback(
-            self._on_planner_goal_response
-        )
-
-    def _on_planner_goal_response(self, future):
-        try:
-            handle = future.result()
-        except Exception as exc:
-            self._planner_request_in_flight = False
-            self.get_logger().error(f'Planner goal send failed: {exc}')
-            self._state = self.IDLE
-            return
-        if not handle.accepted:
-            self._planner_request_in_flight = False
-            self.get_logger().warn('Planner rejected goal')
-            self._state = self.IDLE
-            return
-        self._planner_goal_handle = handle
-        handle.get_result_async().add_done_callback(self._on_planner_result)
-
-    def _on_planner_result(self, future):
-        self._planner_request_in_flight = False
-        try:
-            wrapped = future.result()
-        except Exception as exc:
-            self.get_logger().error(f'Planner result error: {exc}')
-            self._state = self.IDLE
-            return
-        path: Path = wrapped.result.path
-        if len(path.poses) == 0:
-            self.get_logger().warn('Planner returned empty path')
-            self._state = self.IDLE
-            return
-        if self._state != self.RUNNING:
-            self._cancel_controller_if_needed()
-            return
-        if self._controller_goal_handle is not None:
-            self._cancel_controller_if_needed(next_path=path)
-        else:
-            self._send_follow_path(path)
-
-    def _cancel_controller_if_needed(self, next_path: Path | None = None):
-        if self._controller_goal_handle is None:
-            if next_path is not None:
-                self._send_follow_path(next_path)
-            elif self._state == self.RUNNING and self._active_goal is not None:
-                self._request_path(self._active_goal)
-            return
-        if self._controller_cancel_in_flight:
-            return
-        self._controller_cancel_in_flight = True
-        self._controller_goal_handle.cancel_goal_async().add_done_callback(
-            lambda f: self._on_controller_cancelled(f, next_path)
-        )
-
-    def _on_controller_cancelled(self, future, next_path: Path | None):
-        self._controller_cancel_in_flight = False
-        try:
-            future.result()
-        except Exception as exc:
-            self.get_logger().warn(f'Controller cancel error: {exc}')
-        self._controller_goal_handle = None
-        if next_path is not None and self._state == self.RUNNING:
-            self._send_follow_path(next_path)
-        elif self._state == self.RUNNING and self._active_goal is not None:
-            self._request_path(self._active_goal)
-
-    def _send_follow_path(self, path: Path):
-        if not self._controller_client.server_is_ready():
-            self.get_logger().warn('Controller not ready yet')
-            self._state = self.IDLE
-            return
-        goal = FollowPath.Goal()
-        goal.path = path
-        goal.controller_id = self._controller_id
-        goal.goal_checker_id = self._goal_checker_id
-        self._controller_client.send_goal_async(goal).add_done_callback(
-            self._on_controller_goal_response
-        )
-
-    def _on_controller_goal_response(self, future):
-        try:
-            handle = future.result()
-        except Exception as exc:
-            self.get_logger().error(f'Controller goal send failed: {exc}')
-            self._state = self.IDLE
-            return
-        if not handle.accepted:
-            self.get_logger().warn('Controller rejected path')
-            self._state = self.IDLE
-            return
-        self._controller_goal_handle = handle
-        handle.get_result_async().add_done_callback(self._on_controller_result)
-
-    def _on_controller_result(self, future):
-        try:
-            future.result()
-            self.get_logger().info('Navigation goal reached')
-        except Exception as exc:
-            self.get_logger().warn(f'Controller result error: {exc}')
-        finally:
-            self._controller_goal_handle = None
-            self._state = self.IDLE
-
-    # ------------------------------------------------------------------
     # Stop
     # ------------------------------------------------------------------
 
     def _stop(self):
         self._state = self.IDLE
-        self._active_goal = None
-        self._cancel_controller_if_needed()
+        msg = String(); msg.data = 'stop'
+        self._traj_cmd_pub.publish(msg)
 
 
 def main():
