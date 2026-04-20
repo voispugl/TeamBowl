@@ -41,6 +41,16 @@ Legacy reactive PD person-follower. Publishes `/cmd_vel_auto` directly.
 Parameters live in `config/planning.yaml` (installed to `share/planning/config/`).
 Loaded by `bringup.launch.py` via native ROS2 YAML parameter loading.
 
+## 2026-04-20 — Swapped RPP → MPPI controller (try-mppi branch)
+
+**`config/planning.yaml`** — `FollowPath` controller replaced:
+- Plugin: `nav2_mppi_controller::MPPIController`
+- `vx_max: 0.5`, `vx_min: -0.5`, `wz_max: 1.9` — velocity bounds enforced by controller
+- `batch_size: 2000`, `time_steps: 56`, `model_dt: 0.05` — 2.8s horizon, 2000 samples
+- `motion_model: "DiffDrive"` — matches robot kinematics
+- Critics: Constraint, Cost, Goal, GoalAngle, PathAlign, PathFollow, PathAngle, PreferForward
+- Roll back: `git checkout git-how -- teambowl_ws/src/planning/config/planning.yaml`
+
 ## 2026-04-19 — Faster Nav2 startup: reduced lookup table + increased bond timeout
 
 **`config/planning.yaml`**:
