@@ -173,16 +173,13 @@ A browser-based control panel runs at `http://ROBOT_IP:8888` (served by the `ste
 ros2 launch steamdeck_teleop steamdeck_ws.launch.py
 ```
 
-Navigate to `http://ROBOT_IP:8888` from any browser (Steam Deck, laptop, phone). The page provides:
+Navigate to `http://ROBOT_IP:8888` from any browser (Steam Deck, laptop, phone). Three UI modes selectable via `steamdeck_ui` launch arg:
 
-- **Gamepad control** — hold RT + left/right sticks to accumulate a Nav2 goal, A to send, B to cancel
-- **Mode buttons** — Driving / Balance / Auton / Off
-- **Lid control** — Open / Close / Toggle
-- **Trajectory Goal form** — x/y/θ inputs + relative checkbox + Go/Stop/Reset
-- **Balance Gains panel** — 13 gains (including `ki_yaw`) with **Receive** / **Send** buttons; live θ and v readout
-- **Motor Driver Gains panel** — per-joint kp/kd table (from `/driver_gains_echo`), Receive / Send
-- **VESC Velocity/Yaw PI panel** — kp_v, ki_v, kp_w, ki_w with live measured v/ω; Receive / Send
-- **Status indicators** — Battery voltage (green/yellow/red), Planner ready, Legs running
+| `steamdeck_ui` | Description |
+|---|---|
+| `phone` (default) | ENABLE / TOGGLE LID / KILL + diagnostics. For normal operation. |
+| `rescue` | ENABLE + KILL + 4-direction D-pad (↑↓←→). Hold buttons to drive out of tight spots. Publishes to `/cmd_vel_auto`; robot must be in `driving` mode. |
+| `full` | Gamepad goals, mode/lid/trajectory/gains panels, nav map. For development sessions. |
 
 No ROS2 or software installation needed on the client device.
 

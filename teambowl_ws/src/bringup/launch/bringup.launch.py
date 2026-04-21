@@ -199,7 +199,7 @@ def generate_launch_description():
     steamdeck_ui_arg = DeclareLaunchArgument(
         'steamdeck_ui',
         default_value='phone',
-        description='steamdeck web UI mode: phone (default, 3 big buttons) or full (trajectory/gains/map)')
+        description='steamdeck web UI mode: phone (default, 3 big buttons), rescue (4-direction teleop D-pad), or full (trajectory/gains/map)')
     steamdeck_ui = LaunchConfiguration('steamdeck_ui')
 
     foxglove_arg = DeclareLaunchArgument(
@@ -233,6 +233,13 @@ def generate_launch_description():
                     'Off by default to reduce console noise.')
     verbose_controllers = LaunchConfiguration('verbose_controllers')
 
+    use_yolo26_arg = DeclareLaunchArgument(
+        'use_yolo26',
+        default_value='false',
+        description='Launch yolo26_node for ML person detection alongside cam_ops. '
+                    'Requires ~/TeamBowl/models/yolo26n.engine (run export_yolo26.py first).')
+    use_yolo26 = LaunchConfiguration('use_yolo26')
+
     return LaunchDescription([
 
         steamdeck_ui_arg,
@@ -240,6 +247,7 @@ def generate_launch_description():
         leg_controller_arg,
         velocity_controller_arg,
         verbose_controllers_arg,
+        use_yolo26_arg,
 
         oak_camera,
         robstride_driver,
@@ -491,6 +499,22 @@ def generate_launch_description():
                     package='perception',
                     executable='cam_ops',
                     name='cam_ops_node',
+                    output='screen',
+                    parameters=[perception_config],
+                    respawn=True,
+                    respawn_delay=3.0,
+                ),
+            ]
+        ),
+
+        TimerAction(
+            period=10.0,
+            actions=[
+                Node(
+                    condition=IfCondition(use_yolo26),
+                    package='perception',
+                    executable='yolo26_node',
+                    name='yolo26_node',
                     output='screen',
                     parameters=[perception_config],
                     respawn=True,

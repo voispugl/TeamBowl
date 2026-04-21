@@ -228,6 +228,117 @@ connect();
 </html>
 """
 
+_HTML_RESCUE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TeamBowl Rescue</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none}
+body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480px;margin:auto;touch-action:manipulation}
+.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.hdr h2{color:#f80;font-size:20px}
+.ws-dot{width:12px;height:12px;border-radius:50%;background:#f44;display:inline-block;margin-right:6px}
+.ws-dot.ok{background:#4f4}
+#ws-label{font-size:13px}
+.top-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.btn{display:block;width:100%;min-height:14vh;font-size:clamp(2rem,8vw,4rem);font-weight:bold;
+  border:none;border-radius:16px;cursor:pointer;color:#fff;letter-spacing:2px;touch-action:manipulation}
+.btn-enable{background:#1a6b1a}.btn-enable:active{background:#2a9b2a}
+.btn-kill{background:#7a1a1a}.btn-kill:active{background:#c02020}
+.dpad{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:8px;
+  width:min(90vw,320px);margin:0 auto 20px;aspect-ratio:1}
+.dpad-btn{display:flex;align-items:center;justify-content:center;background:#2a2a2a;border:2px solid #444;
+  border-radius:12px;font-size:clamp(2rem,9vw,3.5rem);cursor:pointer;touch-action:none;
+  border-radius:12px;transition:background 0.05s}
+.dpad-btn:active,.dpad-btn.held{background:#3a5a3a;border-color:#4f4}
+.dpad-empty{background:transparent;border:none}
+.diag{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px}
+.diag h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #2a2a2a;font-size:15px}
+.row:last-child{border-bottom:none}
+.key{color:#888}.val{font-weight:bold}
+.ok{color:#4f4}.warn{color:#fa0}.err{color:#f44}.info{color:#4af}.dim{color:#666}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h2>&#x26A0; Rescue Teleop</h2>
+  <span><span class="ws-dot" id="ws-dot"></span><span id="ws-label">Connecting…</span></span>
+</div>
+
+<div class="top-row">
+  <button class="btn btn-enable" onclick="send({type:'clear_estop'});send({type:'set_mode',mode:'driving'})">ENABLE</button>
+  <button class="btn btn-kill"   onclick="send({type:'estop'})">KILL</button>
+</div>
+
+<div class="dpad">
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-fwd"  onpointerdown="startDrive(0.3,0,this)"  onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25B2;</div>
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-left" onpointerdown="startDrive(0,0.6,this)"  onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25C4;</div>
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-right"onpointerdown="startDrive(0,-0.6,this)" onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25BA;</div>
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-back" onpointerdown="startDrive(-0.15,0,this)"onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25BC;</div>
+  <div class="dpad-empty"></div>
+</div>
+
+<div class="diag">
+  <h3>Status</h3>
+  <div class="row"><span class="key">Mode</span>   <span class="val info" id="mode-val">—</span></div>
+  <div class="row"><span class="key">E-stop</span> <span class="val ok"   id="estop-val">—</span></div>
+</div>
+
+<script>
+const wsUrl = 'ws://' + location.host + '/ws';
+let ws = null;
+let _driveTimer = null;
+let _curVx = 0, _curWz = 0;
+
+function connect() {
+  ws = new WebSocket(wsUrl);
+  ws.onopen  = () => setWs(true);
+  ws.onclose = () => { setWs(false); setTimeout(connect, 2000); };
+  ws.onerror = () => {};
+  ws.onmessage = (e) => { try { const d=JSON.parse(e.data); if(d.type==='push') handlePush(d); } catch(_){} };
+}
+function setWs(ok) {
+  document.getElementById('ws-dot').className = 'ws-dot'+(ok?' ok':'');
+  document.getElementById('ws-label').textContent = ok ? 'Connected' : 'Disconnected — retrying…';
+}
+function send(obj) { if(ws && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+function set(id, text, cls) {
+  const el=document.getElementById(id); if(!el) return;
+  el.textContent=text; el.className='val '+(cls||'dim');
+}
+function setBool(id, val, alarmOnTrue) {
+  set(id, val?'YES':'NO', val?(alarmOnTrue?'err':'ok'):(alarmOnTrue?'ok':'warn'));
+}
+function handlePush(d) {
+  set('mode-val', d.mode||'—', d.mode==='driving'?'info':'warn');
+  setBool('estop-val', d.estop, true);
+}
+function startDrive(vx, wz, el) {
+  el.setPointerCapture(event.pointerId);
+  el.classList.add('held');
+  _curVx=vx; _curWz=wz;
+  send({type:'teleop_vel',vx:vx,wz:wz});
+  if(_driveTimer) clearInterval(_driveTimer);
+  _driveTimer = setInterval(()=>send({type:'teleop_vel',vx:_curVx,wz:_curWz}), 100);
+}
+function stopDrive(el) {
+  el.classList.remove('held');
+  if(_driveTimer){ clearInterval(_driveTimer); _driveTimer=null; }
+  send({type:'teleop_vel',vx:0,wz:0});
+}
+connect();
+</script>
+</body>
+</html>
+"""
+
 _HTML_PAGE = _HTML_FULL = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -655,10 +766,11 @@ class SteamDeckWSTeleop(Node):
         self.declare_parameter('vesc_gains_echo_topic',    '/vesc_gains_echo')
         self.declare_parameter('vesc_gains_topic',         '/vesc_gains')
         self.declare_parameter('set_pose_topic',           '/set_pose')
+        self.declare_parameter('teleop_vel_topic',         '/cmd_vel_auto')
 
         p = self.get_parameter
         _ui_mode = str(p('ui_mode').value)
-        self._html = _HTML_PHONE if _ui_mode == 'phone' else _HTML_FULL
+        self._html = _HTML_RESCUE if _ui_mode == 'rescue' else (_HTML_PHONE if _ui_mode == 'phone' else _HTML_FULL)
         self._ws_host           = str(p('ws_host').value)
         self._ws_port           = int(p('ws_port').value)
         self._map_push_rate     = float(p('map_push_rate_hz').value)
@@ -756,6 +868,7 @@ class SteamDeckWSTeleop(Node):
         self._driver_gains_pub  = self.create_publisher(String,     p('driver_gains_topic').value,     10)
         self._vesc_gains_pub    = self.create_publisher(String,     p('vesc_gains_topic').value,       10)
         self._set_pose_pub      = self.create_publisher(PoseWithCovarianceStamped, p('set_pose_topic').value, 10)
+        self._teleop_vel_pub    = self.create_publisher(Twist, p('teleop_vel_topic').value, 10)
 
         # --- Timers ---
         rate = float(p('joy_rate_hz').value)
@@ -1184,6 +1297,11 @@ class SteamDeckWSTeleop(Node):
             pose_msg.pose.pose.orientation.w = 1.0
             self._set_pose_pub.publish(pose_msg)
             self.get_logger().info('Odometry reset to origin.')
+        elif t == 'teleop_vel':
+            twist = Twist()
+            twist.linear.x = float(data.get('vx', 0.0))
+            twist.angular.z = float(data.get('wz', 0.0))
+            self._teleop_vel_pub.publish(twist)
 
     # ------------------------------------------------------------------
     # Auto mode setter

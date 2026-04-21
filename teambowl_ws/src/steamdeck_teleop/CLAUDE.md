@@ -1,5 +1,18 @@
 # steamdeck_teleop
 
+## 2026-04-21 — Added Rescue Teleop UI (ui_mode='rescue')
+
+**`steamdeck_teleop/steamdeck_ws_teleop.py`**:
+- Added `_HTML_RESCUE`: minimal phone-first page with ENABLE+KILL buttons and a 4-direction D-pad (↑FWD / ←LEFT | →RIGHT / ↓BACK). ENABLE sends both `clear_estop` and `set_mode:driving`. Hold-to-move via pointer events — `pointerdown` starts 100 ms `setInterval` sending `{type:'teleop_vel', vx, wz}`; `pointerup`/`pointercancel` clears interval and sends zero. Velocities: FWD=0.3, BACK=-0.15 m/s, LEFT/RIGHT ±0.6 rad/s.
+- Added `teleop_vel_topic` parameter (default `/cmd_vel_auto`).
+- Added `_teleop_vel_pub` publisher (`Twist`).
+- `_handle_panel_cmd` handles `type:'teleop_vel'`: publishes `Twist(linear.x=vx, angular.z=wz)`.
+- `ui_mode='rescue'` selects `_HTML_RESCUE`; fallback chain: rescue → phone → full.
+
+**`config/steamdeck_teleop.yaml`**: added `teleop_vel_topic: /cmd_vel_auto`.
+
+**Usage**: launch with `steamdeck_ui:=rescue` or set `ui_mode: rescue` in YAML. Robot must be in `driving` mode for motion (vel goes through vel_cmd_mux → driving_controller).
+
 ## 2026-04-20 — ENABLE button now clears e-stop instead of setting driving mode
 
 **`steamdeck_ws_teleop.py`**: Phone UI ENABLE button changed from `{type:'set_mode', mode:'driving'}` to `{type:'clear_estop'}`. Added `clear_estop` handler in `_handle_panel_cmd`: publishes `Bool(False)` to `/estop`. Previously there was no way to clear the estop from the web UI after hitting KILL — the robot stayed stopped even after re-setting a mode.

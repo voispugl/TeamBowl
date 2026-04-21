@@ -5,12 +5,12 @@ plan_wheels:
     cmd_vel_topic: /cmd_vel_auto
     target_timeout_s: 0.5
     publish_rate_hz: 20.0
-    follow_distance_m: 1.5
+    follow_distance_m: 1.25
     distance_deadband_m: 0.15
     lateral_deadband_m: 0.10
     k_linear: 0.8
     k_angular: 1.8
-    max_linear_x: 0.15
+    max_linear_x: 0.5
     max_angular_z: 0.8
     allow_reverse: true
     max_reverse_x: 0.15
@@ -40,7 +40,7 @@ follow_goal:
     base_frame: base_link
     world_frame: odom
     transform_timeout_s: 0.1
-    follow_distance_m: 1.5
+    follow_distance_m: 1.25
     min_goal_distance_m: 0.25
     goal_lateral_deadband_m: 0.05
     goal_update_rate_hz: 10.0
@@ -130,7 +130,7 @@ controller_server:
       batch_size: 2000
       vx_std: 0.2
       wz_std: 0.4
-      vx_max: 0.3
+      vx_max: 1.5
       vx_min: -0.5
       wz_max: 1.9
       iteration_count: 1

@@ -1,5 +1,39 @@
 # perception
 
+## 2026-04-21 — Added ByteTrack identity tracking to yolo26_node
+
+**`perception/yolo26_node.py`**: Replaced `model()` inference with `model.track(persist=True, tracker='bytetrack.yaml')`. ByteTrack assigns a persistent integer ID to each person across frames. Node auto-locks onto the largest person on first detection and follows that track ID. If the target is absent for `target_lost_timeout_s` (default 3s), the lock resets and re-locks on the next detection. New topic `/yolo26/target_id` (Int32, -1 = no lock) published every frame. Debug image marks the locked target in green (thick) and others in gray (thin).
+
+## 2026-04-21 — Added YOLO26 standalone node + TensorRT export pipeline
+
+**Goal**: ML-based person detection running on the Jetson GPU via TensorRT, alongside the existing pink HSV tracker (cam_ops unchanged).
+
+**New files:**
+- `perception/yolo26_node.py` — ROS2 node that loads a `yolo26n.engine` TensorRT model and runs YOLO26 inference on each synced RGB+depth frame. Publishes:
+  - `/yolo26/detections` (vision_msgs/Detection2DArray) — all person bounding boxes + confidence
+  - `/yolo26/user_pos` (geometry_msgs/PointStamped) — 3D position of largest (closest) person
+  - `/yolo26/user_valid` (std_msgs/Bool) — detection validity
+  - `/yolo26/debug_image` (sensor_msgs/Image) — annotated BGR view
+- `scripts/export_yolo26.py` — one-shot script to download `yolo26n.pt` and export a TRT FP16 engine to `~/TeamBowl/models/yolo26n.engine`. Run once on the Jetson before launching the node.
+
+**Modified files:**
+- `setup.py` — added `yolo26_node = perception.yolo26_node:main` entry point
+- `config/perception.yaml` — added `yolo26_node` parameter block (`model_path`, `min_confidence`, depth limits)
+
+**bringup.launch.py** — added `use_yolo26` launch arg (default `false`) and conditional TimerAction(10s) for `yolo26_node`. Enable with: `ros2 launch bringup bringup.launch.py use_yolo26:=true`
+
+**ML stack installed (system-wide pip):**
+- `torch 2.10.0` + `torchvision 0.25.0` — Ultralytics Jetson ARM64 wheels (replace the broken nv24.8 / PyPI pairing)
+- `ultralytics 8.4.40` — supports YOLO26 models
+- `onnxruntime-gpu 1.23.0` — Jetson ARM64 wheel for ONNX export path
+- `cudss 0.7.1` — installed via local .deb for TensorRT solver support
+
+**To export the engine (first time):**
+```bash
+python3 ~/TeamBowl/teambowl_ws/src/perception/scripts/export_yolo26.py
+```
+Takes ~10 min. Engine is saved to `~/TeamBowl/models/yolo26n.engine`.
+
 ## 2026-04-21 — Fixed ApproximateTimeSynchronizer never firing + 5 Hz OAK-D rate
 
 **Root cause**: The ATS included `info_sub` (CameraInfo) in the synchronizer alongside RGB and depth. CameraInfo timestamps don't match image frame timestamps in depthai_ros_driver, so the ATS queue never found a valid triple and never called `synchronized_callback`. Additionally, the OAK-D was running at ~8/13 Hz with variable jitter, making slop-based matching unreliable.

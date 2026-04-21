@@ -25,7 +25,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-	    'cam_ops = perception.cam_ops:main'
+            'cam_ops = perception.cam_ops:main',
+            'yolo26_node = perception.yolo26_node:main',
         ],
     },
 )

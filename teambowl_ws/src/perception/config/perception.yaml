@@ -12,6 +12,18 @@ cam_ops_node:
     min_depth_m: 0.2
     max_depth_m: 8.0
     depth_window_radius_px: 2
+yolo26_node:
+  ros__parameters:
+    image_topic: /oak/rgb/image_raw
+    depth_topic: /oak/stereo/image_raw
+    camera_info_topic: /oak/rgb/camera_info
+    model_path: /home/box/TeamBowl/models/yolo26s.onnx
+    min_confidence: 0.5
+    min_depth_m: 0.2
+    max_depth_m: 8.0
+    depth_window_radius_px: 2
+    target_lost_timeout_s: 3.0
+
     point_cloud:
       i_enable_feature: true
       i_output_frame: "oak_rgb_camera_optical_frame"
