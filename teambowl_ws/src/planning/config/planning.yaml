@@ -5,7 +5,7 @@ plan_wheels:
     cmd_vel_topic: /cmd_vel_auto
     target_timeout_s: 0.5
     publish_rate_hz: 20.0
-    follow_distance_m: 1.25
+    follow_distance_m: 1.0
     distance_deadband_m: 0.15
     lateral_deadband_m: 0.10
     k_linear: 0.8
@@ -40,7 +40,7 @@ follow_goal:
     base_frame: base_link
     world_frame: odom
     transform_timeout_s: 0.1
-    follow_distance_m: 1.25
+    follow_distance_m: 1.0
     min_goal_distance_m: 0.25
     goal_lateral_deadband_m: 0.05
     goal_update_rate_hz: 10.0
