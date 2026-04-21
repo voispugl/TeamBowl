@@ -225,6 +225,9 @@ Common packages to rebuild after edits:
 
 ## TODO
 
+- [ ] **YOLO perception** — replace pink-blob detector with YOLOv8 + ByteTrack + Re-ID.
+  Requires Docker (Jetson PyTorch CUDA deps are complex to install natively). See branch `try-yolo-perception`.
+
 - [ ] **Dockerize** — containerize the full robot stack so bringup, drivers, and
   dependencies are fully encapsulated and reproducible across machines.
 

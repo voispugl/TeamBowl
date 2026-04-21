@@ -1,5 +1,20 @@
 # bringup
 
+## 2026-04-21 — Switched OAK-D params_file to bringup/config/oak_cam.yaml (5 Hz)
+
+**`launch/bringup.launch.py`**: Changed `params_file` from `depthai_ros_driver/config/rgbd.yaml` to `bringup/config/oak_cam.yaml` (our own file). The depthai default had no FPS setting (~30 Hz), causing CPU overload and making the ATS slop window unreliable.
+
+**`config/oak_cam.yaml`** (new file): Sets `rgb.i_fps: 5.0`, `stereo.i_fps: 5.0`, `rgb.i_resolution: '720'`, `stereo.i_align_depth: true`, `stereo.i_subpixel: true`, `camera.i_nn_type: none`.
+
+
+## 2026-04-20 — Delayed cam_ops startup by 10s to fix OAK-D race condition
+
+**`launch/bringup.launch.py`**: Wrapped `cam_ops_node` in a `TimerAction(period=10.0)`. The OAK-D camera takes ~6s to start streaming after the component container loads. If cam_ops subscribes before images flow, the `message_filters.ApproximateTimeSynchronizer` never fires and detection stays broken for the entire session. 10s delay ensures the camera is always ready. `respawn=True, respawn_delay=3.0` kept as a safety net for later crashes.
+
+## 2026-04-20 — Added respawn to cam_ops node
+
+**`launch/bringup.launch.py`**: Added `respawn=True, respawn_delay=3.0` to `cam_ops_node`. Without this, if the node crashed (e.g., due to image sync failure or OAK-D timing issue at startup) it would stay dead until the full stack was restarted. 3s delay gives the OAK-D driver time to stabilize before cam_ops reconnects.
+
 ## 2026-04-20 — Re-added follow_goal + follow_executor (auton person-following)
 
 **`launch/bringup.launch.py`**: Re-added `follow_goal` and `follow_executor` nodes

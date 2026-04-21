@@ -9,7 +9,23 @@
       "Bash(timeout 3 ros2 topic echo /user_pos)",
       "Bash(timeout 3 ros2 topic echo /robot_mode --once)",
       "Bash(timeout 3 ros2 topic echo /follow_goal --once)",
-      "Bash(timeout 3 ros2 topic echo /user_valid --once)"
+      "Bash(timeout 3 ros2 topic echo /user_valid --once)",
+      "Bash(ros2 action *)",
+      "Bash(ros2 topic *)",
+      "Bash(kill 73392 sleep 5 timeout 6 ros2 topic echo /rosout --field msg)",
+      "Bash(awk '{print $2, $9, $11}')",
+      "Bash(python3 -c \"import cv2; print\\(cv2.getBuildInformation\\(\\)\\)\")",
+      "Bash(python3 -c \"import numba; from numba import cuda; print\\(cuda.detect\\(\\)\\)\")",
+      "Bash(pip3 index *)",
+      "Bash(python3 -c \"import ctypes; ctypes.CDLL\\('libcuda.so.1'\\); print\\('libcuda ok'\\)\")",
+      "Bash(tegrastats)",
+      "Bash(apt list *)",
+      "Read(//usr/local/**)",
+      "Bash(python3 -c \"import scipy; print\\('scipy', scipy.__version__\\)\")",
+      "Bash(python3 -c \"import rclpy; print\\('rclpy OK'\\)\")",
+      "Bash(python3 -c \"from cv_bridge import CvBridge; print\\('cv_bridge OK'\\)\")",
+      "Bash(curl -s \"https://developer.download.nvidia.com/compute/redist/jp/v62/pytorch/\")",
+      "Bash(curl -s \"https://developer.download.nvidia.com/compute/redist/jp/v61/pytorch/\")"
     ],
     "additionalDirectories": [
       "/home/box/TeamBowl"

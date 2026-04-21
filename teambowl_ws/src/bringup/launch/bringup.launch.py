@@ -1,6 +1,6 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
@@ -117,9 +117,9 @@ def generate_launch_description():
             'rectify_rgb': 'true',
             'pointcloud.enable': 'true',
             'params_file': os.path.join(
-                get_package_share_directory('depthai_ros_driver'),
+                get_package_share_directory('bringup'),
                 'config',
-                'rgbd.yaml',
+                'oak_cam.yaml',
             ),
             'parent_frame': 'base_link',
             'cam_pos_x': str(cam_translation[0]),
@@ -484,12 +484,19 @@ def generate_launch_description():
             parameters=[planning_config],
         ),
 
-        Node(
-            package='perception',
-            executable='cam_ops',
-            name='cam_ops_node',
-            output='screen',
-            parameters=[perception_config],
+        TimerAction(
+            period=10.0,
+            actions=[
+                Node(
+                    package='perception',
+                    executable='cam_ops',
+                    name='cam_ops_node',
+                    output='screen',
+                    parameters=[perception_config],
+                    respawn=True,
+                    respawn_delay=3.0,
+                ),
+            ]
         ),
 
         # Lid controller: drives RS05 motor (cargo bay lid) between open/close.

@@ -1,5 +1,18 @@
 # planning
 
+## 2026-04-21 — Reduced planner/controller load (person-following tuning)
+
+**`config/planning.yaml`**:
+- `max_planning_time: 5.0 → 0.5` — fail fast and replan next tick rather than blocking 5s
+- `lookup_table_size: 20.0 → 10.0` — halves startup precompute for SmacPlannerHybrid
+- `controller_frequency: 20.0 → 10.0` — halves MPPI cost (112K → 56K trajectory evals/step)
+- `batch_size: 2000 → 1000` — halves MPPI trajectories per step
+
+
+## 2026-04-20 — Fixed follow_goal TF timestamp lookup causing silent goal drop
+
+**`planning/follow_goal.py`**: `_transform_point_msg` was using `Time.from_msg(msg.header.stamp)` (the camera image timestamp) for TF lookup. TF2 can fail to find a transform at that exact historical time if the buffer doesn't go back far enough, causing silent `TransformException` and no `/follow_goal` output. Changed to `Time()` (latest available transform), which always works for the static `oak_rgb_camera_optical_frame → base_link` transform.
+
 ## 2026-04-20 — Smoothed auton person-following: replan rate, min goal change, max velocity
 
 **`config/planning.yaml`**:

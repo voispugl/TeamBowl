@@ -154,7 +154,7 @@ class FollowGoal(Node):
         return result
 
     def _transform_point_msg(self, msg: PointStamped, target_frame: str) -> PointStamped | None:
-        transform = self._lookup_transform(target_frame, msg.header.frame_id, Time.from_msg(msg.header.stamp))
+        transform = self._lookup_transform(target_frame, msg.header.frame_id, Time())
         if transform is None:
             return None
         xyz = np.array([msg.point.x, msg.point.y, msg.point.z], dtype=np.float64)
