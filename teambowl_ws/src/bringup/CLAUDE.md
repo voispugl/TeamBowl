@@ -1,5 +1,15 @@
 # bringup
 
+## 2026-04-20 — Re-added follow_goal + follow_executor (auton person-following)
+
+**`launch/bringup.launch.py`**: Re-added `follow_goal` and `follow_executor` nodes
+(both removed 2026-04-19). The previous cross-talk with `trajectory_test` was caused by
+a bug in `follow_executor._tick()` — it was sending Nav2 goals even in `driving` mode.
+That bug is now fixed; the nodes are safe to run alongside `trajectory_test`.
+
+Mode isolation: `follow_executor` is active in `auton` mode only; `trajectory_test` is
+active in `driving`/`balance` mode only. They never compete on the Nav2 action server.
+
 ## 2026-04-20 — Added steamdeck_teleop to bringup; phone UI + full UI modes
 
 **`launch/bringup.launch.py`**: Added `steamdeck_ws_teleop` node (optional, same try/except pattern as foxglove_bridge). Added `steamdeck_ui` launch argument (default `phone`):

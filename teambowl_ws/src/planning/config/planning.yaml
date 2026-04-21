@@ -53,8 +53,8 @@ follow_executor:
   ros__parameters:
     goal_topic: /follow_goal
     goal_timeout_s: 0.75
-    replan_rate_hz: 2.0
-    min_goal_change_m: 0.10
+    replan_rate_hz: 1.0
+    min_goal_change_m: 0.25
     min_goal_change_rad: 0.20
     planner_action_name: /compute_path_to_pose
     controller_action_name: /follow_path
@@ -130,7 +130,7 @@ controller_server:
       batch_size: 2000
       vx_std: 0.2
       wz_std: 0.4
-      vx_max: 0.5
+      vx_max: 0.3
       vx_min: -0.5
       wz_max: 1.9
       iteration_count: 1
@@ -187,7 +187,7 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        consider_footprint: true
+        consider_footprint: false
         collision_cost: 1000000.0
         near_goal_distance: 1.0
 

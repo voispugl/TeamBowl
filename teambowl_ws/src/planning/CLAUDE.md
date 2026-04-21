@@ -1,5 +1,25 @@
 # planning
 
+## 2026-04-20 — Smoothed auton person-following: replan rate, min goal change, max velocity
+
+**`config/planning.yaml`**:
+- `follow_executor.replan_rate_hz`: 2.0 → 1.0 — fewer cancel/replan interruptions per second
+- `follow_executor.min_goal_change_m`: 0.10 → 0.25 — only replan when goal moves ≥ 25 cm
+- `FollowPath.vx_max`: 0.5 → 0.3 m/s — reduces aggressive acceleration during following
+
+## 2026-04-20 — Fixed follow_executor cross-talk bug; re-added to bringup
+
+**`planning/follow_executor.py`**: `_tick()` was erroneously calling `_request_path()` even
+when `robot_mode != autonomous_mode_name` (e.g., during `driving`-mode trajectory tests).
+This caused competing Nav2 action goals → "Planner rejected goal" cross-talk with
+`trajectory_test`. Fixed to `return` immediately when not in auton mode. Mode-exit
+cancellation is already handled by `_mode_cb`.
+
+**`bringup/launch/bringup.launch.py`**: Re-added `follow_goal` and `follow_executor` nodes
+(removed 2026-04-19). Now safe to coexist with `trajectory_test` because the two nodes
+use separate robot modes: `follow_executor` only sends Nav2 goals in `auton` mode,
+`trajectory_test` only sends goals in `driving`/`balance` mode.
+
 ## Package overview
 
 ROS2 Python package for autonomous following behavior and trajectory testing.

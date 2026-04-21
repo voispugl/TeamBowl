@@ -47,6 +47,7 @@ steamdeck_ws_teleop:
     driving_gains_echo_topic: /driving_gains_echo
     trajectory_status_topic: /trajectory_status
     leg_running_topic: /leg_controller_running
+    user_valid_topic: /user_valid
 
     cmd_vel_topic: /cmd_vel
     cmd_vel_safe_topic: /cmd_vel_safe

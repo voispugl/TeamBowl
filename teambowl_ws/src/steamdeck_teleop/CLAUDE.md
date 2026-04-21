@@ -1,5 +1,25 @@
 # steamdeck_teleop
 
+## 2026-04-20 — ENABLE button now clears e-stop instead of setting driving mode
+
+**`steamdeck_ws_teleop.py`**: Phone UI ENABLE button changed from `{type:'set_mode', mode:'driving'}` to `{type:'clear_estop'}`. Added `clear_estop` handler in `_handle_panel_cmd`: publishes `Bool(False)` to `/estop`. Previously there was no way to clear the estop from the web UI after hitting KILL — the robot stayed stopped even after re-setting a mode.
+
+## 2026-04-20 — Added Person detection indicator to diagnostics panel
+
+**`steamdeck_ws_teleop.py`**:
+- Added `user_valid_topic` parameter (default `/user_valid`).
+- Added `_user_valid` state + `_user_valid_cb` subscription (BEST_EFFORT Bool).
+- `_build_push_msg()` includes `user_valid`.
+- Both `_HTML_PHONE` and `_HTML_FULL` diagnostics: added **Person** row — green "YES" when detected, red "NO" when not.
+- Both `handlePush` JS blocks: `setBool('person-val', d.user_valid, false)`.
+
+**`config/steamdeck_teleop.yaml`**: added `user_valid_topic: /user_valid`.
+
+## 2026-04-20 — Phone UI: changed OPEN LID → TOGGLE LID
+
+**`steamdeck_ws_teleop.py`** `_HTML_PHONE`: changed lid button from `cmd:'open'` to
+`cmd:'toggle'` and label from `OPEN LID` to `TOGGLE LID`.
+
 ## 2026-04-20 — Pitch fallover warning banner in both UIs
 
 **`steamdeck_teleop/steamdeck_ws_teleop.py`**:

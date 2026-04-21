@@ -71,6 +71,8 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
 .btn-reset:active{background:#9a6000}
 .btn-kill{background:#7a1a1a}
 .btn-kill:active{background:#c02020}
+.btn-auton{background:#4a1a6b}
+.btn-auton:active{background:#7a2aa0}
 .diag{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px}
 .diag h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #2a2a2a;font-size:15px}
@@ -86,8 +88,9 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
   <span><span class="ws-dot" id="ws-dot"></span><span id="ws-label">Connecting…</span></span>
 </div>
 
-<button class="btn btn-enable" onclick="send({type:'set_mode',mode:'driving'})">ENABLE</button>
-<button class="btn btn-lid"    onclick="send({type:'lid_cmd',cmd:'open'})">OPEN LID</button>
+<button class="btn btn-enable" onclick="send({type:'clear_estop'})">ENABLE</button>
+<button class="btn btn-auton"  onclick="send({type:'set_mode',mode:'auton'})">AUTON</button>
+<button class="btn btn-lid"    onclick="send({type:'lid_cmd',cmd:'toggle'})">TOGGLE LID</button>
 <button class="btn btn-reset"  onclick="send({type:'reset_odom'})">RESET ODOM</button>
 <button class="btn btn-kill"   onclick="send({type:'estop'})">KILL</button>
 
@@ -103,6 +106,7 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
   <div class="row"><span class="key">Battery</span>   <span class="val dim"  id="battery-val">—</span></div>
   <div class="row"><span class="key">Legs</span>      <span class="val dim"  id="legs-val">—</span></div>
   <div class="row"><span class="key">Planner</span>   <span class="val dim"  id="planner-val">—</span></div>
+  <div class="row"><span class="key">Person</span>    <span class="val dim"  id="person-val">—</span></div>
   <div class="row"><span class="key">Pitch</span>      <span class="val dim"  id="pitch-val">—</span></div>
   <div class="row"><span class="key">Ctrl in v/ω</span><span class="val dim" id="ctrl-in-val">—</span></div>
   <div class="row"><span class="key">Motor v/ω</span>  <span class="val dim" id="motor-val">—</span></div>
@@ -184,6 +188,7 @@ function handlePush(d) {
   if(d.battery_v!=null){const v=d.battery_v;set('battery-val',v.toFixed(1)+' V',v<42?'err':v<44?'warn':'ok');}
   if(d.legs_running!=null)  setBool('legs-val',    d.legs_running,  false);
   if(d.planner_ready!=null) setBool('planner-val', d.planner_ready, false);
+  if(d.user_valid!=null)    setBool('person-val',  d.user_valid,    false);
   if(d.ctrl_in_vx!=null) set('ctrl-in-val', d.ctrl_in_vx.toFixed(3)+' / '+d.ctrl_in_wz.toFixed(3), 'dim');
   if(d.motor_vx!=null)   set('motor-val',   d.motor_vx.toFixed(3)+' / '+d.motor_wz.toFixed(3), 'info');
   if(d.driving_gains){try{
@@ -291,6 +296,7 @@ label{color:#888;font-size:12px}
     <div class="row"><span class="key">Odom θ</span><span class="val dim" id="odom-th">—</span></div>
     <div class="row"><span class="key">Planner</span><span class="val dim" id="planner-val">—</span></div>
     <div class="row"><span class="key">Legs</span><span class="val dim" id="legs-val">—</span></div>
+    <div class="row"><span class="key">Person</span><span class="val dim" id="person-val">—</span></div>
     <div class="row"><span class="key">Pitch</span><span class="val dim" id="pitch-val">—</span></div>
     <div class="row"><span class="key">Ctrl in (v/ω)</span><span class="val dim" id="ctrl-in-val">—</span></div>
     <div class="row"><span class="key">Motor cmd (v/ω)</span><span class="val dim" id="motor-val">—</span></div>
@@ -449,6 +455,7 @@ function handlePush(d) {
   }
   if (d.planner_ready != null) setBool('planner-val', d.planner_ready, false);
   if (d.legs_running != null)  setBool('legs-val',   d.legs_running,  false);
+  if (d.user_valid != null)    setBool('person-val', d.user_valid,    false);
   if (d.ctrl_in_vx  != null) set('ctrl-in-val', d.ctrl_in_vx.toFixed(3)+' / '+d.ctrl_in_wz.toFixed(3), 'dim');
   if (d.motor_vx    != null) set('motor-val',   d.motor_vx.toFixed(3)+' / '+d.motor_wz.toFixed(3), 'info');
   if (d.traj_status) {
@@ -639,6 +646,7 @@ class SteamDeckWSTeleop(Node):
         self.declare_parameter('driving_gains_echo_topic', '/driving_gains_echo')
         self.declare_parameter('trajectory_status_topic',  '/trajectory_status')
         self.declare_parameter('leg_running_topic',         '/leg_controller_running')
+        self.declare_parameter('user_valid_topic',          '/user_valid')
         self.declare_parameter('battery_voltage_topic',    '/vesc/battery_voltage')
         self.declare_parameter('cmd_vel_topic',            '/cmd_vel')
         self.declare_parameter('cmd_vel_safe_topic',       '/cmd_vel_safe')
@@ -680,6 +688,7 @@ class SteamDeckWSTeleop(Node):
         self._vesc_gains_echo = ''
         self._driving_gains_echo = ''
         self._leg_running = False
+        self._user_valid = False
         self._battery_voltage: float | None = None
         self._latest_cmd_vel: Twist | None = None
         self._latest_cmd_vel_safe: Twist | None = None
@@ -728,6 +737,7 @@ class SteamDeckWSTeleop(Node):
         self.create_subscription(String,        p('driving_gains_echo_topic').value,  self._driving_gains_echo_cb,  reliable)
         self.create_subscription(String,        p('trajectory_status_topic').value,  self._traj_status_cb,        reliable)
         self.create_subscription(Bool,          p('leg_running_topic').value,        self._leg_running_cb,        reliable_tl)
+        self.create_subscription(Bool,          p('user_valid_topic').value,         self._user_valid_cb,         best_effort)
         self.create_subscription(Float64,       p('battery_voltage_topic').value,    self._battery_voltage_cb,    best_effort)
         self.create_subscription(Twist,         p('cmd_vel_topic').value,            self._cmd_vel_cb,            best_effort)
         self.create_subscription(Twist,         p('cmd_vel_safe_topic').value,       self._cmd_vel_safe_cb,       best_effort)
@@ -873,6 +883,7 @@ class SteamDeckWSTeleop(Node):
         msg['planner_ready'] = '/compute_path_to_pose/_action/send_goal' in \
             [s for s, _ in self.get_service_names_and_types()]
         msg['legs_running']  = self._leg_running
+        msg['user_valid']    = self._user_valid
         if self._battery_voltage is not None:
             msg['battery_v'] = round(self._battery_voltage, 1)
 
@@ -966,6 +977,9 @@ class SteamDeckWSTeleop(Node):
 
     def _leg_running_cb(self, msg: Bool):
         self._leg_running = bool(msg.data)
+
+    def _user_valid_cb(self, msg: Bool):
+        self._user_valid = bool(msg.data)
 
     def _battery_voltage_cb(self, msg: Float64):
         self._battery_voltage = float(msg.data)
@@ -1125,7 +1139,11 @@ class SteamDeckWSTeleop(Node):
     def _handle_panel_cmd(self, data: dict):
         t = data.get('type')
         msg = String()
-        if t == 'estop':
+        if t == 'clear_estop':
+            estop_msg = Bool(); estop_msg.data = False
+            self._estop_pub.publish(estop_msg)
+            self.get_logger().info('E-stop cleared via web UI.')
+        elif t == 'estop':
             estop_msg = Bool(); estop_msg.data = True
             self._estop_pub.publish(estop_msg)
             msg.data = 'off'

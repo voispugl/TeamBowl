@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip3 show *)",
+      "Read(//usr/include/linux/**)",
+      "Bash(timeout 3 ros2 topic echo /user_valid)",
+      "Bash(timeout 3 ros2 topic echo /follow_goal)",
+      "Bash(wait)",
+      "Bash(timeout 3 ros2 topic echo /user_pos)",
+      "Bash(timeout 3 ros2 topic echo /robot_mode --once)",
+      "Bash(timeout 3 ros2 topic echo /follow_goal --once)",
+      "Bash(timeout 3 ros2 topic echo /user_valid --once)"
+    ],
+    "additionalDirectories": [
+      "/home/box/TeamBowl"
+    ]
+  }
+}
