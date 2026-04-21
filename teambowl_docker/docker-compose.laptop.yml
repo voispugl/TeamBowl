@@ -1,0 +1,25 @@
+services:
+  teambowl-laptop:
+    build:
+      context: .
+      dockerfile: Dockerfile.laptop
+    image: teambowl:laptop
+    container_name: teambowl_laptop
+    network_mode: host   # required for ROS2 DDS discovery + Foxglove bridge reachability
+    ipc: host            # required for ROS2 shared memory transport
+    stdin_open: true
+    tty: true
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      # X11 display forwarding — run `xhost +local:docker` on host first
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      # Workspace source — set TEAMBOWL_WS env var or it defaults to ~/TeamBowl/teambowl_ws
+      - ${TEAMBOWL_WS:-${HOME}/TeamBowl/teambowl_ws}:/workspaces/teambowl_ws
+      # X11 socket for rviz2 / GUI tools
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    working_dir: /workspaces/teambowl_ws
+    # Default: interactive shell. Hardware drivers won't work without the robot.
+    # To run a specific stack: docker compose -f docker-compose.laptop.yml run --rm teambowl-laptop <cmd>
+    command: bash

@@ -119,10 +119,6 @@ class FollowExecutor(Node):
             return
 
         if self.robot_mode != self.autonomous_mode_name:
-            if self.last_planned_goal is None or self._goal_changed_enough(
-                self.last_planned_goal, self.latest_goal
-            ):
-                self._request_path(self.latest_goal)
             return
 
         if not self.planner_client.server_is_ready():

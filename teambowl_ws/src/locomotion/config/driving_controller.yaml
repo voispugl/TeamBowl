@@ -1,0 +1,50 @@
+driving_controller:
+  ros__parameters:
+
+    # ── Velocity PID ─────────────────────────────────────────────────────────
+    # Tracks commanded velocity from /cmd_vel_safe.
+    # Raise kp_vel until crisp response without oscillation.
+    # Add kd_vel to damp overshoot. Add ki_vel for steady-state error.
+    kp_vel:  1.0    # [m/s command / m/s error]
+    ki_vel:  0.2    # [m/s command / (m/s · s)] — 0.5-second sliding window
+    kd_vel:  0.05   # [m/s command · s / m/s error]
+
+    # ── Pitch PID ─────────────────────────────────────────────────────────────
+    # Corrects nose-dive during deceleration by reducing effective braking.
+    # Derivative uses a 3-sample weighted FIR to reduce IMU noise (~15 ms lag).
+    # Tune after velocity PID: command a hard stop, raise kp_pitch until
+    # nose-dip is clearly reduced, then add kd_pitch to damp oscillation.
+    kp_pitch: 0.0   # [m/s correction / rad]
+    kd_pitch: 0.0   # [m/s correction / (rad/s)]
+    ki_pitch: 0.0   # [m/s correction / (rad · s)] — start at 0
+
+    # ── Yaw PID ───────────────────────────────────────────────────────────────
+    # Additive correction on angular velocity. Default 0.0 = pure passthrough.
+    # Tune after velocity and pitch PIDs are stable. Start with kp_yaw ~1–3.
+    kp_yaw: 0.3     # [rad/s command / rad/s error]
+    ki_yaw: 0.2     # [rad/s command / (rad/s · s)] — 2-second sliding window
+    kd_yaw: 0.05     # [rad/s command · s / rad/s error]
+
+    # ── Decel feedforward ─────────────────────────────────────────────────────
+    # Anticipates pitch from commanded velocity change.
+    # If nose dips before pitch PID reacts, raise kff_decel slightly (0.02–0.1).
+    kff_decel: 0.0  # [rad / (m/s²)]
+
+    # ── Pitch reference offset ────────────────────────────────────────────────
+    # Static pitch trim. Positive shifts theta_ref forward (nose-down setpoint).
+    theta_eq_offset: -10.0   # [rad]
+
+    # ── Pitch limit (WARN only — no estop) ───────────────────────────────────
+    theta_max_pitch: 0.35  # [rad] ≈ 20°
+
+    # ── Output clamp ──────────────────────────────────────────────────────────
+    v_max: 3.0  # [m/s]
+
+    # ── Control rate ──────────────────────────────────────────────────────────
+    # All three PIDs (velocity, pitch, yaw) run in a single loop at this rate.
+    # IMU is 100 Hz; EKF odometry is 50 Hz (outer loop doesn't need to be faster).
+    control_rate_hz: 100.0
+
+    # ── Odometry staleness ────────────────────────────────────────────────────
+    # If EKF odometry is older than this, velocity PID falls back to v_actual=0.
+    odom_timeout_s: 0.30

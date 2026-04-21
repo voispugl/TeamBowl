@@ -1,8 +1,8 @@
 cmd_vel_to_vesc:
   ros__parameters:
     cmd_vel_topic: /cmd_vel
-    left_port: /dev/ttyACM0
-    right_port: /dev/ttyACM1
+    left_port: /dev/ttyACM1
+    right_port: /dev/ttyACM0
     estop_topic: /estop
     wheel_radius_m: 0.157485
     track_width_m: 0.568643
@@ -17,5 +17,14 @@ cmd_vel_to_vesc:
     print_RPM_cmds: false
     left_wheel_vel_topic: /wheel_vel_left
     right_wheel_vel_topic: /wheel_vel_right
-    feedback_poll_rate_hz: 20.0
+    feedback_poll_rate_hz: 50.0
     publish_wheel_feedback: true
+    # Velocity / yaw closed-loop PI (default 0.0 = open-loop, no change to existing behaviour)
+    kp_v: 0.0
+    ki_v: 0.0
+    kp_w: 0.0
+    ki_w: 0.0
+    vesc_integral_max: 2.0
+    vesc_gains_echo_topic: /vesc_gains_echo
+    vesc_gains_topic: /vesc_gains
+    robot_mode_topic: /robot_mode

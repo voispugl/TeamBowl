@@ -5,16 +5,16 @@ plan_wheels:
     cmd_vel_topic: /cmd_vel_auto
     target_timeout_s: 0.5
     publish_rate_hz: 20.0
-    follow_distance_m: 1.5
+    follow_distance_m: 1.0
     distance_deadband_m: 0.15
     lateral_deadband_m: 0.10
     k_linear: 0.8
     k_angular: 1.8
-    max_linear_x: 0.15
+    max_linear_x: 0.5
     max_angular_z: 0.8
-    allow_reverse: false
+    allow_reverse: true
     max_reverse_x: 0.15
-    turn_in_place_angle_only: true
+    turn_in_place_angle_only: false
     turn_only_lateral_threshold_m: 0.5
 
 nav_cloud_filter:
@@ -40,7 +40,7 @@ follow_goal:
     base_frame: base_link
     world_frame: odom
     transform_timeout_s: 0.1
-    follow_distance_m: 1.5
+    follow_distance_m: 1.0
     min_goal_distance_m: 0.25
     goal_lateral_deadband_m: 0.05
     goal_update_rate_hz: 10.0
@@ -53,8 +53,8 @@ follow_executor:
   ros__parameters:
     goal_topic: /follow_goal
     goal_timeout_s: 0.75
-    replan_rate_hz: 2.0
-    min_goal_change_m: 0.10
+    replan_rate_hz: 1.0
+    min_goal_change_m: 0.25
     min_goal_change_rad: 0.20
     planner_action_name: /compute_path_to_pose
     controller_action_name: /follow_path
@@ -73,29 +73,39 @@ planner_server:
     planner_plugins: ["GridBased"]
 
     GridBased:
-      plugin: "nav2_smac_planner/SmacPlanner2D"
-      tolerance: 0.125                      # tolerance for planning if unable to reach exact pose, in meters
-      downsample_costmap: false             # whether or not to downsample the map
-      downsampling_factor: 1                # multiplier for the resolution of the costmap layer (e.g. 2 on a 5cm costmap would be 10cm)
-      allow_unknown: true                   # allow traveling in unknown space
-      max_iterations: 1000000               # maximum total iterations to search for before failing (in case unreachable), set to -1 to disable
-      max_on_approach_iterations: 1000      # maximum number of iterations to attempt to reach goal once in tolerance
-      max_planning_time: 2.0                # max time in s for planner to plan, smooth
-      cost_travel_multiplier: 2.0           # Cost multiplier to apply to search to steer away from high cost areas. Larger values will place in the center of aisles more exactly (if non-`FREE` cost potential field exists) but take slightly longer to compute. To optimize for speed, a value of 1.0 is reasonable. A reasonable tradeoff value is 2.0. A value of 0.0 effective disables steering away from obstacles and acts like a naive binary search A*.
-      use_final_approach_orientation: false # Whether to set the final path pose at the goal's orientation to the requested orientation (false) or in line with the approach angle so the robot doesn't rotate to heading (true)
+      plugin: "nav2_smac_planner/SmacPlannerHybrid"
+      downsample_costmap: false
+      downsampling_factor: 1
+      tolerance: 0.25
+      allow_unknown: true
+      max_iterations: 1000000
+      max_planning_time: 5.0
+      motion_model_for_search: "REEDS_SHEPP"  # supports forward + reverse arcs
+      angle_quantization_bins: 36             # 10° resolution — faster startup
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 3.0
+      minimum_turning_radius: 0.2          # meters — tune to robot's actual min radius
+      reverse_penalty: 1.5                    # >1 prefers forward; 1.0 = equal cost
+      change_penalty: 0.05                    # small cost for direction changes
+      non_straight_penalty: 1.20
+      cost_penalty: 2.0
+      retrospective_penalty: 0.015
+      lookup_table_size: 20.0
+      cache_obstacle_heuristic: false
       smoother:
         max_iterations: 1000
         w_smooth: 0.3
         w_data: 0.2
         tolerance: 1.0e-10
+        do_refinement: true
 
 controller_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 20.0
-    min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.0
-    min_theta_velocity_threshold: 0.001
+    min_x_velocity_threshold: 0.05
+    min_y_velocity_threshold: 0.05
+    min_theta_velocity_threshold: 0.05
     failure_tolerance: 0.3
     odom_topic: /odometry/filtered
     progress_checker_plugins: ["progress_checker"]
@@ -104,27 +114,82 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.1
+      required_movement_radius: 0.05
       movement_time_allowance: 10.0
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
       xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.35
+      yaw_goal_tolerance: 0.1
 
     FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.5
-      lookahead_dist: 0.6
-      min_lookahead_dist: 0.3
-      max_lookahead_dist: 1.0
-      use_velocity_scaled_lookahead_dist: true
-      regulated_linear_scaling_min_radius: 0.9
-      use_rotate_to_heading: true
-      rotate_to_heading_angular_vel: 1.2
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 2000
+      vx_std: 0.2
+      wz_std: 0.4
+      vx_max: 1.5
+      vx_min: -0.5
+      wz_max: 1.9
+      iteration_count: 1
+      prune_distance: 1.7
       transform_tolerance: 0.2
-      allow_reversing: false
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: "DiffDrive"
+      visualize: false
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 3
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        forward_preference: true
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        critical_cost: 300.0
+        consider_footprint: false
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
 
 global_costmap:
   global_costmap:
@@ -189,4 +254,25 @@ lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: false
     autostart: true
+    bond_timeout: 20.0
     node_names: ["planner_server", "controller_server"]
+
+trajectory_test:
+  ros__parameters:
+    planner_action_name: /compute_path_to_pose
+    controller_action_name: /follow_path
+    planner_id: GridBased
+    controller_id: FollowPath
+    goal_checker_id: goal_checker
+    odom_topic: /odometry/filtered
+    mode_topic: /robot_mode
+    estop_topic: /estop
+    path_topic: /trajectory_path
+    status_topic: /trajectory_status
+    goal_topic: /trajectory_goal
+    cmd_topic: /trajectory_cmd
+    cmd_vel_topic: /cmd_vel_auto
+    replan_rate_hz: 2.0
+    min_goal_change_m: 0.10
+    min_goal_change_rad: 0.20
+    odom_timeout_s: 0.5

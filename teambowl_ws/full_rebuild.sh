@@ -25,6 +25,8 @@ colcon build --symlink-install --packages-select \
     planning \
     vesc_driver \
     state_estimation \
+    xsens_mti_ros2_driver \
+    steamdeck_teleop \
 
 echo "[build] Sourcing workspace overlay..."
 source install/setup.bash

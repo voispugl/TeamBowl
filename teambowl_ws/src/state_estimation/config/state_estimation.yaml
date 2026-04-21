@@ -5,7 +5,7 @@ diff_drive_odom:
     odom_topic: /wheel/odometry
     odom_frame: odom
     base_frame: base_link
-    wheel_radius_m: 0.157485
+    wheel_radius_m: 0.154     # from robot_constants.py WHEEL_RADIUS
     track_width_m: 0.568643
     left_sign: 1.0
     right_sign: 1.0
@@ -13,6 +13,7 @@ diff_drive_odom:
     publish_rate_hz: 50.0
     pose_covariance_diagonal: [0.05, 0.05, 99999.0, 99999.0, 99999.0, 0.1]
     twist_covariance_diagonal: [0.02, 0.02, 99999.0, 99999.0, 99999.0, 0.05]
+    max_wheel_speed_m_s: 3.0
 
 ekf_filter_node:
   ros__parameters:
@@ -26,21 +27,44 @@ ekf_filter_node:
     base_link_frame: base_link
     world_frame: odom
     odom0: /wheel/odometry
-    odom0_config: [true, true, false,
-                   false, false, true,
+    odom0_config: [false, false, false,
+                   false, false, false,
                    true, false, false,
                    false, false, true,
                    false, false, false]
     odom0_queue_size: 10
     odom0_differential: false
     odom0_relative: false
+    odom0_mahalanobis_threshold: 5.0
     imu0: /imu/data
-    imu0_config: [false, false, false,
-                  false, false, true,
-                  false, false, false,
-                  false, false, true,
-                  false, false, false]
+    imu0_config: [false, false, false,    # x, y, z position
+                  true,  true,  true,    # roll, pitch, yaw
+                  false, false, false,    # vx, vy, vz
+                  true,  true,  true,     # vroll, vpitch, vyaw (gyro)
+                  false,  false,  false]    # ax, ay, az
     imu0_queue_size: 10
     imu0_differential: false
-    imu0_relative: false
+    imu0_relative: true
+    imu0_mahalanobis_threshold: 3.0
     imu0_remove_gravitational_acceleration: false
+    # Process noise covariance Q (15x15 diagonal, flat 225-element list)
+    # Order: x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az
+    # Calibrated 2026-04-19 from Allan variance on imu_calib_20260419_194758 (74.1 min)
+    # Xsens Sirius 300: ARW=0.526 °/√hr, bias_instability=4.826 °/hr
+    # OAK-D Pro W:      ARW=0.227 °/√hr, bias_instability=9.121 °/hr
+    process_noise_covariance: [
+      5.000e-02, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       5.000e-02, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       6.000e-02, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       1.000e-08, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       1.000e-08, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       1.000e-08, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.563e-05, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.563e-05, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       6.000e-02, 0.0,       0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.170e-06, 0.0,       0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.170e-06, 0.0,       0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.170e-06, 0.0,       0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.563e-05, 0.0,       0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.563e-05, 0.0,
+      0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       0.0,       1.563e-05]

@@ -1,5 +1,224 @@
 # locomotion
 
+## 2026-04-20 — Driving controller zeros output immediately on mode change
+
+**`locomotion/driving_controller.py`**: `_on_mode` now calls `_publish_cmd(0.0, 0.0)` immediately when mode changes away from `driving`, eliminating a brief window where stale velocity was published to `/cmd_vel` before the next tick.
+
+## 2026-04-20 — Driving controller ki windows reduced from 2.0 s → 0.5 s
+
+**`locomotion/driving_controller.py`**: All three integral sliding windows (velocity, pitch, yaw) now prune samples older than 0.5 s (was 2.0 s). Faster windup decay; reduces overshoot from sustained error in any axis.
+
+## 2026-04-20 — Driving controller redesigned: parallel velocity + pitch + yaw PIDs
+
+**`locomotion/driving_controller.py`**:
+- Removed two-timer cascade (50 Hz outer + 100 Hz inner). Replaced with a **single `_tick` at `control_rate_hz` (default 100 Hz)**.
+- Three PIDs run in parallel each tick:
+  - **Velocity PID**: `u_vel = kp_vel*v_err + ki_vel*∫ + kd_vel*dv_err/dt`
+  - **Pitch PID** (nose-dive correction, 3-sample FIR derivative): `u_pitch = kp_pitch*pitch_err + kd_pitch*d_pitch + ki_pitch*∫`
+  - **Yaw PID** (new): `u_yaw = omega_cmd + kp_yaw*yaw_err + ki_yaw*∫ + kd_yaw*d_yaw` — additive, gains=0 → passthrough
+- `v_out = clamp(u_vel + u_pitch, -v_max, v_max)`, `omega_out = u_yaw`
+- Added `_yaw_dot` (from `angular_velocity.z`), `_yaw_err_prev`, `_yaw_i_window` state vars.
+- `/driving_gains_echo` now includes `kp_yaw`, `ki_yaw`, `kd_yaw`, `_yaw_dot`.
+- `/driving_gains` accepts `kp_yaw`, `ki_yaw`, `kd_yaw` for live tuning.
+
+**`config/driving_controller.yaml`**:
+- Replaced `outer_rate_hz` + `inner_rate_hz` with `control_rate_hz: 100.0`.
+- Added `kp_yaw: 0.0`, `ki_yaw: 0.0`, `kd_yaw: 0.0` with tuning comments.
+
+
+
+## 2026-04-20 — Yaw PD upgraded to PID (added ki_yaw)
+
+**`locomotion/balance_controller.py`**:
+- Added `ki_yaw` parameter (default 0.0, live-tunable via `/balance_gains`).
+- `_inner_tick`: yaw output is now `kp_yaw * yaw_err + ki_yaw * integral + (-kd_yaw * yaw_dot)` where integral uses a 1-second sliding window `_yaw_i_window` (same pattern as pitch integral).
+- `_yaw_i_window` cleared on mode exit (leaving balance mode) and on estop.
+- `/balance_gains_echo` and `_on_gains` updated to include `ki_yaw`.
+
+**`config/balance_controller.yaml`**: added `ki_yaw: 0.0`.
+
+## 2026-04-19 — driving_leg_controller publishes /leg_controller_running
+
+**`locomotion/driving_leg_controller.py`**: Added a 2 Hz TRANSIENT_LOCAL Bool publisher on
+`/leg_controller_running` that reflects `self._running`. Used by the steamdeck_teleop web UI
+to show a green/red "Legs" status box without any extra subscription overhead.
+
+## 2026-04-19 — Balance mode now accepts Nav2 autonomous goals
+
+**`locomotion/vel_cmd_mux.py`** — balance mode routing updated.
+Previously: balance mode only routed `/cmd_vel_teleop`.
+Now: balance mode routes `/cmd_vel_auto` if fresh, falls back to `/cmd_vel_teleop` if fresh, else zero.
+Nav2 goals can now drive the self-balancing controller. Teleop still works as a fallback.
+
+## 2026-04-19 — Disabled compass in EKF / IMU config
+
+**`config/ekf.yaml`** — set IMU yaw fusion to `false` (VRU mode has no magnetometer
+reference so yaw drifts; wheel odometry provides yaw instead). Roll/pitch still fused.
+
+**`src/drivers/xsens_mti_ros2_driver/param/xsens_mti_node.yaml`** — set
+`enable_filter_config: true`, `mti_filter_option: 4` (vru_general — no compass),
+`pub_mag: false`. Built xsens_mti_ros2_driver package for the first time.
+
+## 2026-04-20 — Reduced pitch integral window from 2.0s → 0.5s
+
+**`locomotion/balance_controller.py`** — `_inner_tick()` sliding-window pruning threshold changed from 2.0 → 0.5 seconds. Faster windup decay; reduces overshoot from sustained pitch error.
+
+## 2026-04-19 — Added balance controller tuning guide
+
+**`BALANCE_TUNING.md`**: Step-by-step tuning document for the cascaded PID balance
+controller. Covers architecture, live tuning via Foxglove `/balance_gains`, gain ordering
+(theta_eq_offset → kp_pitch → kd_pitch → ki_pitch → outer PI → yaw), symptom tables,
+safety limits, and Foxglove panel setup.
+
+## 2026-04-19 — Reverted lid_controller from PP mode back to MIT mode
+
+PP position mode was broken in practice. Reverted both files to the pre-PP-mode git HEAD.
+
+**`locomotion/lid_controller.py`** — restored MIT mode: 50 Hz `_control_tick` publishing `/joint_commands`, `kp`/`kd`/`torque_ff` params, removed `WriteMotorParam` client.
+**`config/lid_controller.yaml`** — restored MIT params: `kp: 60.0`, `kd: 1.0`, `torque_ff: 0.5`, `publish_rate_hz: 50.0`.
+
+## 2026-04-19 — Added verbose flag to silence periodic debug output
+
+**`locomotion/lid_controller.py`** and **`locomotion/driving_leg_controller.py`**
+- Added `verbose` parameter (default `false`) to both nodes.
+- `lid_controller._debug_status()` (2 s timer) now returns early unless `verbose=true`.
+- `driving_leg_controller._print_status()` (5 s timer) now returns early unless `verbose=true`.
+- All state-change logs (moves, arrivals, mode transitions, errors) are unaffected and always logged.
+
+**`config/lid_controller.yaml`** — added `verbose: false`
+**`config/locomotion.yaml`** — added `verbose: false` under `driving_leg_controller`
+
+Enable at launch time:
+```
+ros2 launch bringup bringup.launch.py verbose_controllers:=true
+```
+
+## 2026-04-18 — Switched lid_controller to RS05 built-in PP position mode
+
+PP mode is flashed permanently to the motor via `~/TeamBowl/commission_rs05_pp.sh`
+(run once). The motor boots in PP mode every time — no startup sequencing needed.
+
+**`locomotion/lid_controller.py`** — complete rewrite
+- Replaced MIT mode (50 Hz Type 1 streaming) with **PP position mode**: the motor runs
+  its own cascade controller (Position P → Velocity PI → Current PI). The ROS node only
+  writes `loc_ref` (param 0x7016, dec 28694) once per move command via `/write_motor_param`.
+- On estop: writes `loc_ref = current_pos` to hold in place (motor holds autonomously).
+- Removed: `_joint_pub`, 50 Hz control timer, `_publish_joint()`, MIT-mode params
+  (kp, kd, torque_ff, publish_rate_hz), `/set_gains` client, `/lid_gains` subscriber.
+- Added: `_write_param_client` (WriteMotorParam), `_command_position()`,
+  10 Hz lightweight monitor timer for arrival/timeout detection.
+- Kept: `/enable_motors` (wakes motor from standby), all `[LID DEBUG]` status logging.
+
+**`config/lid_controller.yaml`** — updated params
+- Removed: `kp`, `kd`, `torque_ff`, `publish_rate_hz` (all MIT-mode params)
+- PP gains (loc_kp, spd_kp, spd_ki, limit_spd, limit_cur) live on the motor flash, not YAML.
+
+**`~/TeamBowl/commission_rs05_pp.sh`** — one-shot motor flash script
+- NEW file. Enables motor, writes run_mode=1 + PP gains, calls `/save_motor_params`.
+- Run once before first use. Gains survive power cycles.
+
+**`~/TeamBowl/test_lid.sh`** — rewritten as full tuning script
+- Live position readout (`p`), continuous monitor (`m`)
+- Move to arbitrary position (`t <rad>`) via loc_ref write, open/close presets
+- Set mechanical zero (`z`) via `/set_zero` service
+- Live volatile gain writes: `kp`, `vp`, `vi`, `spd`, `cur` → `/write_motor_param`
+- Save calibrated positions to YAML: `sopen`, `sclosed`
+- Restart lid_controller: `r`
+
+## 2026-04-14 — Upgraded inner pitch loop to PID with 2-second sliding window integral
+
+**`balance_controller`** — `locomotion/balance_controller.py`, **`config/balance_controller.yaml`**
+- Added `ki_pitch` parameter (default 0.0, live-tunable via `/balance_gains`)
+- Inner loop is now PID: `u = -(kp*err + ki*integral + kd*theta_dot)`
+- Integral uses a `collections.deque` of `(ros_time_sec, contribution)` pairs pruned to
+  the last 2.0 seconds — prevents windup from long-term drift
+- Deque is cleared on mode exit (leaving balance mode) and on estop
+
+## 2026-04-14 — Rewrote balance_controller from LQR → cascaded PID
+
+**`balance_controller`** — `locomotion/balance_controller.py`
+Full rewrite. Replaced LQR gain matrix with a simpler cascaded PID architecture.
+- Outer PI (50 Hz): velocity error → `theta_ref` (lean angle setpoint)
+- Inner PD (50 Hz): `(theta - theta_ref)` + `kd_pitch * theta_dot` → wheel velocity cmd (upgraded to PID same day)
+- Removed: LQR gain matrix, mass_mode scheduling (light/nominal/heavy), `_get_gains()`
+- Added: `kp_pitch`, `kd_pitch`, `ki_pitch` parameters (all live-tunable via `/balance_gains` JSON)
+- All other logic unchanged: mode switching, estop, fallover detection, Foxglove echo
+
+**`config/balance_controller.yaml`** — updated gain names:
+- Removed: `k_theta`, `k_theta_dot`, `k_v`, `mass_mode`, `k_*_light`, `k_*_heavy`
+- Added: `kp_pitch: 60.0`, `kd_pitch: 8.0`
+- Outer PI (`kp_vel`, `ki_vel`) and safety limits unchanged
+
+Tune starting from `kp_pitch=60, kd_pitch=8`. Raise `kp_pitch` until oscillation
+then back off 30%; raise `kd_pitch` to damp. Use Foxglove `/balance_gains` JSON
+or `ros2 param set` for live adjustments without restarting.
+
+---
+
+## 2026-04-13 — Added balance controller, wheel odometry, EKF config
+
+### New nodes
+
+**`balance_controller`** — `locomotion/balance_controller.py`
+~~LQR inner loop + PI velocity outer loop~~ (replaced 2026-04-14 with PID — see above).
+- In `balance` mode: uses LQR on `[theta, theta_dot, v_error]` → symmetric wheel
+  velocity cmd. Outer PI generates `theta_ref` from velocity error.
+- In all other modes: passthrough (`/cmd_vel_safe` → `/cmd_vel` unchanged).
+- Subscribes: `/odometry/filtered`, `/imu/data`, `/cmd_vel_safe`, `/robot_mode`, `/estop`
+- Publishes: `/cmd_vel`, `/estop` (on fallover)
+- All gains are live-tunable via `ros2 param set`.
+- Gain scheduling for three mass setpoints: `light` / `nominal` / `heavy`.
+
+**`wheel_odom`** — `locomotion/wheel_odom.py`
+Dead-reckoning odometry from `/cmd_vel` → `/odom_wheels` (nav_msgs/Odometry).
+Used as wheel odometry input to the EKF.
+
+### New config files
+
+- **`config/balance_controller.yaml`**: All gains for `balance_controller` and
+  `wheel_odom` nodes. Tune `k_theta`, `k_theta_dot`, `k_v` from `tune_lqr.py` output.
+- **`config/ekf.yaml`**: `robot_localization` EKF config. Fuses `/imu/data` +
+  `/odom_wheels` → `/odometry/filtered` at 50 Hz.
+
+### Pipeline change: collision_guard output renamed
+
+`collision_guard` now publishes to `/cmd_vel_safe` (was `/cmd_vel`). The
+`balance_controller` sits downstream and publishes to `/cmd_vel`. This places
+`balance_controller` in-path:
+
+```
+collision_guard → /cmd_vel_safe → balance_controller → /cmd_vel → cmd_vel_to_vesc
+```
+
+### New design doc
+
+See `BALANCE_CONTROLLER.md` for full LQR theory, tuning workflow, and topic list.
+
+### Live gain tuner
+
+`scripts/tune_gains.py` — interactive terminal UI and one-liner helper for
+adjusting all LQR/PI gains on the running node via `ros2 param set`.
+Changes take effect within one control tick (≤20ms), no restart needed.
+
+
+
+## 2026-04-13 — Added lid_controller (RS05 cargo bay lid)
+
+**`lid_controller`** — `locomotion/lid_controller.py`
+Drives the RS05 motor (`joint_rs05_1`, can1, 0x1E) between open and closed positions.
+- Triggered from Foxglove: Publish panel → `/lid_command` (std_msgs/String)
+  - `"open"` / `"close"` / `"toggle"`
+- Reports state on `/lid_state` (std_msgs/String): `open`, `closed`, `moving_open`, `moving_closed`, `unknown`
+- Publishes `/joint_commands` at 50Hz; hold torque=0 when idle, `torque_ff` while moving
+- Declares arrived when position error < `position_tolerance_rad` or after `move_timeout_sec`
+- No `/robot_mode` dependency — commandable any time the stack is up
+- Config: `config/lid_controller.yaml` — tune `open_position_rad` after zeroing the motor
+
+**Foxglove setup:**
+1. Publish panel → `/lid_command`, message `{"data": "open"}` → Open Lid button
+2. Publish panel → `/lid_command`, message `{"data": "close"}` → Close Lid button
+3. Raw Messages panel → `/lid_state` to read current state
+
 ## Package overview
 
 ROS2 Python package containing locomotion-layer nodes: velocity command muxing,

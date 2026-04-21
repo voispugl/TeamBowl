@@ -1,0 +1,80 @@
+# Balance Controller Parameters
+# All parameters are live-tunable via:
+#   ros2 param set /balance_controller <param> <value>
+# No restart needed.
+#
+# Or send a JSON string to /balance_gains for Foxglove-based tuning:
+#   {"kp_pitch": 70.0, "kd_pitch": 10.0}
+
+balance_controller:
+  ros__parameters:
+
+    # ------------------------------------------------------------------ #
+    # Topics
+    # ------------------------------------------------------------------ #
+    cmd_vel_safe_topic:  /cmd_vel_safe       # input: desired v, omega (from collision_guard)
+    odom_topic:          /odometry/filtered  # input: filtered body velocity from EKF
+    imu_topic:           /imu/data           # input: raw IMU for theta, theta_dot
+    mode_topic:          /robot_mode
+    estop_topic:         /estop
+    cmd_vel_out_topic:   /cmd_vel            # output: wheel velocity command → cmd_vel_to_vesc
+
+    # ------------------------------------------------------------------ #
+    # Inner PD gains — pitch error → wheel velocity command
+    # u = -(kp_pitch * (theta - theta_ref) + kd_pitch * theta_dot)
+    #
+    # Starting point: kp_pitch=60, kd_pitch=8
+    # Tune kp_pitch first (increase until oscillation, then back off 30%).
+    # Then increase kd_pitch to damp oscillation.
+    # ------------------------------------------------------------------ #
+    kp_pitch:  94.97170    # proportional: rad → velocity cmd
+    kd_pitch:   262.3873    # derivative:   (rad/s) → velocity cmd
+    ki_pitch:   239.9166    # integral (2-second sliding window): start at 0, raise slowly
+
+    # ------------------------------------------------------------------ #
+    # Yaw rate PD gains — yaw rate error → angular.z (differential wheel cmd)
+    # u_yaw = kp_yaw * (omega_cmd - yaw_dot) - kd_yaw * yaw_dot
+    # Tune: raise kp_yaw until yaw holds, raise kd_yaw to damp oscillation.
+    # ------------------------------------------------------------------ #
+    kp_yaw:   5.0     # (rad/s error) → angular.z cmd
+    kd_yaw:   0.5     # derivative damping
+
+    # ------------------------------------------------------------------ #
+    # Outer PI gains — velocity error → lean setpoint (theta_ref)
+    # theta_ref = kp_vel * v_error + ki_vel * integral(v_error)
+    # ------------------------------------------------------------------ #
+    kp_vel:    1.4000   # (m/s error) → rad lean
+    ki_vel:    19.4751   # integrator term
+    kff_pitch: 0.2328   # feed-forward lean ∝ v_cmd — bypasses PI lag (rad/(m/s))
+
+    # ------------------------------------------------------------------ #
+    # Safety limits
+    # ------------------------------------------------------------------ #
+    theta_max_cmd:      0.25   # max commanded lean setpoint (rad, ~14 deg)
+    theta_max_fallover: 0.50   # estop threshold (rad, ~28 deg)
+    theta_eq_offset:    0.00   # true balance point trim (rad) — identify on hardware
+
+    # ------------------------------------------------------------------ #
+    # Robot geometry
+    # ------------------------------------------------------------------ #
+    l_com:  0.45   # CoM height above wheel axle (m)
+
+    # ------------------------------------------------------------------ #
+    # Timing
+    # ------------------------------------------------------------------ #
+    control_rate_hz:  50.0    # outer PI rate
+    inner_rate_hz:   150.0    # inner PID rate
+    odom_timeout_s:   0.30    # fall back to v=0 if EKF stale
+
+    # ------------------------------------------------------------------ #
+    # wheel_odom node
+    # ------------------------------------------------------------------ #
+
+wheel_odom:
+  ros__parameters:
+    cmd_vel_topic:  /cmd_vel
+    odom_topic:     /odom_wheels
+    odom_frame:     odom
+    base_frame:     base_link
+    cmd_timeout_s:  0.5
+    publish_tf:     false   # EKF node publishes odom→base_link tf

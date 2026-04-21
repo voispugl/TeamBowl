@@ -1,13 +1,14 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 import os
 import math
 import xml.etree.ElementTree as ET
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, PackageNotFoundError
+
 
 def _parse_xyz(text):
     return [float(value) for value in text.split()]
@@ -116,9 +117,9 @@ def generate_launch_description():
             'rectify_rgb': 'true',
             'pointcloud.enable': 'true',
             'params_file': os.path.join(
-                get_package_share_directory('depthai_ros_driver'),
+                get_package_share_directory('bringup'),
                 'config',
-                'rgbd.yaml',
+                'oak_cam.yaml',
             ),
             'parent_frame': 'base_link',
             'cam_pos_x': str(cam_translation[0]),
@@ -140,20 +141,73 @@ def generate_launch_description():
         ),
     )
 
+    try:
+        _xsens_launch = os.path.join(
+            get_package_share_directory('xsens_mti_ros2_driver'),
+            'launch',
+            'xsens_mti_node.launch.py',
+        )
+        xsens_imu = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(_xsens_launch)
+        )
+        _xsens_available = True
+    except PackageNotFoundError:
+        xsens_imu = None
+        _xsens_available = False
+
     management_config = os.path.join(
         get_package_share_directory('management'), 'config', 'management.yaml')
     safety_config = os.path.join(
         get_package_share_directory('safety'), 'config', 'safety.yaml')
     locomotion_config = os.path.join(
         get_package_share_directory('locomotion'), 'config', 'locomotion.yaml')
+    balance_config = os.path.join(
+        get_package_share_directory('locomotion'), 'config', 'balance_controller.yaml')
+    driving_config = os.path.join(
+        get_package_share_directory('locomotion'), 'config', 'driving_controller.yaml')
     vesc_config = os.path.join(
         get_package_share_directory('vesc_driver'), 'config', 'vesc_driver.yaml')
     perception_config = os.path.join(
         get_package_share_directory('perception'), 'config', 'perception.yaml')
     planning_config = os.path.join(
         get_package_share_directory('planning'), 'config', 'planning.yaml')
+    lid_config = os.path.join(
+        get_package_share_directory('locomotion'), 'config', 'lid_controller.yaml')
     state_estimation_config = os.path.join(
         get_package_share_directory('state_estimation'), 'config', 'state_estimation.yaml')
+
+    # Foxglove bridge — allows Foxglove Studio to connect for visualization and
+    # live gain tuning via /balance_gains, /driving_gains topics.
+    # Requires ros-humble-foxglove-bridge.
+    # Install: sudo apt install ros-humble-foxglove-bridge
+    # Connect: open Foxglove Studio → Open Connection → Rosbridge (ws://robot-ip:8765)
+    try:
+        _steamdeck_config = os.path.join(
+            get_package_share_directory('steamdeck_teleop'),
+            'config', 'steamdeck_teleop.yaml')
+        _steamdeck_available = True
+    except PackageNotFoundError:
+        _steamdeck_config = None
+        _steamdeck_available = False
+
+    try:
+        get_package_share_directory('foxglove_bridge')
+        _foxglove_available = True
+    except PackageNotFoundError:
+        _foxglove_available = False
+
+    steamdeck_ui_arg = DeclareLaunchArgument(
+        'steamdeck_ui',
+        default_value='phone',
+        description='steamdeck web UI mode: phone (default, 3 big buttons), rescue (4-direction teleop D-pad), or full (trajectory/gains/map)')
+    steamdeck_ui = LaunchConfiguration('steamdeck_ui')
+
+    foxglove_arg = DeclareLaunchArgument(
+        'foxglove',
+        default_value='true' if _foxglove_available else 'false',
+        description='Launch foxglove_bridge for remote visualization (default: true if installed)'
+    )
+    use_foxglove = LaunchConfiguration('foxglove')
 
     leg_controller_arg = DeclareLaunchArgument(
         'leg_controller',
@@ -162,13 +216,44 @@ def generate_launch_description():
                     'hold and driving cannot run simultaneously.')
     leg_ctrl = LaunchConfiguration('leg_controller')
 
+    velocity_controller_arg = DeclareLaunchArgument(
+        'velocity_controller',
+        default_value='driving',
+        description='Velocity controller: driving (default) or balance. '
+                    'driving runs the locked-leg velocity+pitch+yaw PID for autonomous nav. '
+                    'balance runs the self-balancing cascaded PID. '
+                    'driving and balance cannot run simultaneously.')
+    vel_ctrl = LaunchConfiguration('velocity_controller')
+
+    verbose_controllers_arg = DeclareLaunchArgument(
+        'verbose_controllers',
+        default_value='false',
+        description='Enable periodic status logging for lid_controller and '
+                    'driving_leg_controller (2 s and 5 s intervals respectively). '
+                    'Off by default to reduce console noise.')
+    verbose_controllers = LaunchConfiguration('verbose_controllers')
+
+    use_yolo26_arg = DeclareLaunchArgument(
+        'use_yolo26',
+        default_value='false',
+        description='Launch yolo26_node for ML person detection alongside cam_ops. '
+                    'Requires ~/TeamBowl/models/yolo26n.engine (run export_yolo26.py first).')
+    use_yolo26 = LaunchConfiguration('use_yolo26')
+
     return LaunchDescription([
 
+        steamdeck_ui_arg,
+        foxglove_arg,
         leg_controller_arg,
+        velocity_controller_arg,
+        verbose_controllers_arg,
+        use_yolo26_arg,
 
         oak_camera,
         robstride_driver,
+        *([xsens_imu] if _xsens_available else []),
 
+        # TF: base_link → imu_link (computed from URDF wheel positions)
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -192,6 +277,22 @@ def generate_launch_description():
             name='mode_manager',
             output='screen',
             parameters=[management_config],
+        ),
+
+        Node(
+            package='safety',
+            executable='pico_bridge',
+            name='pico_bridge',
+            output='screen',
+            parameters=[safety_config],
+        ),
+
+        Node(
+            package='safety',
+            executable='stuck_detector',
+            name='stuck_detector',
+            output='screen',
+            parameters=[safety_config],
         ),
 
         Node(
@@ -226,7 +327,7 @@ def generate_launch_description():
             executable='driving_leg_controller',
             name='driving_leg_controller',
             output='screen',
-            parameters=[locomotion_config],
+            parameters=[locomotion_config, {'verbose': verbose_controllers}],
             condition=IfCondition(PythonExpression(["'", leg_ctrl, "' == 'driving'"])),
         ),
 
@@ -246,14 +347,38 @@ def generate_launch_description():
             parameters=[locomotion_config],
         ),
 
+        # Velocity controller: sits between collision_guard (/cmd_vel_safe) and
+        # cmd_vel_to_vesc (/cmd_vel). Only one may run at a time.
+        #   balance (default) — cascaded PID self-balancing (mode="balance")
+        #   driving           — velocity PID + pitch correction for locked-leg nav (mode="driving")
         Node(
-            package='vesc_driver',
-            executable='cmd_vel_to_vesc',
-            name='cmd_vel_to_vesc',
+            package='locomotion',
+            executable='balance_controller',
+            name='balance_controller',
             output='screen',
-            parameters=[vesc_config],
+            parameters=[balance_config],
+            condition=IfCondition(PythonExpression(["'", vel_ctrl, "' == 'balance'"])),
         ),
 
+        Node(
+            package='locomotion',
+            executable='driving_controller',
+            name='driving_controller',
+            output='screen',
+            parameters=[driving_config],
+            condition=IfCondition(PythonExpression(["'", vel_ctrl, "' == 'driving'"])),
+        ),
+
+        # Wheel odometry: integrates /cmd_vel into /odom_wheels for EKF fusion.
+        Node(
+            package='locomotion',
+            executable='wheel_odom',
+            name='wheel_odom',
+            output='screen',
+            parameters=[balance_config],
+        ),
+
+        # State estimation: differential drive odometry from VESC wheel encoders.
         Node(
             package='state_estimation',
             executable='diff_drive_odom',
@@ -262,6 +387,7 @@ def generate_launch_description():
             parameters=[state_estimation_config],
         ),
 
+        # EKF: fuses /imu/data + wheel odometry → /odometry/filtered
         Node(
             package='robot_localization',
             executable='ekf_node',
@@ -270,6 +396,15 @@ def generate_launch_description():
             parameters=[state_estimation_config],
         ),
 
+        Node(
+            package='vesc_driver',
+            executable='cmd_vel_to_vesc',
+            name='cmd_vel_to_vesc',
+            output='screen',
+            parameters=[vesc_config],
+        ),
+
+        # Nav2 planning stack
         Node(
             package='nav2_planner',
             executable='planner_server',
@@ -322,6 +457,17 @@ def generate_launch_description():
             }],
         ),
 
+        # Trajectory test — Foxglove-driven goal → nav2 plan + execute
+        # Idle outside "driving" mode. Publish JSON goal to /trajectory_goal,
+        # then "go" to /trajectory_cmd to start live-replanning execution.
+        Node(
+            package='planning',
+            executable='trajectory_test',
+            name='trajectory_test',
+            output='screen',
+            parameters=[planning_config],
+        ),
+
         Node(
             package='planning',
             executable='follow_goal',
@@ -346,19 +492,75 @@ def generate_launch_description():
             parameters=[planning_config],
         ),
 
-        Node(
-            package='perception',
-            executable='cam_ops',
-            name='cam_ops_node',
-            output='screen',
-            parameters=[perception_config],
+        TimerAction(
+            period=10.0,
+            actions=[
+                Node(
+                    package='perception',
+                    executable='cam_ops',
+                    name='cam_ops_node',
+                    output='screen',
+                    parameters=[perception_config],
+                    respawn=True,
+                    respawn_delay=3.0,
+                ),
+            ]
         ),
 
-        # Node(
-        #     package='planning',
-        #     executable='plan_wheels',
-        #     name='plan_wheels',
-        #     output='screen',
-        #     parameters=[planning_config],
-        # ),
+        TimerAction(
+            period=10.0,
+            actions=[
+                Node(
+                    condition=IfCondition(use_yolo26),
+                    package='perception',
+                    executable='yolo26_node',
+                    name='yolo26_node',
+                    output='screen',
+                    parameters=[perception_config],
+                    respawn=True,
+                    respawn_delay=3.0,
+                ),
+            ]
+        ),
+
+        # Lid controller: drives RS05 motor (cargo bay lid) between open/close.
+        # Trigger from Foxglove: Publish panel → /lid_command (std_msgs/String)
+        # Messages: {"data": "open"}, {"data": "close"}, {"data": "toggle"}
+        Node(
+            package='locomotion',
+            executable='lid_controller',
+            name='lid_controller',
+            output='screen',
+            parameters=[lid_config, {'verbose': verbose_controllers}],
+        ),
+
+        # Steam Deck / phone web UI — port 8888
+        # phone mode (default): 3 big buttons (ENABLE / OPEN LID / KILL) + diagnostics
+        # full mode: trajectory goals, mode buttons, balance gains, nav map
+        # Override: ros2 launch bringup bringup.launch.py steamdeck_ui:=full
+        *([Node(
+            package='steamdeck_teleop',
+            executable='steamdeck_ws_teleop',
+            name='steamdeck_ws_teleop',
+            output='screen',
+            parameters=[_steamdeck_config, {'ui_mode': steamdeck_ui}],
+        )] if _steamdeck_available else []),
+
+        # Foxglove bridge — remote visualization + gain tuning topics
+        # Disable with: ros2 launch bringup bringup.launch.py foxglove:=false
+        Node(
+            package='foxglove_bridge',
+            executable='foxglove_bridge',
+            name='foxglove_bridge',
+            output='screen',
+            parameters=[{
+                'port': 8765,
+                'address': '0.0.0.0',
+                'tls': False,
+                'topic_whitelist': ['.*'],
+                'param_whitelist': ['.*'],
+                'max_qos_depth': 1,
+            }],
+            condition=IfCondition(use_foxglove),
+        ),
     ])

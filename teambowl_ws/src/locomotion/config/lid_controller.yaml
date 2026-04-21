@@ -1,0 +1,26 @@
+lid_controller:
+  ros__parameters:
+    # Joint name must match the key in robstride_can_driver/config/motors.yaml
+    joint_name: "joint_rs05_1"
+
+    # Lid positions in radians. Tune these to match actual lid geometry.
+    # Set the zero first with the robstride commissioning tool, then measure open.
+    open_position_rad: 3.0    # ~90 deg open
+    closed_position_rad: 0.37   # fully closed
+
+    # MIT mode gains (Type 1 CAN frame). Match RS05 defaults in motors.yaml.
+    kp: 120.0
+    kd: 1.0
+
+    # Feed-forward torque while actively moving. Zero when holding.
+    torque_ff: 0.0            # Nm — enough to overcome lid weight without slamming
+
+    # Motion timeout: stop commanding after this many seconds even if not arrived.
+    # Prevents infinite commands if lid is blocked or position feedback is off.
+    move_timeout_sec: 3.0
+
+    # Position tolerance to declare "arrived" (radians).
+    position_tolerance_rad: 0.03
+
+    # Control loop rate
+    publish_rate_hz: 50.0

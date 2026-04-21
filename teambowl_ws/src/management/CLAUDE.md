@@ -1,5 +1,12 @@
 # management
 
+## 2026-04-13 — Added "balance" to valid modes
+
+- **`management/mode_manager.py`**: Added `"balance"` to `VALID_MODES`. Set via:
+  `ros2 topic pub /robot_mode_set std_msgs/msg/String '{data: "balance"}' --once`
+
+
+
 ## Package overview
 
 ROS2 Python package containing robot mode management and keyboard operator nodes.

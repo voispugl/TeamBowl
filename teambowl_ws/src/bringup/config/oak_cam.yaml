@@ -1,0 +1,11 @@
+/oak:
+  ros__parameters:
+    camera:
+      i_nn_type: none
+    rgb:
+      i_resolution: '720'
+      i_fps: 5.0
+    stereo:
+      i_subpixel: true
+      i_align_depth: true
+      i_fps: 5.0

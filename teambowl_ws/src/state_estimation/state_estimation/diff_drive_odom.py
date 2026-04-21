@@ -41,6 +41,7 @@ class DiffDriveOdomNode(Node):
         self.declare_parameter('right_sign', -1.0)
         self.declare_parameter('wheel_timeout_s', 0.25)
         self.declare_parameter('publish_rate_hz', 50.0)
+        self.declare_parameter('max_wheel_speed_m_s', 3.0)
         self.declare_parameter(
             'pose_covariance_diagonal',
             [0.05, 0.05, 99999.0, 99999.0, 99999.0, 0.1],
@@ -61,6 +62,7 @@ class DiffDriveOdomNode(Node):
         self.right_sign = float(self.get_parameter('right_sign').value)
         self.wheel_timeout = Duration(seconds=float(self.get_parameter('wheel_timeout_s').value))
         self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
+        self.max_wheel_speed_m_s = float(self.get_parameter('max_wheel_speed_m_s').value)
 
         pose_diag = list(self.get_parameter('pose_covariance_diagonal').value)
         twist_diag = list(self.get_parameter('twist_covariance_diagonal').value)
@@ -116,6 +118,15 @@ class DiffDriveOdomNode(Node):
 
         v_left = self.left_wheel_rad_s * self.wheel_radius_m
         v_right = self.right_wheel_rad_s * self.wheel_radius_m
+
+        lim = self.max_wheel_speed_m_s
+        if abs(v_left) > lim or abs(v_right) > lim:
+            self.get_logger().warn(
+                f'Implausible wheel speed (L={v_left:.1f} R={v_right:.1f} m/s) — discarding',
+                throttle_duration_sec=2.0,
+            )
+            return 0.0, 0.0
+
         linear_x = 0.5 * (v_left + v_right)
         angular_z = (v_right - v_left) / self.track_width_m
         return linear_x, angular_z
