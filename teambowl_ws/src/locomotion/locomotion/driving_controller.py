@@ -279,6 +279,7 @@ class DrivingController(Node):
         self.get_logger().info(f'Mode {prev} → {new_mode}')
         if new_mode != self.DRIVING_MODE:
             self._reset_integrators()
+            self._publish_cmd(0.0, 0.0)
 
     def _on_estop(self, msg: Bool):
         self._estop = msg.data

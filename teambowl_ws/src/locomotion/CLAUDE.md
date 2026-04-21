@@ -1,5 +1,9 @@
 # locomotion
 
+## 2026-04-20 — Driving controller zeros output immediately on mode change
+
+**`locomotion/driving_controller.py`**: `_on_mode` now calls `_publish_cmd(0.0, 0.0)` immediately when mode changes away from `driving`, eliminating a brief window where stale velocity was published to `/cmd_vel` before the next tick.
+
 ## 2026-04-20 — Driving controller ki windows reduced from 2.0 s → 0.5 s
 
 **`locomotion/driving_controller.py`**: All three integral sliding windows (velocity, pitch, yaw) now prune samples older than 0.5 s (was 2.0 s). Faster windup decay; reduces overshoot from sustained error in any axis.

@@ -1,5 +1,12 @@
 # steamdeck_teleop
 
+## 2026-04-20 — Pitch fallover warning banner in both UIs
+
+**`steamdeck_teleop/steamdeck_ws_teleop.py`**:
+- Added `<div id="pitch-warn">` banner (hidden by default) to both `_HTML_PHONE` and `_HTML_FULL`.
+- `handlePush`: when `|theta_deg| > 15°` shows orange banner "⚠ PITCH X° — NEAR FALLOVER"; turns dark red when `> 20°`; hidden when safe.
+- Banner appears at the top of the page above all controls for maximum visibility.
+
 ## 2026-04-20 — Added Reset Odom button to both UIs
 
 **`steamdeck_teleop/steamdeck_ws_teleop.py`**:

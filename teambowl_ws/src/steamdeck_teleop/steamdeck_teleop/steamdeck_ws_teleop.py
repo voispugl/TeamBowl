@@ -91,6 +91,8 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
 <button class="btn btn-reset"  onclick="send({type:'reset_odom'})">RESET ODOM</button>
 <button class="btn btn-kill"   onclick="send({type:'estop'})">KILL</button>
 
+<div id="pitch-warn" style="display:none;background:#7a1a00;color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:clamp(1.4rem,6vw,2.2rem);font-weight:bold;text-align:center;letter-spacing:1px"></div>
+
 <div class="diag">
   <h3>Diagnostics</h3>
   <div class="row"><span class="key">Mode</span>      <span class="val info" id="mode-val">—</span></div>
@@ -186,10 +188,21 @@ function handlePush(d) {
   if(d.motor_vx!=null)   set('motor-val',   d.motor_vx.toFixed(3)+' / '+d.motor_wz.toFixed(3), 'info');
   if(d.driving_gains){try{
     const dg=JSON.parse(d.driving_gains); lastDrvGains=dg;
-    if(dg._theta_deg!=null){const td=Math.abs(dg._theta_deg);set('pitch-val',dg._theta_deg+'°',td>15?'err':td>8?'warn':'ok');}
+    if(dg._theta_deg!=null){
+      const td=Math.abs(dg._theta_deg);
+      set('pitch-val',dg._theta_deg+'°',td>15?'err':td>8?'warn':'ok');
+      const pw=document.getElementById('pitch-warn');
+      if(pw){
+        if(td>15){
+          pw.style.display='';
+          pw.style.background=td>20?'#9a0000':'#7a3a00';
+          pw.textContent='⚠ PITCH '+dg._theta_deg+'° — NEAR FALLOVER';
+        } else { pw.style.display='none'; }
+      }
+    }
     const pt=document.getElementById('pd-theta'); if(pt&&dg._theta_deg!=null) pt.textContent=dg._theta_deg;
     const pv=document.getElementById('pd-v');     if(pv&&dg._v_actual!=null)  pv.textContent=dg._v_actual;
-    const pw=document.getElementById('pd-yaw');   if(pw&&dg._yaw_dot!=null)   pw.textContent=dg._yaw_dot;
+    const pw2=document.getElementById('pd-yaw');   if(pw2&&dg._yaw_dot!=null)   pw2.textContent=dg._yaw_dot;
   }catch(_){}}
 }
 
@@ -257,6 +270,8 @@ label{color:#888;font-size:12px}
   <h2>TeamBowl Control Panel</h2>
   <span><span class="ws-dot" id="ws-dot"></span><span id="ws-label">Connecting…</span></span>
 </div>
+
+<div id="pitch-warn" style="display:none;background:#7a1a00;color:#fff;border-radius:6px;padding:8px 14px;margin-bottom:10px;font-size:16px;font-weight:bold;text-align:center"></div>
 
 <div class="grid">
   <!-- Diagnostics -->
@@ -443,10 +458,21 @@ function handlePush(d) {
   }
   if (d.driving_gains) {
     try { const dg = JSON.parse(d.driving_gains); lastDrvGainsF = dg;
-      if (dg._theta_deg != null) { const td = Math.abs(dg._theta_deg); set('pitch-val', dg._theta_deg+'°', td>15?'err':td>8?'warn':'ok'); }
-      const td = document.getElementById('dg-theta'); if (td && dg._theta_deg != null) td.textContent = dg._theta_deg;
-      const vd = document.getElementById('dg-v');     if (vd && dg._v_actual  != null) vd.textContent = dg._v_actual;
-      const wd = document.getElementById('dg-yaw');   if (wd && dg._yaw_dot   != null) wd.textContent = dg._yaw_dot;
+      if (dg._theta_deg != null) {
+        const td = Math.abs(dg._theta_deg);
+        set('pitch-val', dg._theta_deg+'°', td>15?'err':td>8?'warn':'ok');
+        const pw = document.getElementById('pitch-warn');
+        if (pw) {
+          if (td > 15) {
+            pw.style.display = '';
+            pw.style.background = td > 20 ? '#9a0000' : '#7a3a00';
+            pw.textContent = '⚠ PITCH ' + dg._theta_deg + '° — NEAR FALLOVER';
+          } else { pw.style.display = 'none'; }
+        }
+      }
+      const td2 = document.getElementById('dg-theta'); if (td2 && dg._theta_deg != null) td2.textContent = dg._theta_deg;
+      const vd = document.getElementById('dg-v');      if (vd  && dg._v_actual  != null) vd.textContent  = dg._v_actual;
+      const wd = document.getElementById('dg-yaw');    if (wd  && dg._yaw_dot   != null) wd.textContent  = dg._yaw_dot;
     } catch(_) {}
   }
 }
