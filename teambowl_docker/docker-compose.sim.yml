@@ -1,0 +1,36 @@
+services:
+  teambowl-sim:
+    build:
+      context: .
+      dockerfile: Dockerfile.sim
+    image: teambowl:sim
+    container_name: teambowl_sim
+    network_mode: host   # required for ROS2 DDS discovery + Foxglove bridge reachability
+    ipc: host            # required for ROS2 shared memory transport
+    stdin_open: true
+    tty: true
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      # X11 display forwarding — run `xhost +local:docker` on host first (optional)
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      # Workspace source — set TEAMBOWL_WS env var or default to ~/TeamBowl/teambowl_ws
+      - ${TEAMBOWL_WS:-${HOME}/TeamBowl/teambowl_ws}:/workspaces/teambowl_ws
+
+      # MJCF model + meshes mount.
+      # meshes/ is a symlink inside mjlab_robot/ pointing to ../teambowl_ws/sim/mujoco/meshes.
+      # Mounting both directories at sibling paths makes the relative symlink resolve correctly:
+      #   /workspaces/teambowl_mjlab/meshes → ../teambowl_ws/sim/mujoco/meshes ✓
+      - ${TEAMBOWL_ROOT:-${HOME}/TeamBowl}/mjlab_robot:/workspaces/teambowl_mjlab
+
+      # X11 socket for rviz2 / GUI tools (optional, harmless if missing on headless VM)
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    working_dir: /workspaces/teambowl_ws
+    # Auto-launch sim stack with balance controller (change velocity_controller to tune driving)
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /workspaces/teambowl_ws/install/setup.bash &&
+        ros2 launch bringup sim.launch.py
+      "

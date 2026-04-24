@@ -20,6 +20,43 @@ RUN apt-get update && apt-get install -y software-properties-common curl && \
          | tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
     rm -rf /var/lib/apt/lists/*
 
+# ── Isaac ROS: build dependencies ────────────────────────────────────────────
+# Installed as an early layer so the ~75 min Isaac ROS build below is cached
+# independently of robot-specific packages further down.
+# libgoogle-glog-dev, libgflags-dev, libsqlite3-dev: required by nvblox C++ library.
+RUN apt-get update && apt-get install -y \
+    libgoogle-glog-dev \
+    libgflags-dev \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && rosdep init || true \
+    && rosdep update || true
+
+# ── Isaac ROS: clone + build into /opt/isaac_ros_ws ──────────────────────────
+# Packages: isaac_ros_common, isaac_ros_visual_slam (VIO), isaac_ros_nvblox (TSDF costmap)
+# Branch: release-3.2 — validated for JetPack 6.1 / L4T R36.4.0 / CUDA 12.6.
+# WARNING: First docker build takes ~75 min (CUDA kernel compilation).
+# Skip keys: libopencv-dev and variants to protect JetPack's CUDA-accelerated OpenCV.
+RUN mkdir -p /opt/isaac_ros_ws/src && \
+    cd /opt/isaac_ros_ws/src && \
+    git clone --recurse-submodules -b release-3.2 \
+        https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common.git && \
+    git clone --recurse-submodules -b release-3.2 \
+        https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_visual_slam.git && \
+    git clone --recurse-submodules -b release-3.2 \
+        https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nvblox.git && \
+    cd /opt/isaac_ros_ws && \
+    source /opt/ros/humble/setup.bash && \
+    rosdep install --from-paths src --ignore-src -r -y \
+        --skip-keys "libopencv-dev python3-opencv libopencv-contrib-dev" && \
+    colcon build \
+        --cmake-args \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+        2>&1 | tee /tmp/isaac_ros_build.log && \
+    rm -rf /opt/isaac_ros_ws/build /opt/isaac_ros_ws/log
+
+# ── Robot packages ────────────────────────────────────────────────────────────
 # Basic tools + USB/CAN/serial utilities + ROS2 base
 # NOTE: libopencv-dev and python3-opencv are intentionally omitted — l4t-jetpack ships
 # OpenCV built with CUDA 12; installing the apt version would overwrite it with CPU-only.
@@ -117,8 +154,9 @@ RUN rosdep update || true
 # Create workspace mount point
 RUN mkdir -p /workspaces/teambowl_ws/src
 
-# Auto-source ROS in interactive shells
+# Auto-source ROS + Isaac ROS overlay + robot workspace in interactive shells
 RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
+    echo "if [ -f /opt/isaac_ros_ws/install/setup.bash ]; then source /opt/isaac_ros_ws/install/setup.bash; fi" >> /root/.bashrc && \
     echo "if [ -f /workspaces/teambowl_ws/install/setup.bash ]; then source /workspaces/teambowl_ws/install/setup.bash; fi" >> /root/.bashrc
 
 COPY docker/entrypoint.sh /entrypoint.sh

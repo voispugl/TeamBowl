@@ -133,8 +133,9 @@ class BalanceController(Node):
         # ------------------------------------------------------------------ #
         # State
         # ------------------------------------------------------------------ #
-        self._mode   = 'off'
-        self._estop  = False
+        self._mode      = 'off'
+        self._estop     = False
+        self._suspended = False  # True while jump_controller owns the legs
 
         self._theta      = 0.0
         self._theta_dot  = 0.0
@@ -192,7 +193,8 @@ class BalanceController(Node):
         self.create_subscription(Twist,    safe_topic,  self._on_cmd_vel_safe, best_effort)
         self.create_subscription(String,   mode_topic,  self._on_mode,        transient)
         self.create_subscription(Bool,     estop_topic, self._on_estop,       reliable)
-        self.create_subscription(String,   '/balance_gains', self._on_gains,  reliable)
+        self.create_subscription(String,   '/balance_gains',    self._on_gains,    reliable)
+        self.create_subscription(Bool,     '/balance_suspend',  self._on_suspend,  reliable)
 
         # ------------------------------------------------------------------ #
         # Timers
@@ -248,6 +250,9 @@ class BalanceController(Node):
             self._v_integral = 0.0
             self._pitch_i_window.clear()
             self._yaw_i_window.clear()
+
+    def _on_suspend(self, msg: Bool):
+        self._suspended = msg.data
 
     def _on_gains(self, msg: String):
         """
@@ -369,6 +374,11 @@ class BalanceController(Node):
         """150 Hz — inner PID pitch → cmd_vel. Passthrough + estop handled here."""
         # Safety: always zero on estop
         if self._estop:
+            self._publish_cmd(0.0, 0.0)
+            return
+
+        # Yield wheel control to jump_controller during impulse phase
+        if self._suspended:
             self._publish_cmd(0.0, 0.0)
             return
 

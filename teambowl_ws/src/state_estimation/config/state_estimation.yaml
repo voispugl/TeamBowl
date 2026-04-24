@@ -36,6 +36,22 @@ ekf_filter_node:
     odom0_differential: false
     odom0_relative: false
     odom0_mahalanobis_threshold: 5.0
+
+    # --- Visual SLAM odometry: Isaac ROS VSLAM on /visual_slam/tracking/odometry ---
+    # Safely ignored when VSLAM is not running (use_vslam:=false) — EKF falls back to
+    # imu0 + odom0 only. Covariance is reported dynamically by Isaac VSLAM from tracking
+    # quality. Rejection thresholds guard against pose jumps on re-localization.
+    odom1: /visual_slam/tracking/odometry
+    odom1_config: [true,  true,  false,    # x, y position (z projected by two_d_mode)
+                   false, false, true,     # yaw
+                   true,  false, false,    # vx
+                   false, false, true,     # vyaw
+                   false, false, false]    # no acceleration
+    odom1_differential: false
+    odom1_relative: false
+    odom1_queue_size: 5
+    odom1_pose_rejection_threshold: 2.0
+    odom1_twist_rejection_threshold: 2.0
     imu0: /imu/data
     imu0_config: [false, false, false,    # x, y, z position
                   true,  true,  true,    # roll, pitch, yaw

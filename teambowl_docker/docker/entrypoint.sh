@@ -3,6 +3,13 @@ set -e
 
 source /opt/ros/humble/setup.bash
 
+# Source Isaac ROS overlay (built into Docker image at /opt/isaac_ros_ws).
+# Must be sourced before robot workspace colcon build so packages can find
+# isaac_ros_visual_slam and nvblox_ros as ament dependencies.
+if [ -f /opt/isaac_ros_ws/install/setup.bash ]; then
+    source /opt/isaac_ros_ws/install/setup.bash
+fi
+
 WS=/workspaces/teambowl_ws
 BUILD_MARKER="${WS}/install/.colcon_build_complete"
 
