@@ -20,6 +20,19 @@
 - WebRTC browser UI at http://localhost:8211 (no X11 needed on host)
 - Isaac Sim publishes: `/imu/data`, `/wheel/odometry`, `/visual_slam/tracking/odometry` (ground-truth VSLAM substitute), `/oak/rgb/image_raw`, `/oak/stereo/image_raw`
 
+## 2026-04-24 — Added OpenCV 4.12.0 with CUDA + PyTorch for JetPack 6.1
+
+**`Dockerfile`**: Added two new early layers (before Isaac ROS build, cached independently):
+1. **OpenCV 4.12.0 build deps**: `unzip`, `pkg-config`, `libgtk-3-dev`, `libjpeg-dev`, `libpng-dev`, `libtiff-dev`, `libavcodec-dev`, `libavformat-dev`, `libswscale-dev`, `libv4l-dev`, GStreamer dev headers, `python3-dev`.
+2. **OpenCV 4.12.0 from source** with `CUDA_ARCH_BIN=8.7` (Jetson AGX Orin, Ampere sm_87), `WITH_CUDNN=ON`, `WITH_GSTREAMER=ON`, `WITH_LIBV4L=ON`, `BUILD_opencv_python3=ON`, contrib modules. Installed to `/usr/local`. **~30–45 min build time.** Replaces JetPack-shipped OpenCV with a newer CUDA-accelerated 4.12.0 build.
+3. `LD_LIBRARY_PATH` and `PYTHONPATH` updated for `/usr/local/lib`.
+
+**Python deps**:
+- `numpy==1.26.1` (pinned, required by PyTorch wheel)
+- **PyTorch 2.5.0** from NVIDIA JetPack 6.1 redist wheel (`torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl`). Matches cuDNN/CUDA in l4t-jetpack:r36.4.0.
+
+**Updated comment**: Robot tools layer comment updated to reflect that libopencv-dev is omitted because OpenCV 4.12.0 is now built from source (not because JetPack ships it).
+
 ## 2026-04-23 — Added Isaac ROS Visual SLAM + nvblox (Option A: baked into Docker image)
 
 **`Dockerfile`**: Added two new layers before the robot-specific apt packages:
