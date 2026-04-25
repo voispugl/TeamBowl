@@ -55,7 +55,7 @@ _HTML_PHONE = """<!DOCTYPE html>
 <title>TeamBowl</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480px;margin:auto}
+body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480px;margin:auto;touch-action:manipulation}
 .hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
 .hdr h2{color:#4af;font-size:20px}
 .ws-dot{width:12px;height:12px;border-radius:50%;background:#f44;display:inline-block;margin-right:6px}
@@ -71,8 +71,15 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
 .btn-reset:active{background:#9a6000}
 .btn-kill{background:#7a1a1a}
 .btn-kill:active{background:#c02020}
+.btn-teleop{background:#1a4b6b}.btn-teleop:active{background:#1e6fa0}
 .btn-auton{background:#4a1a6b}
 .btn-auton:active{background:#7a2aa0}
+.dpad{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:8px;
+  width:min(90vw,320px);margin:0 auto 20px;aspect-ratio:1}
+.dpad-btn{display:flex;align-items:center;justify-content:center;background:#2a2a2a;border:2px solid #444;
+  border-radius:12px;font-size:clamp(2rem,9vw,3.5rem);cursor:pointer;touch-action:none;transition:background 0.05s}
+.dpad-btn:active,.dpad-btn.held{background:#3a5a3a;border-color:#4f4}
+.dpad-empty{background:transparent;border:none}
 .diag{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px}
 .diag h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #2a2a2a;font-size:15px}
@@ -89,10 +96,25 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
 </div>
 
 <button class="btn btn-enable" onclick="send({type:'clear_estop'})">ENABLE</button>
-<button class="btn btn-auton"  onclick="send({type:'set_mode',mode:'auton'})">AUTON</button>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+  <button class="btn btn-teleop" style="margin-bottom:0" onclick="send({type:'set_mode',mode:'driving'})">TELEOP</button>
+  <button class="btn btn-auton"  style="margin-bottom:0" onclick="send({type:'set_mode',mode:'auton'})">AUTON</button>
+</div>
 <button class="btn btn-lid"    onclick="send({type:'lid_cmd',cmd:'toggle'})">TOGGLE LID</button>
 <button class="btn btn-reset"  onclick="send({type:'reset_odom'})">RESET ODOM</button>
 <button class="btn btn-kill"   onclick="send({type:'estop'})">KILL</button>
+
+<div class="dpad">
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-fwd"  onpointerdown="startDrive(0.15,0,this)"   onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25B2;</div>
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-left" onpointerdown="startDrive(0,0.3,this)"    onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25C4;</div>
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-right"onpointerdown="startDrive(0,-0.3,this)"   onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25BA;</div>
+  <div class="dpad-empty"></div>
+  <div class="dpad-btn" id="btn-back" onpointerdown="startDrive(-0.075,0,this)" onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25BC;</div>
+  <div class="dpad-empty"></div>
+</div>
 
 <div id="pitch-warn" style="display:none;background:#7a1a00;color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:clamp(1.4rem,6vw,2.2rem);font-weight:bold;text-align:center;letter-spacing:1px"></div>
 
@@ -112,48 +134,10 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
   <div class="row"><span class="key">Motor v/ω</span>  <span class="val dim" id="motor-val">—</span></div>
 </div>
 
-<style>
-.gpanel{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px;margin-top:12px}
-.gpanel h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-.grow{display:flex;align-items:center;gap:6px;padding:3px 0}
-.grow label{flex:0 0 150px;color:#888;font-size:12px;text-align:right}
-.grow input{width:80px;background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px}
-.gbtn-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-.gbtn{background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:5px 14px;cursor:pointer;font-family:monospace;font-size:13px}
-.gbtn:hover{background:#3a3a3a}
-.ginfo{font-size:11px;color:#666;margin-top:4px}
-.dtbl{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px}
-.dtbl th{color:#666;font-weight:normal;text-align:left;padding:2px 4px;border-bottom:1px solid #333}
-.dtbl td{padding:2px 4px}
-.dtbl input{width:64px;background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px}
-</style>
-
-<!-- Driving Gains -->
-<div class="gpanel" id="p-driving">
-  <h3>Driving Gains &nbsp;<span style="font-size:11px;color:#666">θ=<span id="pd-theta">—</span>° v=<span id="pd-v">—</span>m/s ω=<span id="pd-yaw">—</span>rad/s</span></h3>
-  <div class="grow"><label>kp_vel</label><input id="pd-kp_vel" type="number" step="0.5"></div>
-  <div class="grow"><label>ki_vel</label><input id="pd-ki_vel" type="number" step="0.1"></div>
-  <div class="grow"><label>kd_vel</label><input id="pd-kd_vel" type="number" step="0.01"></div>
-  <div class="grow"><label>kp_pitch</label><input id="pd-kp_pitch" type="number" step="1"></div>
-  <div class="grow"><label>kd_pitch</label><input id="pd-kd_pitch" type="number" step="0.5"></div>
-  <div class="grow"><label>ki_pitch</label><input id="pd-ki_pitch" type="number" step="0.1"></div>
-  <div class="grow"><label>kp_yaw</label><input id="pd-kp_yaw" type="number" step="0.5"></div>
-  <div class="grow"><label>ki_yaw</label><input id="pd-ki_yaw" type="number" step="0.1"></div>
-  <div class="grow"><label>kd_yaw</label><input id="pd-kd_yaw" type="number" step="0.05"></div>
-  <div class="grow"><label>kff_decel</label><input id="pd-kff_decel" type="number" step="0.01"></div>
-  <div class="grow"><label>theta_eq_offset</label><input id="pd-theta_eq_offset" type="number" step="0.005"></div>
-  <div class="gbtn-row">
-    <button class="gbtn" onclick="drvgReceive()">Receive</button>
-    <button class="gbtn" onclick="drvgSend()">Send</button>
-    <span id="pd-msg" class="ginfo"></span>
-  </div>
-</div>
-
 <script>
 const wsUrl = 'ws://' + location.host + '/ws';
 let ws = null;
-let lastDrvGains = {};
-const DRV_KEYS = ['kp_vel','ki_vel','kd_vel','kp_pitch','kd_pitch','ki_pitch','kp_yaw','ki_yaw','kd_yaw','kff_decel','theta_eq_offset'];
+let _driveTimer = null, _curVx = 0, _curWz = 0;
 
 function connect() {
   ws = new WebSocket(wsUrl);
@@ -177,6 +161,19 @@ function setBool(id, val, alarmOnTrue) {
 function flash(id, txt) {
   const el=document.getElementById(id); if(!el) return;
   el.textContent=txt; setTimeout(()=>{el.textContent='';},3000);
+}
+function startDrive(vx, wz, el) {
+  el.setPointerCapture(event.pointerId);
+  el.classList.add('held');
+  _curVx=vx; _curWz=wz;
+  send({type:'teleop_vel',vx:vx,wz:wz});
+  if(_driveTimer) clearInterval(_driveTimer);
+  _driveTimer = setInterval(()=>send({type:'teleop_vel',vx:_curVx,wz:_curWz}), 100);
+}
+function stopDrive(el) {
+  el.classList.remove('held');
+  if(_driveTimer){ clearInterval(_driveTimer); _driveTimer=null; }
+  send({type:'teleop_vel',vx:0,wz:0});
 }
 
 function handlePush(d) {
@@ -860,6 +857,7 @@ class SteamDeckWSTeleop(Node):
         self._preview_pub      = self.create_publisher(PoseStamped, p('preview_topic').value,          10)
         self._mode_set_pub     = self.create_publisher(String,      p('mode_set_topic').value,         10)
         self._estop_pub        = self.create_publisher(Bool,        p('estop_topic').value,            10)
+        self._clear_estop_pub  = self.create_publisher(Bool,        '/clear_estop',                    10)
         self._traj_goal_pub    = self.create_publisher(String,      p('trajectory_goal_topic').value,  10)
         self._traj_cmd_pub     = self.create_publisher(String,      p('trajectory_cmd_topic').value,   10)
         self._lid_cmd_pub      = self.create_publisher(String,      p('lid_command_topic').value,      10)
@@ -1255,6 +1253,8 @@ class SteamDeckWSTeleop(Node):
         if t == 'clear_estop':
             estop_msg = Bool(); estop_msg.data = False
             self._estop_pub.publish(estop_msg)
+            clear_msg = Bool(); clear_msg.data = True
+            self._clear_estop_pub.publish(clear_msg)
             self.get_logger().info('E-stop cleared via web UI.')
         elif t == 'estop':
             estop_msg = Bool(); estop_msg.data = True

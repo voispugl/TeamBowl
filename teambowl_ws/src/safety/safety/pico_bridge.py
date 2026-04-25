@@ -14,7 +14,7 @@ LED priority (highest first):
   turning left   → orange wave left   (0x21)
   moving fwd/rev → yellow solid       (0x02)
   stuck          → purple blink       (0x40 0x80 0x00 0x80)
-  lid open       → green solid        (0x01)
+  teleop idle    → blue solid         (0x10 0x00 0x00 0xFF)
   default/alive  → green solid        (0x01)
 
 Serial protocol (ROS → Pico):
@@ -47,6 +47,7 @@ except ImportError:
 _CMD_RED          = bytes([0x00])
 _CMD_GREEN        = bytes([0x01])
 _CMD_YELLOW       = bytes([0x02])
+_CMD_BLUE         = bytes([0x10, 0x00, 0x00, 0xFF])         # teleop idle
 _CMD_WAVE_RIGHT   = bytes([0x10, 0xFF, 0x78, 0x00, 0x20])  # set orange then wave right
 _CMD_WAVE_LEFT    = bytes([0x10, 0xFF, 0x78, 0x00, 0x21])  # set orange then wave left
 _CMD_PURPLE_BLINK = bytes([0x40, 0x80, 0x00, 0x80])
@@ -69,6 +70,7 @@ class PicoBridge(Node):
         # Robot state
         self._estop      = False
         self._stuck      = False
+        self._robot_mode = 'off'
         self._lid_state  = 'unknown'
         self._linear_x   = 0.0
         self._angular_z  = 0.0
@@ -92,6 +94,7 @@ class PicoBridge(Node):
         # Subscriptions
         self.create_subscription(Bool,   '/estop',       self._estop_cb,   10)
         self.create_subscription(String, '/lid_state',   self._lid_cb,     10)
+        self.create_subscription(String, '/robot_mode',  self._mode_cb,    10)
         self.create_subscription(Twist,  '/cmd_vel',     self._vel_cb,     10)
         self.create_subscription(Bool,   '/robot_stuck', self._stuck_cb,   10)
 
@@ -110,6 +113,9 @@ class PicoBridge(Node):
 
     def _lid_cb(self, msg: String):
         self._lid_state = msg.data
+
+    def _mode_cb(self, msg: String):
+        self._robot_mode = msg.data
 
     def _vel_cb(self, msg: Twist):
         self._linear_x  = msg.linear.x
@@ -136,7 +142,8 @@ class PicoBridge(Node):
             return _CMD_YELLOW
         if self._stuck:
             return _CMD_PURPLE_BLINK
-        # alive / lid open both map to green
+        if self._robot_mode == 'teleop':
+            return _CMD_BLUE
         return _CMD_GREEN
 
     def _update_leds(self):

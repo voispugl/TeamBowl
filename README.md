@@ -211,12 +211,46 @@ Common packages to rebuild after edits:
 
 ---
 
+## Fall Recovery
+
+The `fall_recovery_controller` node detects fallover and automatically runs a kip-up manoeuvre:
+
+1. **Trigger**: `|pitch| > 0.45 rad` (≈26°) from `/imu/data`
+2. **EXTENDING** (2.5 s): slowly splay `joint_rs04_2/3/5/6` outward by 30°
+3. **RETRACTING** (0.35 s): fast snap back to driving position (Kd reduced to 2.0 for speed)
+4. **SETTLING** (1.5 s): smooth return to exact YAML positions (Kd restored to 15.0)
+
+The node sets robot mode to `"recovery"` during the manoeuvre (stopping the driving leg controller)
+and returns to `"driving"` when done. Wheels are locked at zero throughout.
+
+---
+
 ## Joint Layout
 
 - **RS04** (`joint_rs04_1` … `joint_rs04_6`, `can0`): actively controlled by leg controllers.
 - **RS00** (`joint_rs00_1`, `joint_rs00_2`, `can1`): coast mode (zero gains, damper disabled).
 - **RS05** (`joint_rs05_1`, `can1`): cargo bay lid motor. Controlled by `lid_controller`
   node in MIT mode (50 Hz `/joint_commands`). Commands via `/lid_command` (`open` / `close` / `toggle`).
+
+---
+
+## Status LEDs (Pico 2)
+
+The Pico 2 drives a WS2812 NeoPixel strip on GPIO 28. The `pico_bridge` ROS2 node maps robot state to LED colors automatically.
+
+| State | Color | Pattern |
+|-------|-------|---------|
+| E-stopped | Red | Solid |
+| Turning right | Orange | Wave right |
+| Turning left | Orange | Wave left |
+| Moving forward/back | Yellow | Solid |
+| Stuck (`/robot_stuck true`) | Purple | Blink ~3 Hz |
+| Teleop, idle | Blue | Solid |
+| Alive / default | Green | Solid |
+
+**Build:** `cd pico/status_leds && mkdir build && cd build && cmake .. -DPICO_BOARD=pico2 -DPICO_SDK_PATH=$HOME/pico-sdk && make -j$(nproc)`  
+**Flash:** Hold BOOTSEL, plug USB, mount `/dev/sda1`, copy `build/status_leds.uf2`.  
+**Serial port:** `/dev/serial/by-id/usb-Raspberry_Pi_Pico_1B8494CFA7EDCDA1-if00` (configured in `safety/config/safety.yaml`).
 
 ---
 

@@ -10,7 +10,7 @@ stuck_detector:
 pico_bridge:
   ros__parameters:
     # Full udev by-id path for the Pico — run `ls /dev/serial/by-id/` to find yours
-    serial_port: "/dev/serial/by-id/usb-Raspberry_Pi_Pico_2_XXXX-if00"
+    serial_port: "/dev/serial/by-id/usb-Raspberry_Pi_Pico_1B8494CFA7EDCDA1-if00"
     baud_rate: 115200
     cmd_vel_linear_threshold: 0.05   # m/s — below this is "stopped"
     cmd_vel_angular_threshold: 0.1   # rad/s — below this is "not turning"

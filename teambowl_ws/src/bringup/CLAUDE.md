@@ -1,5 +1,9 @@
 # bringup
 
+## 2026-04-21 — Added fall_recovery_controller to bringup
+
+**`launch/bringup.launch.py`**: Added `fall_recovery_controller` node (locomotion pkg, `locomotion_config`). Always launched; stays idle until pitch exceeds trigger threshold.
+
 ## 2026-04-21 — Switched OAK-D params_file to bringup/config/oak_cam.yaml (5 Hz)
 
 **`launch/bringup.launch.py`**: Changed `params_file` from `depthai_ros_driver/config/rgbd.yaml` to `bringup/config/oak_cam.yaml` (our own file). The depthai default had no FPS setting (~30 Hz), causing CPU overload and making the ATS slop window unreliable.

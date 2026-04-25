@@ -333,6 +333,14 @@ def generate_launch_description():
 
         Node(
             package='locomotion',
+            executable='fall_recovery_controller',
+            name='fall_recovery_controller',
+            output='screen',
+            parameters=[locomotion_config],
+        ),
+
+        Node(
+            package='locomotion',
             executable='vel_cmd_mux',
             name='vel_cmd_mux',
             output='screen',

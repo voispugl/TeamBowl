@@ -1,5 +1,19 @@
 # steamdeck_teleop
 
+## 2026-04-21 — ENABLE button now properly clears kill-switch latch
+
+- **`steamdeck_ws_teleop.py`**: Added `_clear_estop_pub` publisher on `/clear_estop`. On `clear_estop` web message, publishes `Bool(True)` to `/clear_estop` (in addition to existing `/estop false`). This signals `system_health` to clear its kill-switch latch so the heartbeat tick can no longer silently override it.
+
+## 2026-04-21 — Added D-pad and Teleop button to Phone UI
+
+**`steamdeck_teleop/steamdeck_ws_teleop.py`** (`_HTML_PHONE` only):
+- Added TELEOP button (blue, `set_mode:driving`) side-by-side with AUTON in a 2-column grid.
+- Added D-pad (4-direction, identical velocities to rescue UI: FWD=0.3, BACK=-0.15 m/s, LEFT/RIGHT ±0.6 rad/s) below KILL button, above diagnostics.
+- Added `startDrive(vx, wz, el)` / `stopDrive(el)` JS + `_driveTimer`/`_curVx`/`_curWz` state.
+- Added `.dpad`, `.dpad-btn`, `.dpad-empty`, `.btn-teleop` CSS classes.
+- Added `touch-action:manipulation` to body to prevent scroll interference.
+- No Python changes — `teleop_vel` handler and publisher already existed.
+
 ## 2026-04-21 — Added Rescue Teleop UI (ui_mode='rescue')
 
 **`steamdeck_teleop/steamdeck_ws_teleop.py`**:

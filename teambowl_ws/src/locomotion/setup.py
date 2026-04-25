@@ -40,6 +40,7 @@ setup(
             'driving_controller = locomotion.driving_controller:main',
             'wheel_odom = locomotion.wheel_odom:main',
             'lid_controller = locomotion.lid_controller:main',
+            'fall_recovery_controller = locomotion.fall_recovery_controller:main',
         ],
     },
 )

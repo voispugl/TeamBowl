@@ -33,6 +33,7 @@ class SystemHealthNode(Node):
         # State variables
         self.estop = bool(self.get_parameter('start_estop_true').value)
         self.last_heartbeat_time = None
+        self._kill_switch_latched = False
 
         # QoS Setup
         qos = QoSProfile(
@@ -46,6 +47,9 @@ class SystemHealthNode(Node):
 
         # Subscribe to physical kill switch (published by pico_bridge)
         self.create_subscription(Bool, '/kill_switch', self._kill_switch_cb, qos)
+
+        # Subscribe to clear signal — ENABLE button on phone app
+        self.create_subscription(Bool, '/clear_estop', self._clear_estop_cb, qos)
 
         # Publish estop state
         self.pub = self.create_publisher(Bool, self.estop_topic, qos)
@@ -64,19 +68,26 @@ class SystemHealthNode(Node):
         self.last_heartbeat_time = self.get_clock().now()
 
     def _kill_switch_cb(self, msg: Bool):
-        # Physical kill switch immediately asserts e-stop; release does not clear it
         if msg.data:
+            self._kill_switch_latched = True
             self.estop = True
+            self.get_logger().warn('Kill switch latched — press ENABLE to clear.')
+
+    def _clear_estop_cb(self, msg: Bool):
+        if msg.data:
+            self._kill_switch_latched = False
+            self.get_logger().info('Kill switch latch cleared via ENABLE.')
 
     def _tick(self):
-        # Logic to estop if no heartbeat is heard
         now = self.get_clock().now()
         if self.last_heartbeat_time is None:
-            # If never received heartbeat, keep current estop setting (you can choose to default true instead)
             pass
         else:
             timed_out = (now - self.last_heartbeat_time) > self.timeout
-            self.estop = bool(timed_out)
+            if timed_out:
+                self.estop = True
+            elif not self._kill_switch_latched:
+                self.estop = False
 
         # Publish estop state
         msg = Bool()
