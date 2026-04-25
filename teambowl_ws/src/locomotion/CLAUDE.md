@@ -143,6 +143,41 @@ PP mode is flashed permanently to the motor via `~/TeamBowl/commission_rs05_pp.s
 - Save calibrated positions to YAML: `sopen`, `sclosed`
 - Restart lid_controller: `r`
 
+## 2026-04-19 — Added leg IK + jump controller
+
+**`leg_kinematics`** — `locomotion/leg_kinematics.py`
+Standalone (no-ROS) FK/IK module for the parallel 5-bar legs.
+- Models each leg as equivalent 2R arm: Motor A controls knee pivot position
+  (via Thigh, L≈0.297 m), Motor B controls Calf direction via the parallel link
+  (L≈0.297 m). Total reach ≈ 0.593 m.
+- `leg_fk_urdf(θ_A, θ_B)` — foot position in Hip frame given URDF-convention angles
+- `LegCalibration` — fits encoder zero offsets from the known driving position +
+  measured foot height; call `calibrate_from_driving_pos()` at startup
+- `compute_jump_waypoints(cal_l, cal_r, crouch_depth)` — returns crouch + extend
+  joint dicts ready for the jump controller; falls back to heuristic delta if IK fails
+
+Key constants: `L_THIGH≈0.297 m`, `L_CALF≈0.297 m`, `L_MAX≈0.593 m`
+Geometry from `bringup/robot_description/bowl.urdf` joints `dof_calf1_0`,
+`dof_driver1_0`, `closing_knee1_0`, `dof_ankle1_0`.
+
+**`jump_controller`** — `locomotion/jump_controller.py`
+ROS2 node: IDLE → CROUCH → EXTEND → RETURN → IDLE.
+- **CROUCH**: legs retract to `crouch_depth × L_MAX`, normal gains, hold `crouch_hold_s`
+- **EXTEND**: legs slam to 95% max extension, `extend_kd_override` Kd, `extend_torque_ff`
+  feedforward, hold `extend_hold_s`
+- **RETURN**: command driving positions, release suspend; IDLE when settled or timeout
+- Publishes `True` on `/balance_suspend` during CROUCH+EXTEND (balance_controller zeroes wheels)
+- Publishes `/joint_commands` at 100 Hz during jump (preempts 50 Hz driving controller)
+- Trigger: `ros2 topic pub /jump_command std_msgs/msg/String '{data: "jump"}' --once`
+- Config: `config/jump_controller.yaml` — tune `foot_height_driving_m` first (physical measurement)
+
+**`balance_controller`** — added `/balance_suspend` (std_msgs/Bool) subscription.
+When True: `_inner_tick` publishes zero wheel command without touching integrators.
+
+**Calibration note**: `foot_height_driving_m` in jump_controller.yaml controls IK
+zero-fitting. Default −0.28 m is an estimate; measure actual foot-to-hip distance
+on the physical robot and update before hardware testing.
+
 ## 2026-04-14 — Upgraded inner pitch loop to PID with 2-second sliding window integral
 
 **`balance_controller`** — `locomotion/balance_controller.py`, **`config/balance_controller.yaml`**
@@ -309,6 +344,16 @@ from `driving_leg_controller` on 2026-03-17). `teleop.sh` (in `teambowl_docker/`
 handles the robstride driver startup + mode set inside the container.
 
 bringup.launch.py NOW includes the robstride driver (added 2026-03-17).
+
+## 2026-03-31 — Added trick mode to driving_leg_controller
+
+- **`locomotion/trick_leg_offsets.yaml`**: New file. Per-joint offset values (rad) added
+  to base `driving_leg_pos.yaml` positions when in trick mode. Installed to `share/locomotion/`.
+- **`setup.py`**: Added `trick_leg_offsets.yaml` to `data_files`.
+- **`driving_leg_controller.py`**: Added `_trick_offsets` dict (joint → float). Subscribes
+  to `/trick_leg_offsets` (JointState from keyboard_operator). In `_publish_commands`,
+  adds offsets to base positions when `self._mode == 'trick'`; otherwise uses base only.
+  `_print_status` also shows effective (offset-adjusted) target in trick mode.
 
 ## 2026-03-24 — driving_leg_controller: auto_start on launch
 

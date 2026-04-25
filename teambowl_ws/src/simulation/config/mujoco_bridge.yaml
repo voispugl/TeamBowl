@@ -1,0 +1,43 @@
+mujoco_bridge:
+  ros__parameters:
+    # Path to the MJCF model file inside the container.
+    # Both mjlab_robot/ and teambowl_ws/ must be mounted — see docker-compose.sim.yml.
+    model_path: /workspaces/teambowl_mjlab/teambowl_mjlab.xml
+
+    # Physics rate (matches model timestep=0.002 → 500 Hz)
+    sim_hz: 500.0
+
+    # Publish decimation rates (steps between publishes)
+    #   pub_imu_decimation=5   → 500/5  = 100 Hz  (IMU + odometry)
+    #   pub_joint_decimation=10 → 500/10 = 50 Hz  (joint_states)
+    pub_imu_decimation: 5
+    pub_joint_decimation: 10
+
+    # TF frame IDs
+    imu_frame_id: imu_link
+    odom_frame_id: odom
+    base_frame_id: base_link
+
+    # Wheel geometry
+    wheel_radius: 0.154       # m (from XML cylinder geom size)
+    track_width:  0.5588      # m (calibrated in vesc_driver.yaml)
+
+    # Gear ratios (motor → wheel): N_left = 145/12 ≈ 12.083, N_right = 174/12 = 14.5
+    gear_ratio_left:  12.0833
+    gear_ratio_right: 14.5
+
+    # Direction sign for motor command.
+    # gear constraint is: wheel_vel = -(1/N) * motor_vel
+    # so ctrl = -N * wheel_omega  → ctrl_sign = -1.0
+    # Flip to +1.0 if the robot drives backward in sim on first test.
+    ctrl_sign_left:  -1.0
+    ctrl_sign_right: -1.0
+
+    # Motor velocity clip limits (rad/s) matching XML ctrlrange
+    ctrl_max_left:  40.0
+    ctrl_max_right: 48.0
+
+    # Spawn height for the Frame body (z, metres).
+    # With MJCF floor at z=-0.3, wheel_radius=0.154, wheel_local_z=0.056195:
+    #   spawn_z = -0.3 + 0.154 + 0.056195 ≈ -0.090
+    spawn_z: -0.090

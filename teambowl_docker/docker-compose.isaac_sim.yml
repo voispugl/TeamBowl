@@ -1,0 +1,18 @@
+services:
+  teambowl_isaac_sim:
+    image: teambowl:isaac_sim
+    container_name: teambowl_isaac_sim
+    runtime: nvidia                    # requires NVIDIA Container Toolkit on host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all,display
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - ACCEPT_EULA=Y                  # required by Isaac Sim license
+      - PRIVACY_CONSENT=Y
+    network_mode: host                 # required for ROS2 DDS multicast + Foxglove bridge
+    volumes:
+      - ${TEAMBOWL_WS:-${HOME}/TeamBowl/teambowl_ws}:/workspaces/teambowl_ws
+    # WebRTC UI:  http://localhost:8211  (Isaac Sim browser viewer)
+    # Foxglove:   ws://localhost:8765   (connect Foxglove Studio)
+    # ROS2 DDS:   host network (no port mapping needed)

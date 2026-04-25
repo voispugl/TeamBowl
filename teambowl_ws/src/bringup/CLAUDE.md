@@ -4,6 +4,46 @@
 
 **`launch/bringup.launch.py`**: Added `fall_recovery_controller` node (locomotion pkg, `locomotion_config`). Always launched; stays idle until pitch exceeds trigger threshold.
 
+## 2026-04-23 — Added isaac_sim.launch.py for Isaac Sim full-stack testing
+
+**`launch/isaac_sim.launch.py`**: Full robot stack connected to Isaac Sim (replaces sim.launch.py).
+- Connects to Isaac Sim's ROS2 bridge topics: `/imu/data`, `/wheel/odometry`, `/visual_slam/tracking/odometry`, `/oak/rgb/image_raw`, `/oak/stereo/image_raw`
+- Launches: mode_manager, vel_cmd_mux, collision_guard, driving/balance controller, wheel_odom, EKF, nav2 (planner + controller + lifecycle), nvblox (default true on RTX 5080), cam_ops, optional yolo26, foxglove
+- `use_sim_time: true` for EKF and all nav2 nodes — Isaac Sim publishes `/clock`
+- `use_nvblox` (default `true`): nvblox CUDA runs on RTX 5080
+- `use_yolo26` (default `false`): ML person detection on simulated camera
+- No hardware drivers (no depthai, xsens, robstride, vesc)
+
+**`simulation/isaac_sim/setup_scene.py`**: Isaac Sim Python script (runs inside the container).
+- Imports bowl.urdf with convex-hull collision + full STL visuals (`convex_decomp=True`)
+- Places 7 obstacles (6 boxes + 1 wall) and static human mesh from Nucleus People library
+- Publishes: `/imu/data` (100 Hz), `/wheel/odometry` (100 Hz), `/visual_slam/tracking/odometry` (100 Hz, ground-truth VSLAM substitute), `/joint_states` (50 Hz), `/oak/rgb/image_raw`, `/oak/stereo/image_raw` (30 Hz each)
+- NOTE: does NOT publish `/odometry/filtered` — the `ekf_filter_node` produces that
+
+## 2026-04-23 — OAK-D PoE W swap + Isaac ROS Visual SLAM + nvblox integration
+
+### New launch arguments
+- **`use_vslam`** (default `false`): Enables Isaac ROS Visual SLAM. Switches camera to `oak_cam_vslam.yaml` (PoE IP, IMU, 90 Hz stereo, 15 Hz H.264 RGB). Requires Docker rebuild with Isaac ROS and OAK-D PoE W hardware.
+- **`use_nvblox`** (default `false`): Enables nvblox 3D TSDF costmap. Switches planning config to `planning_nvblox.yaml`. Disables `nav_cloud_filter` and `pointcloud_to_laserscan_node` (replaced by nvblox). Requires `use_vslam:=true`.
+- **`vslam_debug`** (default `false`): Enables VSLAM visualization topics (`/visual_slam/vis/observations_cloud`, landmarks, tracking path) for Foxglove debugging.
+
+### New config files
+- **`config/oak_cam_vslam.yaml`**: OAK-D PoE W config. `i_ip: "192.168.1.100"` is a placeholder — set to actual static IP. 90 Hz stereo (uncompressed, for VSLAM), 15 Hz RGB H.264 (VPU dedicated encoder, no impact on stereo), IMU enabled, reversed stereo socket order.
+- **`planning/config/planning_nvblox.yaml`** (in planning package): Full planning.yaml copy with `nvblox::NvbloxCostmapLayer` replacing `ObstacleLayer` in local costmap AND replacing inflation-only in global costmap.
+
+### New nodes (conditional)
+- **`visual_slam`** (`isaac_ros_visual_slam`): VIO odometry from 90 Hz stereo + camera IMU. Output: `/visual_slam/tracking/odometry` → EKF `odom1`. Uses `OpaqueFunction` to read `vslam_debug` at launch time for viz params.
+- **`nvblox`** (`nvblox_ros`): GPU TSDF map from OAK-D aligned depth. ESDF slice 0.0–1.2m above base_link. Feeds `NvbloxCostmapLayer` in both local and global costmaps.
+- **`nvblox_camera_tf`** (`tf2_ros/static_transform_publisher`): Dedicated `nvblox_camera → base_link` TF at OAK-D position. Decoupled from depthai internal frame names. Verify position with `ros2 run tf2_tools view_frames`.
+
+### New launch file
+- **`launch/isaac_ros_test.launch.py`**: Standalone test — OAK-D camera + VSLAM + nvblox + foxglove only. No motors, CAN, Nav2, or robot hardware. Use this to validate Isaac ROS before integrating with full bringup.
+
+### Conditional behavior
+- `nav_cloud_filter` and `pointcloud_to_laserscan_node`: run normally, disabled with `UnlessCondition(use_nvblox)`.
+- Camera `params_file`: `PythonExpression` switches between `oak_cam.yaml` and `oak_cam_vslam.yaml` based on `use_vslam`.
+- All nav2 nodes (`planner_server`, `controller_server`, `trajectory_test`, `follow_goal`, `follow_executor`, `lifecycle_manager`): `PythonExpression` switches between `planning.yaml` and `planning_nvblox.yaml` based on `use_nvblox`.
+
 ## 2026-04-21 — Switched OAK-D params_file to bringup/config/oak_cam.yaml (5 Hz)
 
 **`launch/bringup.launch.py`**: Changed `params_file` from `depthai_ros_driver/config/rgbd.yaml` to `bringup/config/oak_cam.yaml` (our own file). The depthai default had no FPS setting (~30 Hz), causing CPU overload and making the ATS slop window unreliable.
@@ -74,6 +114,14 @@ active in `driving`/`balance` mode only. They never compete on the Nav2 action s
   is missing from `/joint_states`. Added info log on each enable attempt.
 - **`test_lid.sh`**: Added pre-flight check — warns loudly if `robstride_can_driver` is
   not running (missing `/enable_motors` service) and asks to continue.
+
+## 2026-04-19 — Added jump_controller to bringup
+
+- **`launch/bringup.launch.py`**: Added `jump_controller` node (locomotion pkg,
+  `jump_controller.yaml`). Trigger a jump with:
+  `ros2 topic pub /jump_command std_msgs/msg/String '{data: "jump"}' --once`
+  The node calibrates leg IK from `foot_height_driving_m` on startup; adjust
+  that YAML param to match the physical foot-to-hip distance before hardware use.
 
 ## 2026-04-17 — Added stuck_detector + nvblox setup guide
 

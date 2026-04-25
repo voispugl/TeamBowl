@@ -16,8 +16,10 @@ setup(
             'config/driving_controller.yaml',
             'config/ekf.yaml',
             'config/lid_controller.yaml',
+            'config/jump_controller.yaml',
         ]),
         ('share/' + package_name, ['locomotion/driving_leg_pos.yaml']),
+        ('share/' + package_name, ['locomotion/trick_leg_offsets.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -41,6 +43,7 @@ setup(
             'wheel_odom = locomotion.wheel_odom:main',
             'lid_controller = locomotion.lid_controller:main',
             'fall_recovery_controller = locomotion.fall_recovery_controller:main',
+            'jump_controller = locomotion.jump_controller:main',
         ],
     },
 )

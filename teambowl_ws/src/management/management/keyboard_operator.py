@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
+import os
 import sys
 import select
 import termios
 import time
 import tty
 
+import yaml
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Twist
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 
 
@@ -39,6 +43,7 @@ class KeyboardOperatorNode(Node):
       1 -> off
       2 -> teleop
       3 -> auton
+      4 -> trick
       0 -> estop on
       9 -> estop off
 
@@ -53,7 +58,11 @@ class KeyboardOperatorNode(Node):
       [ / ] : decrease / increase linear speed
       ; / ' : decrease / increase angular speed
 
-    Misc:
+    Trick mode (key 4):
+      j : move all leg joints to trick offsets (single movement)
+      n : return all leg joints to base driving positions
+
+  Misc:
       h : print help
       Ctrl-C : quit
     """
@@ -70,13 +79,13 @@ class KeyboardOperatorNode(Node):
         self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('angular_speed', 0.80)
 
-        self.declare_parameter('linear_speed_step', 0.05)
-        self.declare_parameter('angular_speed_step', 0.10)
+        self.declare_parameter('linear_speed_step', 0.10)
+        self.declare_parameter('angular_speed_step', 0.20)
 
         self.declare_parameter('linear_speed_min', 0.0)
-        self.declare_parameter('linear_speed_max', 0.20)
+        self.declare_parameter('linear_speed_max', 1.0)
         self.declare_parameter('angular_speed_min', 0.0)
-        self.declare_parameter('angular_speed_max', 0.80)
+        self.declare_parameter('angular_speed_max', 1.5)
 
         self.teleop_topic = self.get_parameter('teleop_topic').value
         self.mode_set_topic = self.get_parameter('mode_set_topic').value
@@ -106,9 +115,28 @@ class KeyboardOperatorNode(Node):
         self.pub_cmd = self.create_publisher(Twist, self.teleop_topic, qos)
         self.pub_mode = self.create_publisher(String, self.mode_set_topic, qos)
         self.pub_estop = self.create_publisher(Bool, self.estop_topic, qos)
+        self.pub_trick_offsets = self.create_publisher(JointState, '/trick_leg_offsets', qos)
 
         self.current_twist = zero_twist()
         self.last_motion_command_time = 0.0
+
+        # Trick mode state
+        share_dir = get_package_share_directory('locomotion')
+        default_trick_path = os.path.join(share_dir, 'trick_leg_offsets.yaml')
+        self.declare_parameter('trick_offsets_path', default_trick_path)
+        trick_path = self.get_parameter('trick_offsets_path').value
+
+        self._trick_targets: dict = {}   # joint_name -> offset value from YAML
+        self._trick_pose_active: bool = False  # True = offsets applied
+        self._requested_mode: str = 'off'      # last mode key pressed locally
+
+        try:
+            with open(trick_path, 'r') as f:
+                data = yaml.safe_load(f)
+            self._trick_targets = {k: float(v) for k, v in data.get('joints', {}).items()}
+            self.get_logger().info(f'Trick offsets loaded from {trick_path}')
+        except Exception as e:
+            self.get_logger().warn(f'Could not load trick offsets: {e}')
 
         # Put terminal into cbreak mode so we can read single keypresses.
         self.stdin_fd = sys.stdin.fileno()
@@ -140,6 +168,7 @@ Modes:
   1 -> OFF
   2 -> TELEOP
   3 -> AUTON
+  4 -> TRICK
   0 -> ESTOP ON
   9 -> ESTOP OFF
 
@@ -160,6 +189,11 @@ Speed tuning:
   ] -> increase linear speed
   ; -> decrease angular speed
   ' -> increase angular speed
+
+Trick mode (press 4 first):
+  j     -> move all leg joints to trick offsets (single movement)
+  n     -> return all leg joints to base driving positions (stay in trick mode)
+  space -> ESTOP ON (disables all joints and wheels)
 
 Misc:
   h -> print this help
@@ -200,15 +234,25 @@ Misc:
     def _handle_key(self, key: str):
         # Modes
         if key == '1':
+            self._requested_mode = 'off'
+            self._trick_pose_active = False
             self._publish_mode('off')
             self._set_twist(0.0, 0.0)
             return
         if key == '2':
+            self._requested_mode = 'teleop'
+            self._trick_pose_active = False
             self._publish_mode('teleop')
             return
         if key == '3':
+            self._requested_mode = 'auton'
+            self._trick_pose_active = False
             self._publish_mode('auton')
             self._set_twist(0.0, 0.0)
+            return
+        if key == '4':
+            self._requested_mode = 'trick'
+            self._publish_mode('trick')
             return
         if key == '0':
             self._publish_estop(True)
@@ -244,6 +288,8 @@ Misc:
             self._set_motion_twist(-self.linear_speed, -self.angular_speed)
             return
         if key == ' ' or key == 'x':
+            if self._requested_mode == 'trick':
+                self._publish_estop(True)
             self._set_twist(0.0, 0.0)
             return
 
@@ -281,9 +327,34 @@ Misc:
             self._log_speeds()
             return
 
+        # Trick mode joint controls (only active when trick mode was requested)
+        if self._requested_mode == 'trick':
+            if key == 'j':
+                self._trick_pose_active = True
+                self.get_logger().info('trick pose -> ON')
+                return
+            if key == 'n':
+                self._trick_pose_active = False
+                self.get_logger().info('trick pose -> OFF (base)')
+                return
+
         if key == 'h':
             self._print_help()
             return
+
+    def _publish_trick_offsets(self):
+        if not self._trick_targets:
+            return
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = list(self._trick_targets.keys())
+        msg.position = [
+            self._trick_targets[j] if self._trick_pose_active else 0.0
+            for j in msg.name
+        ]
+        msg.velocity = [0.0] * len(msg.name)
+        msg.effort = [0.0] * len(msg.name)
+        self.pub_trick_offsets.publish(msg)
 
     def _tick(self):
         # Non-blocking single-char read
@@ -300,6 +371,8 @@ Misc:
 
         # Keep publishing current teleop command so mux freshness stays alive.
         self.pub_cmd.publish(self.current_twist)
+        # Always publish trick offsets; driving_leg_controller only applies them in trick mode.
+        self._publish_trick_offsets()
 
 
 def main():

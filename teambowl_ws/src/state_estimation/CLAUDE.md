@@ -1,5 +1,15 @@
 # state_estimation
 
+## 2026-04-23 — Added VSLAM as third EKF odometry source (odom1)
+
+**`config/state_estimation.yaml`**: Added `odom1: /visual_slam/tracking/odometry` as a third EKF fusion source alongside `imu0` (Xsens Sirius 300) and `odom0` (wheel encoders).
+
+- **Fused from VSLAM**: x, y position; yaw; vx; vyaw (`two_d_mode` projects out z/roll/pitch).
+- **Covariance**: reported dynamically by Isaac VSLAM from tracking quality — no manual value needed.
+- **Rejection thresholds**: `pose: 2.0`, `twist: 2.0` — guards against pose jumps on VSLAM re-localization.
+- **Safe when VSLAM is off**: if `use_vslam:=false`, no messages arrive on `odom1` topic and the EKF silently uses only `imu0` + `odom0`. No parameter change needed to disable.
+- **Enabled by**: launching with `use_vslam:=true` (Isaac ROS VSLAM node must be running and Docker rebuilt with Isaac ROS).
+
 ## IMU Calibration
 
 Run `bash ~/TeamBowl/calibrate_imu.sh` with the robot stationary for 30+ minutes to record a bag, then `python3 ~/TeamBowl/calibrate_imu.py <bag>` to compute Allan variance and get ready-to-paste YAML for `process_noise_covariance` and `xsens_mti_node.yaml` stddev values.

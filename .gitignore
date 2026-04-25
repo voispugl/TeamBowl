@@ -219,3 +219,5 @@ teambowl_ws/src/install/
 teambowl_ws/src/log/
 teambowl_ws/src/*/install/
 teambowl_ws/src/*/log/
+
+teambowl_ws/rosbags/
