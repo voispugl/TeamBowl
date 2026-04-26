@@ -36,12 +36,11 @@ if [ ! -f "${BUILD_MARKER}" ]; then
         --cmake-args \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-        2>&1 | tee /tmp/colcon_build.log
+        2>&1 | tee "${WS}/colcon_build.log"
 
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
-        echo "[entrypoint] ERROR: colcon build failed. Check /tmp/colcon_build.log for details."
-        echo "[entrypoint] Dropping to bash for debugging."
-        exec bash
+        echo "[entrypoint] ERROR: colcon build failed. Check colcon_build.log in the workspace."
+        exit 1
     fi
 
     touch "${BUILD_MARKER}"

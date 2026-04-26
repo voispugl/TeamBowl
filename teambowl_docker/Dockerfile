@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y software-properties-common curl && \
 # ── OpenCV 4.12.0 with CUDA: build dependencies ──────────────────────────────
 # Placed before the OpenCV build layer so it caches independently.
 RUN apt-get update && apt-get install -y \
+    cmake \
     unzip \
     pkg-config \
     libgtk-3-dev \
@@ -75,6 +76,9 @@ RUN mkdir -p /tmp/opencv_build && cd /tmp/opencv_build && \
     rm -rf /tmp/opencv_build
 
 ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
+# libcusparseLt: installed by JetPack SDK Manager on host, volume-mounted into
+# the container via docker-compose.yml. Not available in l4t-jetpack base image.
+ENV LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/libcusparseLt/12:${LD_LIBRARY_PATH}"
 ENV PYTHONPATH="/usr/local/lib/python3.10/site-packages/:${PYTHONPATH}"
 
 # ── Isaac ROS: build dependencies ────────────────────────────────────────────
@@ -82,18 +86,25 @@ ENV PYTHONPATH="/usr/local/lib/python3.10/site-packages/:${PYTHONPATH}"
 # independently of robot-specific packages further down.
 # libgoogle-glog-dev, libgflags-dev, libsqlite3-dev: required by nvblox C++ library.
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    python3-pip \
+    python3-colcon-common-extensions \
+    python3-rosdep \
     libgoogle-glog-dev \
     libgflags-dev \
     libsqlite3-dev \
+    libboost-dev \
+    libboost-thread-dev \
+    libbenchmark-dev \
+    ros-humble-ros-base \
     && rm -rf /var/lib/apt/lists/* \
     && rosdep init || true \
     && rosdep update || true
 
-# ── Isaac ROS: clone + build into /opt/isaac_ros_ws ──────────────────────────
-# Packages: isaac_ros_common, isaac_ros_visual_slam (VIO), isaac_ros_nvblox (TSDF costmap)
-# Branch: release-3.2 — validated for JetPack 6.1 / L4T R36.4.0 / CUDA 12.6.
-# WARNING: First docker build takes ~75 min (CUDA kernel compilation).
-# Skip keys: libopencv-dev and variants to protect JetPack's CUDA-accelerated OpenCV.
+# ── Isaac ROS: git clone (separate layer for caching) ────────────────────────
+# Split from the build step so git clones are cached once and re-used on build
+# failures without re-downloading ~500 MB of repos.
 RUN mkdir -p /opt/isaac_ros_ws/src && \
     cd /opt/isaac_ros_ws/src && \
     git clone --recurse-submodules -b release-3.2 \
@@ -101,16 +112,30 @@ RUN mkdir -p /opt/isaac_ros_ws/src && \
     git clone --recurse-submodules -b release-3.2 \
         https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_visual_slam.git && \
     git clone --recurse-submodules -b release-3.2 \
-        https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nvblox.git && \
+        https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nvblox.git
+
+# ── Isaac ROS: build ──────────────────────────────────────────────────────────
+# Packages: isaac_ros_common, isaac_ros_visual_slam (VIO), isaac_ros_nvblox (TSDF costmap)
+# Branch: release-3.2 — validated for JetPack 6.1 / L4T R36.4.0 / CUDA 12.6.
+# WARNING: First docker build takes ~75 min (CUDA kernel compilation).
+# Skip keys: libopencv-dev and variants to protect JetPack's CUDA-accelerated OpenCV.
+# set -o pipefail: ensures colcon failure propagates through the tee pipe.
+RUN set -o pipefail && \
+    apt-get update && \
     cd /opt/isaac_ros_ws && \
     source /opt/ros/humble/setup.bash && \
     rosdep install --from-paths src --ignore-src -r -y \
-        --skip-keys "libopencv-dev python3-opencv libopencv-contrib-dev" && \
+        --skip-keys "libopencv-dev python3-opencv libopencv-contrib-dev \
+                     isaac_ros_peoplenet_models_install isaac_ros_peoplesemseg_models_install \
+                     isaac_ros_nitros_image_type isaac_ros_nitros_camera_info_type \
+                     isaac_ros_nitros isaac_ros_gxf ament_python" || true && \
     colcon build \
         --cmake-args \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-        2>&1 | tee /tmp/isaac_ros_build.log && \
+        --packages-ignore nvblox_test nvblox_test_data nvblox_examples_bringup \
+            isaac_ros_visual_slam nvblox_rviz_plugin nvblox_ros \
+        --event-handlers console_direct+ && \
     rm -rf /opt/isaac_ros_ws/build /opt/isaac_ros_ws/log
 
 # ── Robot packages ────────────────────────────────────────────────────────────
@@ -195,16 +220,41 @@ RUN apt-get update && apt-get install -y \
 
 # Python dependencies
 # numpy==1.26.1 pinned: required by the NVIDIA PyTorch wheel below.
-# pyvesc==0.2.2 pinned: known-good on aarch64 Python 3.10; PyCRC is auto-installed as
-# pyvesc's own dependency at the correct version — do NOT add PyCRC separately.
+# pyvesc==1.0.5 pinned: 0.2.2 was removed from PyPI; 1.0.5 is latest available.
+# PyCRC listed explicitly: pyvesc 1.0.5 does not auto-install it unlike 0.2.2.
 # depthai (Python SDK) is intentionally omitted: no Python code imports it, and the pip
 # wheel bundles libdepthai-core.so which conflicts with ros-humble-depthai at runtime.
 # python-can: required by robstride_can_driver (CAN bus communication).
 RUN pip3 install --no-cache-dir \
     numpy==1.26.1 \
-    pyvesc==0.2.2 \
+    pyvesc==1.0.5 \
     python-can \
     websockets
+
+# PyCRC compatibility shim for pyvesc 1.0.5.
+# pyvesc imports `from PyCRC.CRCCCITT import CRCCCITT` but the original PyCRC
+# PyPI package has been removed. pyvesc's declared dep `pycrc` resolves to a
+# completely unrelated C/C++ CRC code-generator tool. Shim implements CRC-CCITT
+# (XModem / FFFF / 1D0F variants) directly — no external dependency needed.
+RUN python3 - << 'EOF'
+import os
+d = '/usr/local/lib/python3.10/dist-packages/PyCRC'
+os.makedirs(d, exist_ok=True)
+open(f'{d}/__init__.py', 'w').close()
+with open(f'{d}/CRCCCITT.py', 'w') as f:
+    f.write("""class CRCCCITT:
+    _INIT = {'FFFF': 0xFFFF, '1D0F': 0x1D0F}
+    def __init__(self, version='XModem'):
+        self._crc = self._INIT.get(version, 0x0000)
+    def calculate(self, data=''):
+        crc = self._crc
+        for b in (data.encode() if isinstance(data, str) else data):
+            crc ^= b << 8
+            for _ in range(8):
+                crc = ((crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1) & 0xFFFF
+        return crc
+""")
+EOF
 
 # PyTorch for JetPack 6.1 (aarch64, Python 3.10, CUDA 12.6)
 # Wheel from NVIDIA redist — matches the cuDNN/CUDA versions in l4t-jetpack:r36.4.0.

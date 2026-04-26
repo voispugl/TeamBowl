@@ -10,13 +10,14 @@ usage() {
     echo ""
     echo "Usage: ./build.sh [OPTIONS]"
     echo ""
-    echo "  (no flags)       Rebuild Docker image (cached) then start containers"
+    echo "  (no flags)       Rebuild Docker image (cached)"
     echo "  -c, --clean      Full clean rebuild:"
     echo "                     - Stop containers"
     echo "                     - Wipe colcon build/install/log"
     echo "                     - Rebuild Docker image with --no-cache"
-    echo "                     - Start containers"
     echo "  -h, --help       Show this help"
+    echo ""
+    echo "To start the container after building, run: ./launch.sh"
     echo ""
     echo "Examples:"
     echo "  ./build.sh             # fast rebuild using Docker layer cache"
@@ -69,8 +70,5 @@ else
 fi
 
 echo ""
-echo "[build] Starting containers..."
-echo "[build] Colcon will build the workspace on first run (~15-20 min)."
-echo "[build] Press Ctrl+C to stop."
+echo "[build] Image ready. Run ./launch.sh to start the container."
 echo ""
-docker compose up

@@ -1,0 +1,18 @@
+[Unit]
+Description=TeamBowl CAN interface setup (can0, can1 @ 1 Mbit/s)
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c "\
+    modprobe mttcan && \
+    ip link set can0 down 2>/dev/null; \
+    ip link set can1 down 2>/dev/null; \
+    ip link set can0 type can bitrate 1000000 && \
+    ip link set can1 type can bitrate 1000000 && \
+    ip link set can0 up && \
+    ip link set can1 up"
+
+[Install]
+WantedBy=multi-user.target

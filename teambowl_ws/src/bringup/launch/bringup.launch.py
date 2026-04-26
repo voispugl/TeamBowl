@@ -105,7 +105,7 @@ def generate_launch_description():
     cam_translation, cam_rpy = _compute_base_to_rgb_camera_tf(robot_urdf)
 
     # Camera params_file: oak_cam_vslam.yaml when use_vslam:=true (PoE IP, IMU, 90 Hz stereo),
-    # otherwise oak_cam.yaml (USB, 5 Hz, no IMU).
+    # otherwise oak_cam.yaml (OAK-D PoE W, 15 Hz, no IMU).
     _oak_cam_default = os.path.join(
         get_package_share_directory('bringup'), 'config', 'oak_cam.yaml')
     _oak_cam_vslam = os.path.join(

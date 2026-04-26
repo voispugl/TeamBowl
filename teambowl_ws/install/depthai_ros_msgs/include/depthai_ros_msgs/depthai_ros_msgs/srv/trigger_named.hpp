@@ -1,1 +1,1 @@
-/home/box/TeamBowl/teambowl_ws/build/depthai_ros_msgs/rosidl_generator_cpp/depthai_ros_msgs/srv/trigger_named.hpp
+/workspaces/teambowl_ws/build/depthai_ros_msgs/rosidl_generator_cpp/depthai_ros_msgs/srv/trigger_named.hpp

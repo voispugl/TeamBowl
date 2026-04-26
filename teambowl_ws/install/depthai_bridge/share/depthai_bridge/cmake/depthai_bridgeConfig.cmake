@@ -1,1 +1,1 @@
-/home/box/TeamBowl/teambowl_ws/build/depthai_bridge/ament_cmake_core/depthai_bridgeConfig.cmake
+/workspaces/teambowl_ws/build/depthai_bridge/ament_cmake_core/depthai_bridgeConfig.cmake
