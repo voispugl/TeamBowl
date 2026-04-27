@@ -162,6 +162,9 @@ def generate_launch_description():
         xsens_imu = None
         _xsens_available = False
 
+    diagnostics_config = os.path.join(
+        get_package_share_directory('bringup'), 'config', 'diagnostics.yaml')
+
     management_config = os.path.join(
         get_package_share_directory('management'), 'config', 'management.yaml')
     safety_config = os.path.join(
@@ -323,6 +326,14 @@ def generate_launch_description():
                 'base_link',
                 'imu_link',
             ],
+        ),
+
+        Node(
+            package='diagnostic_aggregator',
+            executable='aggregator_node',
+            name='diagnostic_aggregator',
+            output='screen',
+            parameters=[diagnostics_config],
         ),
 
         Node(

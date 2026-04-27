@@ -189,6 +189,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-image-pipeline \
     ros-humble-diagnostic-updater \
     ros-humble-diagnostic-msgs \
+    ros-humble-diagnostic-aggregator \
     ros-humble-stereo-msgs \
     ros-humble-rclcpp-components \
     ros-humble-composition-interfaces \

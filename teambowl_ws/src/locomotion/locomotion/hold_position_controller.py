@@ -7,11 +7,9 @@ robot transitions from "off" to an active mode.  Unlike driving_leg_controller,
 this does NOT command the calibrated YAML positions — it snapshots the current
 /joint_states at enable time and holds those positions.
 
-Use this when you want the joints to stay where they physically are (e.g. after
-manually repositioning the robot) rather than snap back to the driving
-calibration.
-
-RS00 coast setup and RS05 exclusion are identical to driving_leg_controller.
+RS00 ankle motors are held at the fixed positions defined in leg_positions.yaml
+(instead of freewheeling).  Kp/Kd gains for the ankles are set via the
+rs00_kp and rs00_kd parameters in locomotion.yaml.
 """
 
 import os
@@ -23,10 +21,7 @@ from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
-from robstride_can_interfaces.srv import SetGains, ReadMotorParam, WriteMotorParam
-
-# RS00 anti-backdrive damper parameter index.  Value 1 = damping disabled.
-_PARAM_DAMPER = 0x702A
+from robstride_can_interfaces.srv import SetGains
 
 
 class HoldPositionController(Node):
@@ -40,8 +35,10 @@ class HoldPositionController(Node):
         # ------------------------------------------------------------------ #
         share_dir = get_package_share_directory('locomotion')
         default_config = os.path.join(share_dir, 'driving_leg_pos.yaml')
+        default_leg_pos = os.path.join(share_dir, 'leg_positions.yaml')
 
         self.declare_parameter('config_path', default_config)
+        self.declare_parameter('leg_positions_path', default_leg_pos)
         self.declare_parameter('mode_topic', '/robot_mode')
         self.declare_parameter('estop_topic', '/estop')
         self.declare_parameter('joint_states_topic', '/joint_states')
@@ -49,8 +46,11 @@ class HoldPositionController(Node):
         self.declare_parameter('torque_ff', 1.0)
         self.declare_parameter('publish_rate_hz', 50.0)
         self.declare_parameter('rs00_joints', ['joint_rs00_1', 'joint_rs00_2'])
+        self.declare_parameter('rs00_kp', 20.0)
+        self.declare_parameter('rs00_kd', 0.3)
 
         config_path = self.get_parameter('config_path').value
+        leg_positions_path = self.get_parameter('leg_positions_path').value
         mode_topic = self.get_parameter('mode_topic').value
         estop_topic = self.get_parameter('estop_topic').value
         joint_states_topic = self.get_parameter('joint_states_topic').value
@@ -58,10 +58,19 @@ class HoldPositionController(Node):
         self._torque_ff = self.get_parameter('torque_ff').value
         publish_rate_hz = self.get_parameter('publish_rate_hz').value
         self._rs00_joints = list(self.get_parameter('rs00_joints').value)
+        self._rs00_kp = self.get_parameter('rs00_kp').value
+        self._rs00_kd = self.get_parameter('rs00_kd').value
 
-        # Load joint names only from the shared YAML — positions come from /joint_states.
-        self._joint_names = self._load_joint_names(config_path)
-        self.get_logger().info(f'Joints to hold: {self._joint_names}')
+        # RS04: names only — positions snapshotted from /joint_states at enable time.
+        rs04_names = self._load_joint_names(config_path)
+        # RS00: fixed ankle positions from leg_positions.yaml.
+        self._ankle_positions = self._load_ankle_positions(leg_positions_path)
+        # Command all RS04 first, then RS00 (ankles) at the end.
+        self._joint_names = rs04_names + list(self._ankle_positions.keys())
+        self.get_logger().info(f'RS04 joints (snapshotted): {rs04_names}')
+        self.get_logger().info(
+            f'RS00 ankle joints (fixed): {list(self._ankle_positions.items())}'
+        )
 
         # ------------------------------------------------------------------ #
         # State
@@ -91,10 +100,6 @@ class HoldPositionController(Node):
         self._enable_client = self.create_client(Trigger, '/enable_motors')
         self._stop_client = self.create_client(Trigger, '/stop_motors')
         self._set_gains_client = self.create_client(SetGains, '/set_gains')
-        self._read_param_client = self.create_client(ReadMotorParam, '/read_motor_param')
-        self._write_param_client = self.create_client(
-            WriteMotorParam, '/write_motor_param'
-        )
 
         # ------------------------------------------------------------------ #
         # Timers
@@ -102,8 +107,8 @@ class HoldPositionController(Node):
         period = 1.0 / publish_rate_hz
         self._publish_timer = self.create_timer(period, self._publish_commands)
 
-        # Deferred coast setup: wait 3 s then configure RS00 gains
-        self._coast_timer = self.create_timer(3.0, self._setup_coast_mode)
+        # Deferred ankle hold setup: wait 3 s then apply RS00 Kp/Kd
+        self._coast_timer = self.create_timer(3.0, self._setup_ankle_hold)
 
         # Periodic status print: per-joint position or X if not enabled
         self._status_timer = self.create_timer(2.0, self._print_status)
@@ -118,6 +123,14 @@ class HoldPositionController(Node):
         with open(path, 'r') as f:
             data = yaml.safe_load(f)
         return list(data.get('joints', {}).keys())
+
+    def _load_ankle_positions(self, path: str) -> dict:
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+        positions = data.get('ankle_positions', {})
+        if not positions:
+            self.get_logger().warn(f'No ankle_positions found in {path}')
+        return {str(k): float(v) for k, v in positions.items()}
 
     # ---------------------------------------------------------------------- #
     # Subscriptions
@@ -158,16 +171,21 @@ class HoldPositionController(Node):
             self._transition_to_stopped()
 
     def _transition_to_running(self):
-        # Snapshot current positions for the joints we control.
-        missing = [n for n in self._joint_names if n not in self._current_positions]
+        # RS04: snapshot current positions from /joint_states.
+        rs04_names = [n for n in self._joint_names if n not in self._ankle_positions]
+        missing = [n for n in rs04_names if n not in self._current_positions]
         if missing:
             self.get_logger().warn(
                 f'No /joint_states yet for: {missing} — holding 0.0 rad for those joints.'
             )
 
-        self._held_positions = [
-            self._current_positions.get(n, 0.0) for n in self._joint_names
-        ]
+        rs04_positions = [self._current_positions.get(n, 0.0) for n in rs04_names]
+
+        # RS00: use fixed positions from leg_positions.yaml.
+        ankle_names = list(self._ankle_positions.keys())
+        ankle_pos = list(self._ankle_positions.values())
+
+        self._held_positions = rs04_positions + ankle_pos
 
         self.get_logger().info('Holding positions:')
         for name, pos in zip(self._joint_names, self._held_positions):
@@ -198,77 +216,39 @@ class HoldPositionController(Node):
         self._cmd_pub.publish(msg)
 
     # ---------------------------------------------------------------------- #
-    # RS00 coast setup (one-shot, deferred) — identical to driving_leg_controller
+    # RS00 ankle hold setup (one-shot, deferred)
     # ---------------------------------------------------------------------- #
 
-    def _setup_coast_mode(self):
+    def _setup_ankle_hold(self):
         self._coast_timer.cancel()
 
         if not self._rs00_joints:
             return
 
         self.get_logger().info(
-            f'Configuring RS00 coast mode for: {self._rs00_joints}'
+            f'Setting RS00 ankle hold gains: kp={self._rs00_kp}, kd={self._rs00_kd} '
+            f'for {self._rs00_joints}'
         )
 
-        for client, name in [
-            (self._set_gains_client, '/set_gains'),
-            (self._read_param_client, '/read_motor_param'),
-            (self._write_param_client, '/write_motor_param'),
-        ]:
-            if not client.wait_for_service(timeout_sec=5.0):
-                self.get_logger().warn(
-                    f'Service {name} not available — RS00 coast setup skipped.'
-                )
-                return
+        if not self._set_gains_client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().warn(
+                '/set_gains not available — RS00 ankle hold gains not applied.'
+            )
+            return
 
         for joint in self._rs00_joints:
-            gains_req = SetGains.Request()
-            gains_req.joint_name = joint
-            gains_req.kp = 0.0
-            gains_req.kd = 0.0
-            future = self._set_gains_client.call_async(gains_req)
+            req = SetGains.Request()
+            req.joint_name = joint
+            req.kp = self._rs00_kp
+            req.kd = self._rs00_kd
+            future = self._set_gains_client.call_async(req)
             rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
             if future.done() and future.result() and future.result().success:
-                self.get_logger().info(f'  {joint}: gains set to kp=0, kd=0')
+                self.get_logger().info(
+                    f'  {joint}: kp={self._rs00_kp}, kd={self._rs00_kd}'
+                )
             else:
                 self.get_logger().warn(f'  {joint}: /set_gains call failed')
-
-            read_req = ReadMotorParam.Request()
-            read_req.joint_name = joint
-            read_req.param_index = _PARAM_DAMPER
-            future = self._read_param_client.call_async(read_req)
-            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-
-            if not (future.done() and future.result() and future.result().success):
-                self.get_logger().warn(
-                    f'  {joint}: could not read damper param — skipping write'
-                )
-                continue
-
-            current_damper = int(round(future.result().value_float))
-            if current_damper == 1:
-                self.get_logger().info(
-                    f'  {joint}: damper already disabled (0x702A=1) — skipping write'
-                )
-                continue
-
-            self.get_logger().info(
-                f'  {joint}: damper currently {current_damper} — disabling (0x702A→1)'
-            )
-            param_req = WriteMotorParam.Request()
-            param_req.joint_name = joint
-            param_req.param_index = _PARAM_DAMPER
-            param_req.value = 1.0
-            param_req.value_type = 'float'
-            future = self._write_param_client.call_async(param_req)
-            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-            if future.done() and future.result() and future.result().success:
-                self.get_logger().info(f'  {joint}: damper disabled (0x702A=1)')
-            else:
-                self.get_logger().warn(
-                    f'  {joint}: /write_motor_param damper call failed'
-                )
 
         self._coast_setup_done = True
 

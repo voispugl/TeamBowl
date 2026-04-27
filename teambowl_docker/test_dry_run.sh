@@ -102,6 +102,7 @@ CONFIG_FILES=(
     "$(ros2 pkg prefix state_estimation 2>/dev/null)/share/state_estimation/config/state_estimation.yaml"
     "$(ros2 pkg prefix bringup 2>/dev/null)/share/bringup/robot_description/bowl.urdf"
     "$(ros2 pkg prefix bringup 2>/dev/null)/share/bringup/config/oak_cam.yaml"
+    "$(ros2 pkg prefix bringup 2>/dev/null)/share/bringup/config/diagnostics.yaml"
 )
 for f in "${CONFIG_FILES[@]}"; do
     check "file: $(basename $f)" test -f "$f"
@@ -112,6 +113,10 @@ echo ""
 echo "-- Launch file --"
 check "bringup.launch.py parses (--show-args)" \
     bash -c "ros2 launch bringup bringup.launch.py --show-args 2>&1 | grep -q 'Arguments'"
+
+echo ""
+echo "-- ROS2 environment --"
+check "ros2 doctor" bash -c "ros2 doctor 2>&1 | grep -qE 'All .* passed|1/1'"
 
 # ── Python imports ────────────────────────────────────────────────────────────
 echo ""

@@ -17,6 +17,7 @@ setup(
             'config/ekf.yaml',
             'config/lid_controller.yaml',
             'config/jump_controller.yaml',
+            'config/leg_positions.yaml',
         ]),
         ('share/' + package_name, ['locomotion/driving_leg_pos.yaml']),
         ('share/' + package_name, ['locomotion/trick_leg_offsets.yaml']),

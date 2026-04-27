@@ -6,6 +6,8 @@ hold_position_controller:
     torque_ff: 1.0
     publish_rate_hz: 50.0
     rs00_joints: [joint_rs00_1, joint_rs00_2]
+    rs00_kp: 20.0   # ankle position stiffness (RS00 range: 0–500)
+    rs00_kd: 0.3    # ankle velocity damping  (RS00 range: 0–5)
 
 driving_leg_controller:
   ros__parameters:

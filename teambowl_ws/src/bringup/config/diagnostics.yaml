@@ -1,0 +1,37 @@
+diagnostic_aggregator:
+  ros__parameters:
+    analyzers:
+      motors:
+        type: diagnostic_aggregator/GenericAnalyzer
+        path: Motors
+        startswith:
+          - robstride
+          - can
+          - vesc
+      safety:
+        type: diagnostic_aggregator/GenericAnalyzer
+        path: Safety
+        startswith:
+          - pico
+          - heartbeat
+          - stuck
+          - system_health
+      state_estimation:
+        type: diagnostic_aggregator/GenericAnalyzer
+        path: StateEstimation
+        startswith:
+          - ekf
+          - odom
+          - imu
+      perception:
+        type: diagnostic_aggregator/GenericAnalyzer
+        path: Perception
+        startswith:
+          - oak
+          - cam
+          - yolo
+      catch_all:
+        type: diagnostic_aggregator/GenericAnalyzer
+        path: Other
+        contains:
+          - ''
