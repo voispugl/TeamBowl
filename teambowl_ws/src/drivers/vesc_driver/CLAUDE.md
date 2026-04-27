@@ -1,5 +1,42 @@
 # vesc_driver
 
+## 2026-04-27 — Switched communication from USB serial to SocketCAN (can1)
+
+**`vesc_driver/cmd_vel_to_vesc.py`**:
+- Replaced `serial`/`pyvesc` with `python-can` (`can.Bus(interface='socketcan', channel='can1', bitrate=1000000)`).
+- Removed all serial code: `_open_ports`, `_write_erpm`, `_write_stop`, `_read_vesc_packet`, `_read_erpm`, `crc16_ccitt`, `vesc_packet`, `get_values_packet`, decode helpers.
+- Added `_open_can()`, `_can_send_rpm(unit_id, erpm)`, `_can_send_current(unit_id, milliamps)`.
+- `_send_erpm`: sends `CAN_PACKET_SET_RPM (3)` for |erpm| ≥ 300; sends `CAN_PACKET_SET_CURRENT (1)` with 0 mA below threshold.
+- `_send_stop`: sends `SET_CURRENT(0)` to both VESCs — true free-spin coast (replaces broken `SetDutyCycle(0)` approach).
+- `_feedback_loop`: replaced serial request/response polling with `can_bus.recv(timeout=0.1)` loop; decodes `STATUS_1 (9)` frames (RPM) and `STATUS_5 (27)` frames (voltage); ignores all other CAN traffic (RobStride frames, etc.).
+- New params: `can_interface` (default `can1`), `left_can_id` (default `14`), `right_can_id` (default `24`).
+- Removed params: `left_port`, `right_port`, `baud`, `serial_timeout_s`.
+
+**`config/vesc_driver.yaml`**: removed serial params; added `can_interface: can1`, `left_can_id: 14`, `right_can_id: 24`.
+
+**`VESC_CAN_SETUP.md`**: new file — step-by-step VESC Tool configuration guide (CAN ID, baud, status messages, timeout).
+
+**CAN bus sharing**: VESCs share `can1` with RobStride RS00/RS05 motors. No ID conflicts: RobStride uses 29-bit IDs ≥ 0x01000000; VESC uses IDs ≤ 0x1BFF. VESC unit IDs 14 (left) and 24 (right) don't collide with RobStride IDs 13, 23, 30.
+
+**Coast fix**: `SET_DUTY(0)` was not coasting — it regeneratively brakes. `SET_CURRENT(0)` releases the windings for true free-spin. Hardware timeout (500 ms, 0 A brake current) configured in VESC Tool also ensures coast on CAN disconnect.
+
+## Package overview
+
+ROS2 Python package that converts `/cmd_vel` Twist messages into ERPM commands
+sent over `can1` SocketCAN to left (ID 14) and right (ID 24) VESC motor controllers.
+
+## Nodes
+
+### `cmd_vel_to_vesc` — `vesc_driver/cmd_vel_to_vesc.py`
+Subscribes to `/cmd_vel` and `/estop`. Converts linear/angular velocity to
+per-wheel ERPM using wheel radius and track width. Sends commands via CAN to
+two VESC controllers on `can1`.
+
+## Config
+
+Parameters live in `config/vesc_driver.yaml` (installed to `share/vesc_driver/config/`).
+Loaded by `bringup.launch.py` via native ROS2 YAML parameter loading.
+
 ## 2026-04-20 — Coast wheel motors when robot mode is 'off'
 
 **`vesc_driver/cmd_vel_to_vesc.py`**:

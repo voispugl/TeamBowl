@@ -1,8 +1,6 @@
 cmd_vel_to_vesc:
   ros__parameters:
     cmd_vel_topic: /cmd_vel
-    left_port: /dev/ttyACM1
-    right_port: /dev/ttyACM0
     estop_topic: /estop
     wheel_radius_m: 0.157485
     track_width_m: 0.568643
@@ -10,8 +8,9 @@ cmd_vel_to_vesc:
     max_erpm_step_per_tick: 200
     max_erpm: 60000
     cmd_timeout_s: 0.5
-    baud: 115200
-    serial_timeout_s: 0.05
+    can_interface: can1
+    left_can_id: 14
+    right_can_id: 24
     left_sign: -1
     right_sign: -1
     print_RPM_cmds: false
