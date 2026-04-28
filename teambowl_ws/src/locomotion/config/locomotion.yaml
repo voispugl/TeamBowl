@@ -8,6 +8,11 @@ hold_position_controller:
     rs00_joints: [joint_rs00_1, joint_rs00_2]
     rs00_kp: 20.0   # ankle position stiffness (RS00 range: 0–500)
     rs00_kd: 0.3    # ankle velocity damping  (RS00 range: 0–5)
+    imu_topic: /imu/data
+    leveling_enabled: true
+    leveling_kp: 0.5          # position offset (rad) per rad of tilt — start low
+    leveling_max_offset_rad: 0.2  # per-joint safety clamp
+    leveling_alpha: 0.85      # low-pass filter (0=raw, 1=frozen); smooths accel noise
 
 driving_leg_controller:
   ros__parameters:

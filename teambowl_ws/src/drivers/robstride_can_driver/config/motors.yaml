@@ -103,21 +103,21 @@ motors:
     home_position_rad: 0.0
 
   # --- CAN Bus 1: 2 × RS00 + 1 × RS05 ---
-  joint_rs00_1:
+  joint_rs00_1:    # left foot
     type: RS00
     bus: can1
     can_id: 0x0D
-    default_kp: 0.0    # zero gains → freewheel by default (wheel motors)
-    default_kd: 0.0
+    default_kp: 20.0   # position stiffness for foot hold (RS00 range: 0–500)
+    default_kd: 0.3    # velocity damping for foot hold  (RS00 range: 0–5)
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
-  joint_rs00_2:
+  joint_rs00_2:    # right foot
     type: RS00
     bus: can1
     can_id: 0x17
-    default_kp: 0.0    # zero gains → freewheel by default (wheel motors)
-    default_kd: 0.0
+    default_kp: 20.0   # position stiffness for foot hold (RS00 range: 0–500)
+    default_kd: 0.3    # velocity damping for foot hold  (RS00 range: 0–5)
     default_torque_ff: 0.0
     home_position_rad: 0.0
 

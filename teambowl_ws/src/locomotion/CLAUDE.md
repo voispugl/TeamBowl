@@ -1,5 +1,11 @@
 # locomotion
 
+## 2026-04-27 — Added RS00 foot targets to driving position YAML
+
+**`locomotion/driving_leg_pos.yaml`**: Added `joint_rs00_1: +2.1817 rad (+125°)` and `joint_rs00_2: -2.1817 rad (−125°)`. The driving_leg_controller publishes all joints in this file, so the feet are now held at 125° extension during driving. Mirrored convention: left=+E, right=−E (equal height on flat surface, zero=hardstop up).
+
+**`drivers/robstride_can_driver/config/motors.yaml`**: Updated RS00 `default_kp: 20.0` and `default_kd: 0.3` (was 0.0/0.0 → freewheel). These gains are embedded in the Type 1 CAN frame by the driver.
+
 ## 2026-04-21 — Added fall_recovery_controller: automatic kip-up on fallover
 
 **`locomotion/fall_recovery_controller.py`** (new node):

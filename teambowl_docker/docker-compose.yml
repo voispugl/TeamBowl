@@ -21,4 +21,4 @@ services:
       # base image — must be installed on host via JetPack SDK Manager first.
       - /usr/lib/aarch64-linux-gnu/libcusparseLt:/usr/lib/aarch64-linux-gnu/libcusparseLt:ro
     working_dir: /workspaces/teambowl_ws
-    command: ros2 launch bringup bringup.launch.py
+    command: ros2 launch bringup bringup.launch.py use_vslam:=true

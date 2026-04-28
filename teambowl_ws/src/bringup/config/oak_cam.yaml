@@ -1,11 +1,34 @@
+# OAK-D W PoE camera config — single source of truth for all launch files.
+#
+# Camera: OAK-D-W-POE, IP 192.168.11.2, host eno1 at 192.168.11.1/24.
+# Sensors: IMX378 (RGB, min 1080P) + OV9282 x2 (stereo, min 720P).
+#   rectify_rgb must be false in the launch file — OAK-D W fisheye calibration
+#   maps crash OpenCV remap in the RectifyNode.
+# i_publish_synced_rect_pair: false — the host-side sync validator gets permanently stuck
+#   after a PoE jitter event and spams warnings forever. Cameras are hardware-synced
+#   on-device so timestamps are already matched; host check is redundant.
 /oak:
   ros__parameters:
     camera:
       i_nn_type: none
+      i_enable_imu: false
+      i_enable_ir: false
+      i_pipeline_type: RGBD
+      i_ip: "192.168.11.2"
     rgb:
-      i_resolution: '720'
-      i_fps: 15.0
+      i_resolution: '1080P'
+      i_fps: 10.0
+      i_low_bandwidth: true
+      i_low_bandwidth_quality: 30
+      i_low_bandwidth_ffmpeg_encoder: "h264_nvenc"
     stereo:
       i_subpixel: true
       i_align_depth: true
-      i_fps: 15.0
+      i_reverse_stereo_socket_order: true
+      i_publish_synced_rect_pair: false
+    left:
+      i_resolution: '400P'
+      i_fps: 30.0
+    right:
+      i_resolution: '400P'
+      i_fps: 30.0

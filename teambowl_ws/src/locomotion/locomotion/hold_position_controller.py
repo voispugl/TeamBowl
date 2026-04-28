@@ -12,13 +12,14 @@ RS00 ankle motors are held at the fixed positions defined in leg_positions.yaml
 rs00_kp and rs00_kd parameters in locomotion.yaml.
 """
 
+import math
 import os
 
 import yaml
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from robstride_can_interfaces.srv import SetGains
@@ -48,6 +49,11 @@ class HoldPositionController(Node):
         self.declare_parameter('rs00_joints', ['joint_rs00_1', 'joint_rs00_2'])
         self.declare_parameter('rs00_kp', 20.0)
         self.declare_parameter('rs00_kd', 0.3)
+        self.declare_parameter('imu_topic', '/imu/data')
+        self.declare_parameter('leveling_enabled', True)
+        self.declare_parameter('leveling_kp', 0.5)
+        self.declare_parameter('leveling_max_offset_rad', 0.2)
+        self.declare_parameter('leveling_alpha', 0.85)
 
         config_path = self.get_parameter('config_path').value
         leg_positions_path = self.get_parameter('leg_positions_path').value
@@ -60,17 +66,30 @@ class HoldPositionController(Node):
         self._rs00_joints = list(self.get_parameter('rs00_joints').value)
         self._rs00_kp = self.get_parameter('rs00_kp').value
         self._rs00_kd = self.get_parameter('rs00_kd').value
+        imu_topic = self.get_parameter('imu_topic').value
+        self._leveling_enabled = self.get_parameter('leveling_enabled').value
+        self._leveling_kp = self.get_parameter('leveling_kp').value
+        self._leveling_max_offset = self.get_parameter('leveling_max_offset_rad').value
+        self._leveling_alpha = self.get_parameter('leveling_alpha').value
 
         # RS04: names only — positions snapshotted from /joint_states at enable time.
         rs04_names = self._load_joint_names(config_path)
         # RS00: fixed ankle positions from leg_positions.yaml.
         self._ankle_positions = self._load_ankle_positions(leg_positions_path)
+        # Leveling: per-joint sign factors from leg_positions.yaml.
+        self._roll_signs = self._load_joint_signs(leg_positions_path, 'roll_signs')
+        self._pitch_signs = self._load_joint_signs(leg_positions_path, 'pitch_signs')
         # Command all RS04 first, then RS00 (ankles) at the end.
         self._joint_names = rs04_names + list(self._ankle_positions.keys())
         self.get_logger().info(f'RS04 joints (snapshotted): {rs04_names}')
         self.get_logger().info(
             f'RS00 ankle joints (fixed): {list(self._ankle_positions.items())}'
         )
+        if self._leveling_enabled:
+            self.get_logger().info(
+                f'Leveling ON  kp={self._leveling_kp}  '
+                f'max_offset={self._leveling_max_offset} rad  alpha={self._leveling_alpha}'
+            )
 
         # ------------------------------------------------------------------ #
         # State
@@ -81,6 +100,8 @@ class HoldPositionController(Node):
         self._coast_setup_done = False
         self._current_positions: dict = {}   # joint_name → float, updated continuously
         self._held_positions: list = []      # snapshot taken at enable time
+        self._robot_roll = 0.0              # filtered roll estimate (rad)
+        self._robot_pitch = 0.0             # filtered pitch estimate (rad)
 
         # ------------------------------------------------------------------ #
         # Publisher
@@ -93,6 +114,8 @@ class HoldPositionController(Node):
         self.create_subscription(String, mode_topic, self._on_mode, 10)
         self.create_subscription(Bool, estop_topic, self._on_estop, 10)
         self.create_subscription(JointState, joint_states_topic, self._on_joint_states, 10)
+        if self._leveling_enabled:
+            self.create_subscription(Imu, imu_topic, self._on_imu, 10)
 
         # ------------------------------------------------------------------ #
         # Service clients
@@ -132,6 +155,12 @@ class HoldPositionController(Node):
             self.get_logger().warn(f'No ankle_positions found in {path}')
         return {str(k): float(v) for k, v in positions.items()}
 
+    def _load_joint_signs(self, path: str, key: str) -> dict:
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+        signs = data.get(key, {})
+        return {str(k): float(v) for k, v in signs.items()}
+
     # ---------------------------------------------------------------------- #
     # Subscriptions
     # ---------------------------------------------------------------------- #
@@ -139,6 +168,26 @@ class HoldPositionController(Node):
     def _on_joint_states(self, msg: JointState):
         for name, pos in zip(msg.name, msg.position):
             self._current_positions[name] = pos
+
+    def _on_imu(self, msg: Imu):
+        # IMU is mounted 90° clockwise from above:
+        #   IMU +X → robot RIGHT (-robot Y)
+        #   IMU +Y → robot FORWARD (+robot X)
+        #   IMU +Z → robot UP (unchanged)
+        #
+        # Extract gravity-based roll and pitch in robot frame.
+        # robot_roll  > 0 → robot leans LEFT
+        # robot_pitch > 0 → robot leans FORWARD (nose down)
+        ax = msg.linear_acceleration.x
+        ay = msg.linear_acceleration.y
+        az = msg.linear_acceleration.z
+
+        roll_raw = math.atan2(-ax, az)
+        pitch_raw = math.atan2(-ay, az)
+
+        a = self._leveling_alpha
+        self._robot_roll = a * self._robot_roll + (1.0 - a) * roll_raw
+        self._robot_pitch = a * self._robot_pitch + (1.0 - a) * pitch_raw
 
     def _on_mode(self, msg: String):
         new_mode = msg.data
@@ -207,10 +256,26 @@ class HoldPositionController(Node):
         if not self._running or not self._held_positions:
             return
 
+        positions = list(self._held_positions)
+
+        if self._leveling_enabled:
+            for i, name in enumerate(self._joint_names):
+                roll_sign = self._roll_signs.get(name, 0.0)
+                pitch_sign = self._pitch_signs.get(name, 0.0)
+                if roll_sign == 0.0 and pitch_sign == 0.0:
+                    continue
+                offset = self._leveling_kp * (
+                    roll_sign * self._robot_roll +
+                    pitch_sign * self._robot_pitch
+                )
+                offset = max(-self._leveling_max_offset,
+                             min(self._leveling_max_offset, offset))
+                positions[i] += offset
+
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = self._joint_names
-        msg.position = self._held_positions
+        msg.position = positions
         msg.velocity = [0.0] * len(self._joint_names)
         msg.effort = [self._torque_ff] * len(self._joint_names)
         self._cmd_pub.publish(msg)
@@ -264,7 +329,13 @@ class HoldPositionController(Node):
             else:
                 val = 'X'
             parts.append(f'{name}: {val}')
-        print(f'[HOLD]  {"  ".join(parts)}', flush=True)
+        status = f'[HOLD]  {"  ".join(parts)}'
+        if self._leveling_enabled:
+            status += (
+                f'  |  roll={math.degrees(self._robot_roll):+.1f}°'
+                f'  pitch={math.degrees(self._robot_pitch):+.1f}°'
+            )
+        print(status, flush=True)
 
     # ---------------------------------------------------------------------- #
     # Service helper

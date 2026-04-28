@@ -1,5 +1,17 @@
 # teambowl_docker
 
+## 2026-04-28 — Added launch_cam_debug.sh
+
+**`launch_cam_debug.sh`** (new): Launches OAK-D camera + Isaac VSLAM + nvblox + Foxglove only inside Docker via `docker compose run --rm`. No motors, CAN, Nav2, or robot hardware. Passes through arbitrary launch args (`vslam_debug:=true`, `use_nvblox:=false`). Wraps `bringup/launch/isaac_ros_test.launch.py`.
+
+## 2026-04-28 — Docker-first workflow; use_vslam:=true default; README overhaul
+
+**`docker-compose.yml`**: Added `use_vslam:=true` to launch command. OAK-D W PoE camera at `192.168.11.2` uses `oak_cam_vslam.yaml` (explicit IP, 90 Hz stereo, IMU). Host `eno1` must be on `192.168.11.1/24` before container starts.
+
+**`README.md`**: Full rewrite. Added Prerequisites section (eno1 network config + CAN systemd service). Fixed stale log path (`/tmp/colcon_build.log` → `~/TeamBowl/teambowl_ws/colcon_build.log`). Added launch arg override example. Incremental rebuild section moved here from top-level README.
+
+**`../README.md`**: Restructured to Docker-first. "Quick Start" now uses `./launch.sh`. Native colcon/launch commands removed from main flow. CAN setup updated to use `teambowl-can.service` (not systemd-networkd). Trajectory testing and Steam Deck sections updated to use `docker exec`.
+
 ## 2026-04-23 — Added Isaac Sim desktop container (replaces Dockerfile.sim)
 
 **New files:**
