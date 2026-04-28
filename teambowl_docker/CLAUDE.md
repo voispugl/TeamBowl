@@ -1,5 +1,53 @@
 # teambowl_docker
 
+## 2026-04-23 — Added Isaac Sim desktop container (replaces Dockerfile.sim)
+
+**New files:**
+- **`Dockerfile.isaac_sim`**: x86_64 Isaac Sim 4.2 container (RTX 5080). Base `nvcr.io/nvidia/isaac-sim:4.2.0` (~22 GB). Adds ROS2 Humble, nvblox (CUDA x86_64), robot workspace software packages. `isaac_ros_visual_slam` intentionally omitted (Jetson VPI only).
+- **`docker/entrypoint_isaac_sim.sh`**: Separate entrypoint. Sources Isaac ROS overlay, builds workspace skipping hardware drivers (depthai, robstride, vesc, xsens), then launches Isaac Sim with `setup_scene.py` via WebRTC.
+- **`docker-compose.isaac_sim.yml`**: NVIDIA runtime, `network_mode: host`, workspace volume mount. WebRTC on port 8211, Foxglove on 8765.
+- **`build.isaac_sim.sh`**: Build + start script. `--clean` wipes workspace build + Docker cache.
+
+**Replaces:**
+- `Dockerfile.sim` → `Dockerfile.isaac_sim`
+- `docker-compose.sim.yml` → `docker-compose.isaac_sim.yml`
+- `build.sim.sh` → `build.isaac_sim.sh`
+
+**Key design decisions:**
+- Isaac Sim 4.2 with PhysX 5, all 23 robot joints articulated (full legs)
+- Pre-built test course: 7 static box/wall obstacles + static human mesh for YOLO26 testing
+- Marker file: `.colcon_isaac_sim_build_complete` (separate from `.colcon_build_complete`) — both containers can share same teambowl_ws volume
+- WebRTC browser UI at http://localhost:8211 (no X11 needed on host)
+- Isaac Sim publishes: `/imu/data`, `/wheel/odometry`, `/visual_slam/tracking/odometry` (ground-truth VSLAM substitute), `/oak/rgb/image_raw`, `/oak/stereo/image_raw`
+
+## 2026-04-24 — Added OpenCV 4.12.0 with CUDA + PyTorch for JetPack 6.1
+
+**`Dockerfile`**: Added two new early layers (before Isaac ROS build, cached independently):
+1. **OpenCV 4.12.0 build deps**: `unzip`, `pkg-config`, `libgtk-3-dev`, `libjpeg-dev`, `libpng-dev`, `libtiff-dev`, `libavcodec-dev`, `libavformat-dev`, `libswscale-dev`, `libv4l-dev`, GStreamer dev headers, `python3-dev`.
+2. **OpenCV 4.12.0 from source** with `CUDA_ARCH_BIN=8.7` (Jetson AGX Orin, Ampere sm_87), `WITH_CUDNN=ON`, `WITH_GSTREAMER=ON`, `WITH_LIBV4L=ON`, `BUILD_opencv_python3=ON`, contrib modules. Installed to `/usr/local`. **~30–45 min build time.** Replaces JetPack-shipped OpenCV with a newer CUDA-accelerated 4.12.0 build.
+3. `LD_LIBRARY_PATH` and `PYTHONPATH` updated for `/usr/local/lib`.
+
+**Python deps**:
+- `numpy==1.26.1` (pinned, required by PyTorch wheel)
+- **PyTorch 2.5.0** from NVIDIA JetPack 6.1 redist wheel (`torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl`). Matches cuDNN/CUDA in l4t-jetpack:r36.4.0.
+
+**Updated comment**: Robot tools layer comment updated to reflect that libopencv-dev is omitted because OpenCV 4.12.0 is now built from source (not because JetPack ships it).
+
+## 2026-04-23 — Added Isaac ROS Visual SLAM + nvblox (Option A: baked into Docker image)
+
+**`Dockerfile`**: Added two new layers before the robot-specific apt packages:
+1. **nvblox build dependencies**: `libgoogle-glog-dev`, `libgflags-dev`, `libsqlite3-dev` + rosdep init.
+2. **Isaac ROS build layer** (`/opt/isaac_ros_ws`): Clones `isaac_ros_common`, `isaac_ros_visual_slam`, `isaac_ros_nvblox` from branch `release-3.2` (JetPack 6.1 / L4T R36.4.0 / CUDA 12.6). Builds all with colcon into `/opt/isaac_ros_ws/install/`. Removes build/log dirs to save image space. **First `docker build` takes ~75 min** due to CUDA kernel compilation.
+   - Layer is placed EARLY (before robot apt packages) so it is cached independently. Editing robot-specific apt deps below does NOT invalidate the Isaac ROS layer.
+   - Skip keys: `libopencv-dev python3-opencv libopencv-contrib-dev` to protect JetPack's CUDA-accelerated OpenCV.
+   - **ARM64/Jetson only** — do NOT add to `Dockerfile.laptop` or `Dockerfile.sim`.
+
+**`docker/entrypoint.sh`**: Sources `/opt/isaac_ros_ws/install/setup.bash` before the colcon robot workspace build. Required so robot packages can find `isaac_ros_visual_slam` and `nvblox_ros` as ament dependencies.
+
+**`Dockerfile`** (bashrc): Added `source /opt/isaac_ros_ws/install/setup.bash` to interactive shell sourcing chain.
+
+**Rebuild command**: `./build.sh --clean` (full rebuild, ~75 min docker + ~8 min workspace). Subsequent `docker compose up` uses cached image.
+
 ## File inventory
 
 | File | Purpose |

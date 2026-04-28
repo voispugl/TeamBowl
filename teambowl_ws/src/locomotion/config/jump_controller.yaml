@@ -1,0 +1,22 @@
+jump_controller:
+  ros__parameters:
+    # Fraction of max leg extension (L_THIGH+L_CALF ≈ 0.593 m) to retract to
+    crouch_depth: 0.6
+    # Time to hold the crouch before slamming (seconds)
+    crouch_hold_s: 0.30
+    # Duration of the extension impulse (seconds)
+    extend_hold_s: 0.12
+    # Torque feedforward during extension phase (Nm); start low, ramp up
+    extend_torque_ff: 5.0
+    # Kd override for RS04 joints during extension (higher = stiffer impulse)
+    extend_kd_override: 60.0
+    # Max time allowed in RETURN state before forcing IDLE
+    return_timeout_s: 1.5
+    # Rate at which /joint_commands is published during jump
+    publish_rate_hz: 100.0
+    # Joint position error (rad) below which RETURN → IDLE transition fires
+    joint_settled_threshold: 0.05
+    # Approximate foot height (m) below hip pivot at driving position.
+    # Used for IK calibration. Negative = below hip. Measure physically
+    # and refine — default is a reasonable estimate from URDF geometry.
+    foot_height_driving_m: -0.28
