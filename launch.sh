@@ -18,8 +18,6 @@ source /opt/ros/humble/setup.bash
 echo "[build] Sourcing workspace overlay..."
 source install/setup.bash
 
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-
 # --- rosbag ---
 BAG_DIR=~/TeamBowl/bags/$(date +%Y%m%d_%H%M%S)
 mkdir -p ~/TeamBowl/bags
