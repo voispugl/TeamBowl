@@ -14,6 +14,7 @@ services:
     environment:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/workspaces/teambowl_ws/fastdds_shm_profile.xml
     volumes:
       - ${TEAMBOWL_WS:-/home/box/TeamBowl/teambowl_ws}:/workspaces/teambowl_ws
       - /dev:/dev
