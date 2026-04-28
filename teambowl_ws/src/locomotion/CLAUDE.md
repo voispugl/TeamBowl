@@ -1,5 +1,29 @@
 # locomotion
 
+## 2026-04-27 — Added RS00 foot targets to driving position YAML
+
+**`locomotion/driving_leg_pos.yaml`**: Added `joint_rs00_1: +2.1817 rad (+125°)` and `joint_rs00_2: -2.1817 rad (−125°)`. The driving_leg_controller publishes all joints in this file, so the feet are now held at 125° extension during driving. Mirrored convention: left=+E, right=−E (equal height on flat surface, zero=hardstop up).
+
+**`drivers/robstride_can_driver/config/motors.yaml`**: Updated RS00 `default_kp: 20.0` and `default_kd: 0.3` (was 0.0/0.0 → freewheel). These gains are embedded in the Type 1 CAN frame by the driver.
+
+## 2026-04-21 — Added fall_recovery_controller: automatic kip-up on fallover
+
+**`locomotion/fall_recovery_controller.py`** (new node):
+- Detects fallover when `|pitch| > pitch_trigger_rad` (default 0.45 rad) via `/imu/data`.
+- Runs a 3-phase state machine at 50 Hz, publishing `/joint_commands` and zeroing `/cmd_vel` throughout.
+- **EXTENDING** (2.5 s): slowly splay `joint_rs04_2` (sign=−1), `joint_rs04_3` (sign=+1), `joint_rs04_5` (sign=−1), `joint_rs04_6` (sign=+1) outward by `extend_rad` (0.524 rad = 30°). `joint_rs04_1` and `joint_rs04_4` held at YAML positions.
+- **RETRACTING** (0.35 s): fast snap back to `YAML + sign * undershoot_rad` (0.1 rad short of YAML from extension side). Kd reduced to `retract_kd` (2.0) via `/set_gains` before this phase.
+- **SETTLING** (1.5 s): smooth linear approach to exact YAML positions. Kd restored to 15.0 via `/set_gains` at start.
+- **GROUND_SETTLE** (1.5 s, default): after fall detection, waits for the robot to come to rest before starting leg movement. Joint position snapshot is taken at the END of this phase for maximum accuracy. Mode set to `"recovery"` and motors enabled immediately at trigger.
+- On trigger: publishes `/robot_mode_set "recovery"`, clears estop, calls `/enable_motors`.
+- On complete: publishes `/robot_mode_set "driving"`, 3 s cooldown before re-triggering.
+
+**`locomotion/driving_leg_controller.py`**: `_should_run()` now excludes `'recovery'` mode (was only `'off'`), preventing leg controller from conflicting during recovery.
+
+**`config/locomotion.yaml`**: Added `fall_recovery_controller` section with all tuning params.
+**`setup.py`**: Added `fall_recovery_controller` entry point.
+**`src/bringup/launch/bringup.launch.py`**: Added `fall_recovery_controller` node (always launched with `locomotion_config`).
+
 ## 2026-04-20 — Driving controller zeros output immediately on mode change
 
 **`locomotion/driving_controller.py`**: `_on_mode` now calls `_publish_cmd(0.0, 0.0)` immediately when mode changes away from `driving`, eliminating a brief window where stale velocity was published to `/cmd_vel` before the next tick.

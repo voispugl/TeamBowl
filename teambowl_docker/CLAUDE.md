@@ -1,5 +1,17 @@
 # teambowl_docker
 
+## 2026-04-28 — Added launch_cam_debug.sh
+
+**`launch_cam_debug.sh`** (new): Launches OAK-D camera + Isaac VSLAM + nvblox + Foxglove only inside Docker via `docker compose run --rm`. No motors, CAN, Nav2, or robot hardware. Passes through arbitrary launch args (`vslam_debug:=true`, `use_nvblox:=false`). Wraps `bringup/launch/isaac_ros_test.launch.py`.
+
+## 2026-04-28 — Docker-first workflow; use_vslam:=true default; README overhaul
+
+**`docker-compose.yml`**: Added `use_vslam:=true` to launch command. OAK-D W PoE camera at `192.168.11.2` uses `oak_cam_vslam.yaml` (explicit IP, 90 Hz stereo, IMU). Host `eno1` must be on `192.168.11.1/24` before container starts.
+
+**`README.md`**: Full rewrite. Added Prerequisites section (eno1 network config + CAN systemd service). Fixed stale log path (`/tmp/colcon_build.log` → `~/TeamBowl/teambowl_ws/colcon_build.log`). Added launch arg override example. Incremental rebuild section moved here from top-level README.
+
+**`../README.md`**: Restructured to Docker-first. "Quick Start" now uses `./launch.sh`. Native colcon/launch commands removed from main flow. CAN setup updated to use `teambowl-can.service` (not systemd-networkd). Trajectory testing and Steam Deck sections updated to use `docker exec`.
+
 ## 2026-04-23 — Added Isaac Sim desktop container (replaces Dockerfile.sim)
 
 **New files:**
@@ -20,10 +32,75 @@
 - WebRTC browser UI at http://localhost:8211 (no X11 needed on host)
 - Isaac Sim publishes: `/imu/data`, `/wheel/odometry`, `/visual_slam/tracking/odometry` (ground-truth VSLAM substitute), `/oak/rgb/image_raw`, `/oak/stereo/image_raw`
 
+## 2026-04-26 — CAN on boot via systemd; build/launch split
+
+**`teambowl-can.service`** (new): Systemd service that brings up `can0`/`can1` at 1 Mbit/s on Jetson boot. Install once:
+```bash
+sudo cp teambowl-can.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now teambowl-can.service
+```
+
+**`build.sh`**: No longer calls `docker compose up`. Builds the image only, then prints "Run ./launch.sh".
+
+**`launch.sh`** (new): Calls `docker compose up`. Use this to start the container after building.
+
+**`docker/entrypoint.sh`**: CAN setup removed — handled by the systemd service on the host at boot instead.
+
+**`docker/entrypoint.sh`**: Added CAN network bring-up at container start (matches what `launch.sh` does manually on the host). Runs as root (no `sudo` needed), `modprobe mttcan || true` to handle already-loaded module, `ip link set canX down || true` to handle missing interfaces gracefully. CAN hardware errors on `set type` / `set up` are intentionally not suppressed.
+
+## 2026-04-26 — Workspace colcon build: fixed stale CMake cache; entrypoint log path
+
+**`docker/entrypoint.sh`**:
+1. Colcon log now written to `${WS}/colcon_build.log` (workspace volume, host-visible) instead of `/tmp/colcon_build.log` (lost when container exits).
+2. On colcon failure: `exit 1` instead of `exec bash` — `exec bash` hangs non-TTY runs indefinitely.
+
+**Stale CMake cache**: If `build/` was previously generated on the host path (`/home/box/TeamBowl/teambowl_ws/`), CMakeCache.txt conflicts with the container path (`/workspaces/teambowl_ws/`). Fix: wipe `build/install/log` before first container run. Root-owned files need `docker run --rm -v ... bash -c "rm -rf ..."`.
+
+## 2026-04-26 — Fixed multiple Isaac ROS build failures; updated pyvesc pin
+
+### Isaac ROS build layer fixes (`Dockerfile` lines 85–135)
+
+1. **`apt-get update` before rosdep install**: The deps layer ends with `rm -rf /var/lib/apt/lists/*`. Added `apt-get update &&` at the top of the build RUN so rosdep's `apt-get install` calls can find packages.
+
+2. **rosdep non-fatal (`|| true`)**: Isaac ROS has many proprietary NITROS rosdep keys not in the standard database (`isaac_ros_nitros`, `isaac_ros_gxf`, `isaac_ros_managed_nitros`, etc.). Using `-r` alone still exits non-zero. Added `|| true` so the build continues to colcon.
+
+3. **`libbenchmark-dev` and `libboost-thread-dev`** added to Isaac ROS build deps layer. `nvblox_ros` requires Google Benchmark; `isaac_ros_visual_slam` requires Boost thread.
+
+4. **Packages skipped in colcon** (`--packages-ignore`): The following require NVIDIA proprietary binary packages (GXF, cuVSLAM, NITROS) that cannot be built from source without NVIDIA's private apt repo:
+   - `isaac_ros_visual_slam` — needs cuVSLAM binary + `isaac_ros_nitros`
+   - `nvblox_ros` — needs `isaac_ros_managed_nitros` (proprietary GXF)
+   - `nvblox_rviz_plugin` — needs `rviz_default_plugins` (installed in a later layer)
+   - `nvblox_test`, `nvblox_test_data`, `nvblox_examples_bringup` — test/example packages
+   
+   **To get VSLAM + nvblox_ros at runtime**, install from NVIDIA's Isaac ROS apt repo:
+   `ros-humble-isaac-ros-visual-slam`, `ros-humble-nvblox` as pre-built debs.
+
+### pyvesc version bump
+- **`Dockerfile`**: Updated `pyvesc==0.2.2` → `pyvesc==1.0.5`. Version 0.2.2 was removed from PyPI; latest available is 1.0.5.
+
+## 2026-04-25 — Split Isaac ROS clone/build into separate layers; fixed tee masking
+
+**`Dockerfile`**: Split the Isaac ROS single RUN block into two:
+1. **git clone layer** — clones all three repos. Cached independently so re-builds after build failures don't re-download ~500 MB of repos.
+2. **build layer** — rosdep install + colcon build. Added `set -o pipefail` so colcon's exit code propagates through `| tee` instead of being masked by tee's exit 0. Without this, colcon failures were silently ignored and the layer appeared to succeed.
+
+## 2026-04-25 — Fixed ros-humble-ros-base missing from Isaac ROS build deps layer
+
+**`Dockerfile`**: Added `ros-humble-ros-base` to the Isaac ROS build deps layer. The Isaac ROS colcon build does `source /opt/ros/humble/setup.bash`, which doesn't exist until ROS base is installed. It was only installed in the later "Robot packages" layer — causing exit code 1 at the `source` step.
+
+## 2026-04-25 — Fixed git/colcon/rosdep missing from Isaac ROS build deps layer
+
+**`Dockerfile`**: Added `build-essential`, `git`, `python3-pip`, `python3-colcon-common-extensions`, `python3-rosdep` to the Isaac ROS build deps layer. These were only installed in the later "Robot packages" layer, but the Isaac ROS `git clone` + `colcon build` step runs before that — causing `command not found` (exit code 127).
+
+## 2026-04-25 — Fixed cmake missing from OpenCV build deps layer
+
+**`Dockerfile`**: Added `cmake` to the OpenCV build deps layer (lines 25-39). It was only installed in the later "Robot packages" layer, but the OpenCV `RUN cmake ...` step runs before that layer — causing `cmake: command not found` (exit code 127) on every build.
+
 ## 2026-04-24 — Added OpenCV 4.12.0 with CUDA + PyTorch for JetPack 6.1
 
 **`Dockerfile`**: Added two new early layers (before Isaac ROS build, cached independently):
-1. **OpenCV 4.12.0 build deps**: `unzip`, `pkg-config`, `libgtk-3-dev`, `libjpeg-dev`, `libpng-dev`, `libtiff-dev`, `libavcodec-dev`, `libavformat-dev`, `libswscale-dev`, `libv4l-dev`, GStreamer dev headers, `python3-dev`.
+1. **OpenCV 4.12.0 build deps**: `cmake`, `unzip`, `pkg-config`, `libgtk-3-dev`, `libjpeg-dev`, `libpng-dev`, `libtiff-dev`, `libavcodec-dev`, `libavformat-dev`, `libswscale-dev`, `libv4l-dev`, GStreamer dev headers, `python3-dev`.
 2. **OpenCV 4.12.0 from source** with `CUDA_ARCH_BIN=8.7` (Jetson AGX Orin, Ampere sm_87), `WITH_CUDNN=ON`, `WITH_GSTREAMER=ON`, `WITH_LIBV4L=ON`, `BUILD_opencv_python3=ON`, contrib modules. Installed to `/usr/local`. **~30–45 min build time.** Replaces JetPack-shipped OpenCV with a newer CUDA-accelerated 4.12.0 build.
 3. `LD_LIBRARY_PATH` and `PYTHONPATH` updated for `/usr/local/lib`.
 

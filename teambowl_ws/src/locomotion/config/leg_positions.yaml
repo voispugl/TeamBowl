@@ -1,0 +1,36 @@
+# Target positions (rad) for ankle motors (RS00) held by hold_position_controller.
+# These are commanded with rs00_kp / rs00_kd stiffness (set in locomotion.yaml).
+# Adjust to match the desired ankle angle when the robot is standing.
+ankle_positions:
+  joint_rs00_1: 0.0   # CAN ID 0x0D, can1
+  joint_rs00_2: 0.0   # CAN ID 0x17, can1
+
+# IMU-based leveling sign factors for each RS04 joint.
+#
+# The IMU is mounted 90° clockwise (from above), so:
+#   robot_roll  = atan2(-imu.linear_acceleration.x, imu.linear_acceleration.z)
+#   robot_pitch = atan2(-imu.linear_acceleration.y, imu.linear_acceleration.z)
+#
+# roll_sign  > 0  → extend this joint when robot leans LEFT   (positive roll)
+# roll_sign  < 0  → retract this joint when robot leans LEFT
+# pitch_sign > 0  → extend this joint when robot leans FORWARD (positive pitch)
+# pitch_sign < 0  → retract this joint when robot leans FORWARD
+# Set to 0.0 to exclude a joint from that axis.
+#
+# Fill in once you know the physical joint layout.
+# Example for a symmetric 2-leg robot: left leg +1, right leg -1 for roll.
+roll_signs:
+  joint_rs04_1: 0.0
+  joint_rs04_2: 0.0
+  joint_rs04_3: 0.0
+  joint_rs04_4: 0.0
+  joint_rs04_5: 0.0
+  joint_rs04_6: 0.0
+
+pitch_signs:
+  joint_rs04_1: 0.0
+  joint_rs04_2: 0.0
+  joint_rs04_3: 0.0
+  joint_rs04_4: 0.0
+  joint_rs04_5: 0.0
+  joint_rs04_6: 0.0

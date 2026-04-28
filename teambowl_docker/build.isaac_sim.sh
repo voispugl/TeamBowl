@@ -48,7 +48,6 @@ else
     docker build -f Dockerfile.isaac_sim -t teambowl:isaac_sim .
 fi
 
-echo "[build.isaac_sim] Starting Isaac Sim container..."
-echo "[build.isaac_sim] WebRTC UI will be available at: http://localhost:8211"
-echo "[build.isaac_sim] Foxglove bridge at: ws://localhost:8765"
-TEAMBOWL_WS="${TEAMBOWL_WS}" docker compose -f "${COMPOSE_FILE}" up
+echo ""
+echo "[build.isaac_sim] Image ready. Run ./launch.isaac_sim.sh to start."
+echo ""

@@ -4,6 +4,5 @@
 
 source /opt/ros/humble/setup.bash
 source ~/TeamBowl/teambowl_ws/install/setup.bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 python3 ~/TeamBowl/debug_wheels.py

@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
+import can
 import json
 import math
-import serial
 import struct
 import threading
 import os
 import time
-import pyvesc
-
-from pyvesc.VESC.messages import SetRPM, SetCurrent, SetDutyCycle
 
 import rclpy
 from rclpy.node import Node
@@ -17,66 +14,27 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPo
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Bool, Float64, String
 
-
-COMM_GET_VALUES = 4
-
-
-def crc16_ccitt(data: bytes, poly: int = 0x1021, init: int = 0x0000) -> int:
-    crc = init
-    for byte in data:
-        crc ^= (byte << 8)
-        for _ in range(8):
-            if crc & 0x8000:
-                crc = ((crc << 1) ^ poly) & 0xFFFF
-            else:
-                crc = (crc << 1) & 0xFFFF
-    return crc
-
-
-def vesc_packet(payload: bytes) -> bytes:
-    length = len(payload)
-    if length < 256:
-        header = bytes([2, length])
-    else:
-        header = bytes([3, (length >> 8) & 0xFF, length & 0xFF])
-    crc = crc16_ccitt(payload)
-    return header + payload + bytes([(crc >> 8) & 0xFF, crc & 0xFF, 3])
-
-
-def get_values_packet() -> bytes:
-    return vesc_packet(bytes([COMM_GET_VALUES]))
-
-
-def decode_rpm_from_values_payload(payload: bytes) -> int:
-    if len(payload) < 27:
-        raise ValueError(f'payload too short for COMM_GET_VALUES: {len(payload)} bytes')
-    if payload[0] != COMM_GET_VALUES:
-        raise ValueError(f'unexpected response id: {payload[0]}')
-    return struct.unpack_from('>i', payload, 23)[0]
-
-
-def decode_voltage_from_values_payload(payload: bytes) -> float:
-    """Extract input voltage (V) from COMM_GET_VALUES response. Byte 27: int16 /10."""
-    if len(payload) < 29:
-        raise ValueError(f'payload too short for voltage decode: {len(payload)} bytes')
-    if payload[0] != COMM_GET_VALUES:
-        raise ValueError(f'unexpected response id: {payload[0]}')
-    return struct.unpack_from('>H', payload, 27)[0] / 10.0
+# VESC CAN packet types
+_CAN_PACKET_SET_CURRENT = 1
+_CAN_PACKET_SET_RPM     = 3
+_CAN_PACKET_STATUS      = 9   # auto-broadcast: RPM, current, duty
+_CAN_PACKET_STATUS_5    = 27  # auto-broadcast: tachometer, voltage
 
 
 class CmdVelToVescNode(Node):
     """
-    Differential-drive motor driver for two USB VESCs.
+    Differential-drive motor driver for two VESC controllers on a shared SocketCAN bus.
 
     Subscribes to:
       - /cmd_vel         geometry_msgs/Twist
       - /estop           std_msgs/Bool
 
     Behavior:
-      - converts linear.x and angular.z into left/right wheel RPM
-      - converts wheel RPM into VESC ERPM using erpm_per_wheel_rpm
-      - sends SetRPM(...) to left and right VESCs
-      - sends zero on estop, timeout, and shutdown
+      - converts linear.x and angular.z into left/right wheel ERPM
+      - sends SET_RPM CAN frames to left and right VESCs
+      - sends SET_CURRENT(0) on estop, coast, timeout, and low-speed deadband
+        (true zero-torque free-spin, unlike SET_DUTY(0) which regeneratively brakes)
+      - reads STATUS_1 and STATUS_5 auto-broadcast frames for RPM and voltage feedback
     """
 
     def __init__(self):
@@ -98,11 +56,10 @@ class CmdVelToVescNode(Node):
         # Command timeout
         self.declare_parameter('cmd_timeout_s', 0.5)
 
-        # Serial ports
-        self.declare_parameter('left_port', '/dev/ttyACM0')
-        self.declare_parameter('right_port', '/dev/ttyACM1')
-        self.declare_parameter('baud', 115200)
-        self.declare_parameter('serial_timeout_s', 0.05)
+        # CAN bus
+        self.declare_parameter('can_interface', 'can1')
+        self.declare_parameter('left_can_id',   14)
+        self.declare_parameter('right_can_id',  24)
 
         # Wheel sign convention
         self.declare_parameter('left_sign', 1)
@@ -113,7 +70,7 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('ki_v', 0.0)
         self.declare_parameter('kp_w', 0.0)
         self.declare_parameter('ki_w', 0.0)
-        self.declare_parameter('vesc_integral_max', 2.0)  # m/s integral clamp
+        self.declare_parameter('vesc_integral_max', 2.0)
 
         # Gain echo / update topics
         self.declare_parameter('vesc_gains_echo_topic', '/vesc_gains_echo')
@@ -140,12 +97,11 @@ class CmdVelToVescNode(Node):
 
         self.cmd_timeout = Duration(seconds=float(self.get_parameter('cmd_timeout_s').value))
 
-        self.left_port = self.get_parameter('left_port').value
-        self.right_port = self.get_parameter('right_port').value
-        self.baud = int(self.get_parameter('baud').value)
-        self.serial_timeout_s = float(self.get_parameter('serial_timeout_s').value)
+        self.can_interface = self.get_parameter('can_interface').value
+        self.left_can_id   = int(self.get_parameter('left_can_id').value)
+        self.right_can_id  = int(self.get_parameter('right_can_id').value)
 
-        self.left_sign = int(self.get_parameter('left_sign').value)
+        self.left_sign  = int(self.get_parameter('left_sign').value)
         self.right_sign = int(self.get_parameter('right_sign').value)
 
         self.print_RPM_cmds = bool(self.get_parameter('print_RPM_cmds').value)
@@ -165,8 +121,7 @@ class CmdVelToVescNode(Node):
         self.estop = False
         self._coasting = False
         self.last_cmd_time = None
-        self.left_ser = None
-        self.right_ser = None
+        self.can_bus = None
         self.last_left_erpm = None
         self.last_right_erpm = None
 
@@ -208,21 +163,24 @@ class CmdVelToVescNode(Node):
         self.declare_parameter('battery_voltage_topic', '/vesc/battery_voltage')
         self.left_wheel_vel_pub = self.create_publisher(Float64, self.left_wheel_vel_topic, 10)
         self.right_wheel_vel_pub = self.create_publisher(Float64, self.right_wheel_vel_topic, 10)
-        self.battery_voltage_pub = self.create_publisher(Float64, self.get_parameter('battery_voltage_topic').value, 10)
-        self._vesc_gains_echo_pub = self.create_publisher(String, self.get_parameter('vesc_gains_echo_topic').value, 10)
-        self.create_subscription(String, self.get_parameter('vesc_gains_topic').value, self._on_vesc_gains, 10)
+        self.battery_voltage_pub = self.create_publisher(
+            Float64, self.get_parameter('battery_voltage_topic').value, 10)
+        self._vesc_gains_echo_pub = self.create_publisher(
+            String, self.get_parameter('vesc_gains_echo_topic').value, 10)
+        self.create_subscription(
+            String, self.get_parameter('vesc_gains_topic').value, self._on_vesc_gains, 10)
         self.create_timer(0.5, self._publish_vesc_gains_echo)
 
         self._shutdown = False
-        self._error_since = {'left': None, 'right': None}  # tracks first error time per side
+        self._error_since = {'left': None, 'right': None}
 
         # Timer for timeout supervision
         self.timer = self.create_timer(0.05, self._tick)
 
-        # Open serial ports before starting feedback threads
-        self._open_ports()
+        # Open CAN bus before starting feedback threads
+        self._open_can()
 
-        # Feedback: serial I/O in daemon threads; ROS timer only publishes shared state
+        # Feedback: CAN receive in daemon threads; ROS timer only publishes shared state
         feedback_period = 1.0 / max(self.feedback_poll_rate_hz, 1.0)
         if self.publish_wheel_feedback:
             for side in ('left', 'right'):
@@ -234,7 +192,7 @@ class CmdVelToVescNode(Node):
 
         self.get_logger().info(
             f'CmdVelToVesc up. cmd_vel={self.cmd_vel_topic}, estop={self.estop_topic}, '
-            f'left_port={self.left_port}, right_port={self.right_port}, '
+            f'can={self.can_interface}, left_id={self.left_can_id}, right_id={self.right_can_id}, '
             f'wheel_radius={self.wheel_radius_m}, track_width={self.track_width_m}, '
             f'erpm_per_wheel_rpm={self.erpm_per_wheel_rpm}, max_erpm={self.max_erpm}, '
             f'wheel_feedback={self.publish_wheel_feedback}'
@@ -247,28 +205,44 @@ class CmdVelToVescNode(Node):
             return current - step
         return target
 
-    def _open_ports(self):
+    def _open_can(self):
         try:
-            self.left_ser = serial.Serial(
-                self.left_port,
-                baudrate=self.baud,
-                timeout=self.serial_timeout_s
+            self.can_bus = can.Bus(
+                interface='socketcan',
+                channel=self.can_interface,
+                bitrate=1000000,
             )
-            self.get_logger().info(f'Opened left VESC on {self.left_port}')
+            self.get_logger().info(f'Opened CAN bus {self.can_interface}')
         except Exception as e:
-            self.left_ser = None
-            self.get_logger().error(f'Failed to open left VESC port {self.left_port}: {e}')
+            self.can_bus = None
+            self.get_logger().error(f'Failed to open CAN bus {self.can_interface}: {e}')
 
+    def _can_send_rpm(self, unit_id: int, erpm: int):
+        if self.can_bus is None:
+            return
+        arb_id = (_CAN_PACKET_SET_RPM << 8) | unit_id
+        data = struct.pack('>i', erpm)
+        msg = can.Message(arbitration_id=arb_id, data=data, is_extended_id=True)
         try:
-            self.right_ser = serial.Serial(
-                self.right_port,
-                baudrate=self.baud,
-                timeout=self.serial_timeout_s
-            )
-            self.get_logger().info(f'Opened right VESC on {self.right_port}')
+            self.can_bus.send(msg)
         except Exception as e:
-            self.right_ser = None
-            self.get_logger().error(f'Failed to open right VESC port {self.right_port}: {e}')
+            self.get_logger().error(
+                f'CAN send SET_RPM to id {unit_id} failed: {e}',
+                throttle_duration_sec=5.0)
+
+    def _can_send_current(self, unit_id: int, milliamps: int):
+        """Send SET_CURRENT. Use milliamps=0 for true free-spin coast (zero torque)."""
+        if self.can_bus is None:
+            return
+        arb_id = (_CAN_PACKET_SET_CURRENT << 8) | unit_id
+        data = struct.pack('>i', milliamps)
+        msg = can.Message(arbitration_id=arb_id, data=data, is_extended_id=True)
+        try:
+            self.can_bus.send(msg)
+        except Exception as e:
+            self.get_logger().error(
+                f'CAN send SET_CURRENT to id {unit_id} failed: {e}',
+                throttle_duration_sec=5.0)
 
     def _estop_reader(self, msg: Bool):
         new_estop = bool(msg.data)
@@ -309,7 +283,6 @@ class CmdVelToVescNode(Node):
         erpm_left  = int(round(wheel_rpm_left  * self.erpm_per_wheel_rpm * self.left_sign))
         erpm_right = int(round(wheel_rpm_right * self.erpm_per_wheel_rpm * self.right_sign))
 
-        # Clamp to the configured wheel ERPM safety cap.
         erpm_left  = max(-self.max_erpm, min(self.max_erpm, erpm_left))
         erpm_right = max(-self.max_erpm, min(self.max_erpm, erpm_right))
         return erpm_left, erpm_right
@@ -336,11 +309,9 @@ class CmdVelToVescNode(Node):
             self._integral_w = 0.0
             return
 
-        # Measured velocities from wheel feedback (already sign-corrected in _feedback_loop)
         v_measured = (self.left_measured_rad_s + self.right_measured_rad_s) * 0.5 * self.wheel_radius_m
         w_measured = (self.right_measured_rad_s - self.left_measured_rad_s) * self.wheel_radius_m / self.track_width_m
 
-        # Velocity PI
         dt = 0.05
         v_err = self._v_cmd - v_measured
         w_err = self._w_cmd - w_measured
@@ -385,153 +356,26 @@ class CmdVelToVescNode(Node):
                 val = float(v)
             except (TypeError, ValueError):
                 continue
-            if k == 'kp_v':         self._kp_v = val
-            elif k == 'ki_v':       self._ki_v = val; self._integral_v = 0.0
-            elif k == 'kp_w':       self._kp_w = val
-            elif k == 'ki_w':       self._ki_w = val; self._integral_w = 0.0
+            if k == 'kp_v':           self._kp_v = val
+            elif k == 'ki_v':         self._ki_v = val; self._integral_v = 0.0
+            elif k == 'kp_w':         self._kp_w = val
+            elif k == 'ki_w':         self._ki_w = val; self._integral_w = 0.0
             elif k == 'integral_max': self._integral_max = val
         self.get_logger().info(
             f'vesc_gains updated: kp_v={self._kp_v} ki_v={self._ki_v} '
             f'kp_w={self._kp_w} ki_w={self._ki_w}'
         )
 
-    def _write_erpm(self, ser, erpm: int, side: str):
-        if ser is None:
-            return
-
-        try:
-            if abs(erpm) < 300:
-                ser.write(pyvesc.encode(SetDutyCycle(0)))
-            else:
-                ser.write(pyvesc.encode(SetRPM(erpm)))
-            
-        except Exception as e:
-            self.get_logger().error(
-                f'Failed sending SetRPM to {side} VESC: {e}',
-                throttle_duration_sec=5.0)
-
-    def _write_stop(self, ser, side: str):
-        if ser is None:
-            return
-
-        try:
-            ser.write(pyvesc.encode(SetRPM(0)))
-        except Exception as e:
-            self.get_logger().error(
-                f'Failed sending stop to {side} VESC: {e}',
-                throttle_duration_sec=5.0)
-
-    def _read_vesc_packet(self, ser) -> bytes | None:
-        if ser is None:
-            return None
-
-        start = ser.read(1)
-        if not start:
-            return None
-
-        start_byte = start[0]
-        if start_byte == 2:
-            length_bytes = ser.read(1)
-            if len(length_bytes) != 1:
-                return None
-            payload_len = length_bytes[0]
-        elif start_byte == 3:
-            length_bytes = ser.read(2)
-            if len(length_bytes) != 2:
-                return None
-            payload_len = (length_bytes[0] << 8) | length_bytes[1]
-        else:
-            return None
-
-        payload = ser.read(payload_len)
-        crc = ser.read(2)
-        end = ser.read(1)
-        if len(payload) != payload_len or len(crc) != 2 or len(end) != 1:
-            return None
-        if end[0] != 3:
-            return None
-
-        expected_crc = crc16_ccitt(payload)
-        actual_crc = (crc[0] << 8) | crc[1]
-        if expected_crc != actual_crc:
-            raise ValueError(
-                f'CRC mismatch: expected 0x{expected_crc:04X}, got 0x{actual_crc:04X}'
-            )
-        return payload
-
-    def _read_erpm(self, ser, side: str) -> tuple[int, float] | tuple[None, None]:
-        """Returns (erpm, voltage_V) or (None, None) on failure."""
-        if ser is None:
-            return None, None
-
-        try:
-            ser.reset_input_buffer()
-            ser.write(get_values_packet())
-            payload = self._read_vesc_packet(ser)
-            if payload is None:
-                return None, None
-            erpm = decode_rpm_from_values_payload(payload)
-            voltage = decode_voltage_from_values_payload(payload)
-            return erpm, voltage
-        except Exception as e:
-            self.get_logger().error(
-                f'Failed reading feedback from {side} VESC: {e}',
-                throttle_duration_sec=5.0)
-            return None, None
-
-    def _publish_wheel_velocity(self, publisher, value_rad_s: float):
-        msg = Float64()
-        msg.data = value_rad_s
-        publisher.publish(msg)
-
-    def _feedback_loop(self, side: str):
-        """Background daemon thread: poll one VESC for ERPM and update shared state."""
-        interval = 1.0 / max(self.feedback_poll_rate_hz, 1.0)
-        sign = self.left_sign if side == 'left' else self.right_sign
-        while not self._shutdown:
-            ser = self.left_ser if side == 'left' else self.right_ser
-            if ser is not None:
-                erpm, voltage = self._read_erpm(ser, side)
-                if erpm is not None:
-                    self._error_since[side] = None  # clear error streak on success
-                    rad_s = (erpm / self.erpm_per_wheel_rpm) * sign * (2.0 * math.pi / 60.0)
-                    if side == 'left':
-                        self.left_measured_rad_s = rad_s
-                        self.left_voltage = voltage
-                    else:
-                        self.right_measured_rad_s = rad_s
-                        self.right_voltage = voltage
-                    time.sleep(interval)
-                else:
-                    now = time.monotonic()
-                    if self._error_since[side] is None:
-                        self._error_since[side] = now
-                    elif now - self._error_since[side] > 30.0:
-                        self.get_logger().fatal(
-                            f'{side} VESC unreachable for 30 s — shutting down node')
-                        os._exit(1)
-                    time.sleep(1.0)  # back off after failure — don't spam at poll rate
-            else:
-                time.sleep(interval)
-
-    def _publish_feedback(self):
-        """ROS timer callback: publish pre-computed wheel velocities (no serial I/O)."""
-        if not self.publish_wheel_feedback:
-            return
-        self._publish_wheel_velocity(self.left_wheel_vel_pub, self.left_measured_rad_s)
-        self._publish_wheel_velocity(self.right_wheel_vel_pub, self.right_measured_rad_s)
-
-        voltages = [v for v in (self.left_voltage, self.right_voltage) if v is not None]
-        if voltages:
-            msg = Float64()
-            msg.data = min(voltages)  # use minimum (conservative)
-            self.battery_voltage_pub.publish(msg)
-
     def _send_erpm(self, left_erpm: int, right_erpm: int):
         if self.print_RPM_cmds:
-            self.get_logger().info(f"send left={left_erpm} right={right_erpm}")
-        self._write_erpm(self.left_ser, left_erpm, 'left')
-        self._write_erpm(self.right_ser, right_erpm, 'right')
+            self.get_logger().info(f'send left={left_erpm} right={right_erpm}')
+
+        for unit_id, erpm in ((self.left_can_id, left_erpm), (self.right_can_id, right_erpm)):
+            if abs(erpm) < 300:
+                # Zero torque (free coast) in the low-speed deadband
+                self._can_send_current(unit_id, 0)
+            else:
+                self._can_send_rpm(unit_id, erpm)
 
         self.last_left_erpm = left_erpm
         self.last_right_erpm = right_erpm
@@ -541,26 +385,90 @@ class CmdVelToVescNode(Node):
         self.target_right_erpm = 0
         self.cmd_left_erpm = 0
         self.cmd_right_erpm = 0
-        self._write_erpm(self.left_ser, 0, 'left')
-        self._write_erpm(self.right_ser, 0, 'right')
+        # SET_CURRENT(0) = zero torque / free coast
+        self._can_send_current(self.left_can_id, 0)
+        self._can_send_current(self.right_can_id, 0)
+
+    def _feedback_loop(self, side: str):
+        """
+        Background daemon thread: receive VESC CAN status frames and update shared state.
+
+        The VESC auto-broadcasts STATUS_1 (RPM, current, duty) and STATUS_5 (tachometer,
+        voltage) at a rate configured in VESC Tool. This thread filters for frames from
+        the relevant unit ID; all other CAN frames (e.g. RobStride) are ignored.
+        """
+        unit_id = self.left_can_id if side == 'left' else self.right_can_id
+        sign = self.left_sign if side == 'left' else self.right_sign
+
+        while not self._shutdown:
+            if self.can_bus is None:
+                time.sleep(1.0)
+                continue
+
+            try:
+                msg = self.can_bus.recv(timeout=0.1)
+            except Exception as e:
+                self.get_logger().error(
+                    f'{side} CAN recv error: {e}', throttle_duration_sec=5.0)
+                time.sleep(0.1)
+                continue
+
+            if msg is None:
+                continue  # timeout with no frame
+
+            arb_id = msg.arbitration_id
+            frame_unit_id = arb_id & 0xFF
+            frame_cmd     = (arb_id >> 8) & 0xFF
+
+            if frame_unit_id != unit_id:
+                continue  # not our VESC
+
+            if frame_cmd == _CAN_PACKET_STATUS and len(msg.data) >= 8:
+                # bytes 0-3: RPM (int32), bytes 4-5: current*10 (int16), bytes 6-7: duty*1000 (int16)
+                erpm = struct.unpack_from('>i', msg.data, 0)[0]
+                rad_s = (erpm / self.erpm_per_wheel_rpm) * sign * (2.0 * math.pi / 60.0)
+                if side == 'left':
+                    self.left_measured_rad_s = rad_s
+                else:
+                    self.right_measured_rad_s = rad_s
+                self._error_since[side] = None
+
+            elif frame_cmd == _CAN_PACKET_STATUS_5 and len(msg.data) >= 6:
+                # bytes 0-3: tachometer (int32), bytes 4-5: voltage*10 (int16)
+                voltage = struct.unpack_from('>H', msg.data, 4)[0] / 10.0
+                if side == 'left':
+                    self.left_voltage = voltage
+                else:
+                    self.right_voltage = voltage
+
+    def _publish_wheel_velocity(self, publisher, value_rad_s: float):
+        msg = Float64()
+        msg.data = value_rad_s
+        publisher.publish(msg)
+
+    def _publish_feedback(self):
+        """ROS timer callback: publish pre-computed wheel velocities (no CAN I/O)."""
+        if not self.publish_wheel_feedback:
+            return
+        self._publish_wheel_velocity(self.left_wheel_vel_pub, self.left_measured_rad_s)
+        self._publish_wheel_velocity(self.right_wheel_vel_pub, self.right_measured_rad_s)
+
+        voltages = [v for v in (self.left_voltage, self.right_voltage) if v is not None]
+        if voltages:
+            msg = Float64()
+            msg.data = min(voltages)  # conservative: use minimum
+            self.battery_voltage_pub.publish(msg)
 
     def destroy_node(self):
         self._shutdown = True
-        # Stop motors before shutting down
         try:
             self._send_stop()
         except Exception:
             pass
 
         try:
-            if self.left_ser is not None and self.left_ser.is_open:
-                self.left_ser.close()
-        except Exception:
-            pass
-
-        try:
-            if self.right_ser is not None and self.right_ser.is_open:
-                self.right_ser.close()
+            if self.can_bus is not None:
+                self.can_bus.shutdown()
         except Exception:
             pass
 

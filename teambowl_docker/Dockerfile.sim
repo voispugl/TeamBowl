@@ -1,0 +1,19 @@
+# TeamBowl — MuJoCo Simulation Image (x86_64)
+#
+# Extends teambowl:laptop with MuJoCo for legged locomotion simulation.
+# Runs mujoco_bridge at 500 Hz — publishes /imu/data, /odometry/filtered,
+# /joint_states — so balance_controller / driving_controller can be tuned
+# without any physical hardware.
+#
+# Build:   ./build.sim.sh       (builds teambowl:laptop first, then this)
+# Launch:  ./launch.sim.sh
+# Test:    ./test_dry_run_sim.sh
+
+FROM teambowl:laptop
+
+# MuJoCo: CPU-only forward simulation, no GPU needed.
+# Physics models live in /workspaces/teambowl_mjlab (volume-mounted at runtime).
+RUN pip3 install --no-cache-dir mujoco
+
+# Mount point for MJCF model files and meshes
+RUN mkdir -p /workspaces/teambowl_mjlab

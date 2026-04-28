@@ -10,7 +10,7 @@ Primary configuration file loaded at node startup. Edit this file to:
 - `setup_pids_on_startup: false` means the node will NOT write gains to actuator registers; set to true only if you want to configure the motor's internal PID registers
 
 **Current RS04 gains (2026-03-24):** joints 1,4 Kp=40 Kd=5; joints 2,3,5,6 Kp=80 Kd=5.
-**RS00 gains (2026-03-24):** Kp=0, Kd=0 — freewheel by default (wheel motors). No controller needs to call /set_gains for coast mode.
+**RS00 gains (2026-03-24):** Kp=0, Kd=0 — freewheel by default (foot motors). No controller needs to call /set_gains for coast mode.
 
 ### commands_reference.yaml
 Machine-readable table of all CAN command types (0x00–0x19) and all parameter indices (0x7005–0x702B). Used by `tools/commissioning.py` for validation and help text. Do not edit unless the RobStride protocol changes.

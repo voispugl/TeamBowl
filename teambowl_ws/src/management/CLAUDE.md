@@ -1,5 +1,9 @@
 # management
 
+## 2026-04-21 — Added "recovery" to valid modes
+
+- **`management/mode_manager.py`**: Added `"recovery"` to `VALID_MODES`. Set automatically by `fall_recovery_controller` when fallover is detected. `driving_leg_controller` will not run in this mode.
+
 ## 2026-04-13 — Added "balance" to valid modes
 
 - **`management/mode_manager.py`**: Added `"balance"` to `VALID_MODES`. Set via:

@@ -104,12 +104,8 @@ def generate_launch_description():
     imu_translation, imu_yaw = _compute_base_to_imu_tf(robot_urdf)
     cam_translation, cam_rpy = _compute_base_to_rgb_camera_tf(robot_urdf)
 
-    # Camera params_file: oak_cam_vslam.yaml when use_vslam:=true (PoE IP, IMU, 90 Hz stereo),
-    # otherwise oak_cam.yaml (USB, 5 Hz, no IMU).
-    _oak_cam_default = os.path.join(
+    _oak_cam_params = os.path.join(
         get_package_share_directory('bringup'), 'config', 'oak_cam.yaml')
-    _oak_cam_vslam = os.path.join(
-        get_package_share_directory('bringup'), 'config', 'oak_cam_vslam.yaml')
 
     oak_camera = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -121,13 +117,9 @@ def generate_launch_description():
         ),
         launch_arguments={
             'name': 'oak',
-            'rectify_rgb': 'true',
+            'rectify_rgb': 'false',
             'pointcloud.enable': 'true',
-            'params_file': PythonExpression([
-                '"', _oak_cam_vslam, '" if "',
-                LaunchConfiguration('use_vslam'), '" == "true" else "',
-                _oak_cam_default, '"',
-            ]),
+            'params_file': _oak_cam_params,
             'parent_frame': 'base_link',
             'cam_pos_x': str(cam_translation[0]),
             'cam_pos_y': str(cam_translation[1]),
@@ -161,6 +153,9 @@ def generate_launch_description():
     except PackageNotFoundError:
         xsens_imu = None
         _xsens_available = False
+
+    diagnostics_config = os.path.join(
+        get_package_share_directory('bringup'), 'config', 'diagnostics.yaml')
 
     management_config = os.path.join(
         get_package_share_directory('management'), 'config', 'management.yaml')
@@ -272,8 +267,7 @@ def generate_launch_description():
         'use_vslam',
         default_value='false',
         description='Enable Isaac ROS Visual SLAM (VIO odometry via OAK-D stereo + IMU). '
-                    'Switches camera to oak_cam_vslam.yaml (PoE, 90 Hz stereo, IMU). '
-                    'Requires Docker rebuild with Isaac ROS and OAK-D PoE W.')
+                    'Requires Docker image with Isaac ROS and OAK-D W PoE at 192.168.11.2.')
     use_vslam = LaunchConfiguration('use_vslam')
 
     use_nvblox_arg = DeclareLaunchArgument(
@@ -326,6 +320,14 @@ def generate_launch_description():
         ),
 
         Node(
+            package='diagnostic_aggregator',
+            executable='aggregator_node',
+            name='diagnostic_aggregator',
+            output='screen',
+            parameters=[diagnostics_config],
+        ),
+
+        Node(
             package='management',
             executable='mode_manager',
             name='mode_manager',
@@ -333,21 +335,21 @@ def generate_launch_description():
             parameters=[management_config],
         ),
 
-        Node(
-            package='safety',
-            executable='pico_bridge',
-            name='pico_bridge',
-            output='screen',
-            parameters=[safety_config],
-        ),
+        # Node(
+        #     package='safety',
+        #     executable='pico_bridge',
+        #     name='pico_bridge',
+        #     output='screen',
+        #     parameters=[safety_config],
+        # ),
 
-        Node(
-            package='safety',
-            executable='stuck_detector',
-            name='stuck_detector',
-            output='screen',
-            parameters=[safety_config],
-        ),
+        # Node(
+        #     package='safety',
+        #     executable='stuck_detector',
+        #     name='stuck_detector',
+        #     output='screen',
+        #     parameters=[safety_config],
+        # ),
 
         Node(
             package='safety',
@@ -385,6 +387,14 @@ def generate_launch_description():
             condition=IfCondition(PythonExpression(["'", leg_ctrl, "' == 'driving'"])),
         ),
 
+        # Node(
+        #     package='locomotion',
+        #     executable='fall_recovery_controller',
+        #     name='fall_recovery_controller',
+        #     output='screen',
+        #     parameters=[locomotion_config],
+        # ),
+
         Node(
             package='locomotion',
             executable='vel_cmd_mux',
@@ -393,26 +403,26 @@ def generate_launch_description():
             parameters=[locomotion_config],
         ),
 
-        Node(
-            package='locomotion',
-            executable='collision_guard',
-            name='collision_guard',
-            output='screen',
-            parameters=[locomotion_config],
-        ),
+        # Node(
+        #     package='locomotion',
+        #     executable='collision_guard',
+        #     name='collision_guard',
+        #     output='screen',
+        #     parameters=[locomotion_config],
+        # ),
 
         # Velocity controller: sits between collision_guard (/cmd_vel_safe) and
         # cmd_vel_to_vesc (/cmd_vel). Only one may run at a time.
         #   balance (default) — cascaded PID self-balancing (mode="balance")
         #   driving           — velocity PID + pitch correction for locked-leg nav (mode="driving")
-        Node(
-            package='locomotion',
-            executable='balance_controller',
-            name='balance_controller',
-            output='screen',
-            parameters=[balance_config],
-            condition=IfCondition(PythonExpression(["'", vel_ctrl, "' == 'balance'"])),
-        ),
+        # Node(
+        #     package='locomotion',
+        #     executable='balance_controller',
+        #     name='balance_controller',
+        #     output='screen',
+        #     parameters=[balance_config],
+        #     condition=IfCondition(PythonExpression(["'", vel_ctrl, "' == 'balance'"])),
+        # ),
 
         Node(
             package='locomotion',
@@ -458,146 +468,146 @@ def generate_launch_description():
             parameters=[vesc_config],
         ),
 
-        # Nav2 planning stack.
-        # planning_config switches to planning_nvblox.yaml when use_nvblox:=true.
-        Node(
-            package='nav2_planner',
-            executable='planner_server',
-            name='planner_server',
-            output='screen',
-            parameters=[PythonExpression([
-                '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
-                _planning_default, '"',
-            ])],
-        ),
+        # # Nav2 planning stack.
+        # # planning_config switches to planning_nvblox.yaml when use_nvblox:=true.
+        # Node(
+        #     package='nav2_planner',
+        #     executable='planner_server',
+        #     name='planner_server',
+        #     output='screen',
+        #     parameters=[PythonExpression([
+        #         '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
+        #         _planning_default, '"',
+        #     ])],
+        # ),
 
-        Node(
-            package='nav2_controller',
-            executable='controller_server',
-            name='controller_server',
-            output='screen',
-            parameters=[PythonExpression([
-                '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
-                _planning_default, '"',
-            ])],
-            remappings=[
-                ('/cmd_vel', '/cmd_vel_auto'),
-            ],
-        ),
+        # Node(
+        #     package='nav2_controller',
+        #     executable='controller_server',
+        #     name='controller_server',
+        #     output='screen',
+        #     parameters=[PythonExpression([
+        #         '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
+        #         _planning_default, '"',
+        #     ])],
+        #     remappings=[
+        #         ('/cmd_vel', '/cmd_vel_auto'),
+        #     ],
+        # ),
 
-        # CPU obstacle pipeline — disabled when use_nvblox:=true (nvblox replaces it).
-        Node(
-            package='planning',
-            executable='nav_cloud_filter',
-            name='nav_cloud_filter',
-            output='screen',
-            parameters=[planning_config],
-            condition=UnlessCondition(use_nvblox),
-        ),
+        # # CPU obstacle pipeline — disabled when use_nvblox:=true (nvblox replaces it).
+        # Node(
+        #     package='planning',
+        #     executable='nav_cloud_filter',
+        #     name='nav_cloud_filter',
+        #     output='screen',
+        #     parameters=[planning_config],
+        #     condition=UnlessCondition(use_nvblox),
+        # ),
 
-        Node(
-            package='pointcloud_to_laserscan',
-            executable='pointcloud_to_laserscan_node',
-            name='nav_cloud_to_scan',
-            output='screen',
-            remappings=[
-                ('cloud_in', '/oak/nav_points'),
-                ('scan', '/oak/nav_scan'),
-            ],
-            parameters=[{
-                'target_frame': 'base_link',
-                'transform_tolerance': 0.1,
-                'min_height': -0.10,
-                'max_height': 1.20,
-                'angle_min': -1.5708,
-                'angle_max': 1.5708,
-                'angle_increment': 0.00872665,
-                'scan_time': 0.1,
-                'range_min': 0.15,
-                'range_max': 2.50,
-                'use_inf': True,
-                'inf_epsilon': 1.0,
-            }],
-            condition=UnlessCondition(use_nvblox),
-        ),
+        # Node(
+        #     package='pointcloud_to_laserscan',
+        #     executable='pointcloud_to_laserscan_node',
+        #     name='nav_cloud_to_scan',
+        #     output='screen',
+        #     remappings=[
+        #         ('cloud_in', '/oak/nav_points'),
+        #         ('scan', '/oak/nav_scan'),
+        #     ],
+        #     parameters=[{
+        #         'target_frame': 'base_link',
+        #         'transform_tolerance': 0.1,
+        #         'min_height': -0.10,
+        #         'max_height': 1.20,
+        #         'angle_min': -1.5708,
+        #         'angle_max': 1.5708,
+        #         'angle_increment': 0.00872665,
+        #         'scan_time': 0.1,
+        #         'range_min': 0.15,
+        #         'range_max': 2.50,
+        #         'use_inf': True,
+        #         'inf_epsilon': 1.0,
+        #     }],
+        #     condition=UnlessCondition(use_nvblox),
+        # ),
 
         # Trajectory test — Foxglove-driven goal → nav2 plan + execute
         # Idle outside "driving" mode. Publish JSON goal to /trajectory_goal,
         # then "go" to /trajectory_cmd to start live-replanning execution.
-        Node(
-            package='planning',
-            executable='trajectory_test',
-            name='trajectory_test',
-            output='screen',
-            parameters=[PythonExpression([
-                '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
-                _planning_default, '"',
-            ])],
-        ),
+        # Node(
+        #     package='planning',
+        #     executable='trajectory_test',
+        #     name='trajectory_test',
+        #     output='screen',
+        #     parameters=[PythonExpression([
+        #         '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
+        #         _planning_default, '"',
+        #     ])],
+        # ),
 
-        Node(
-            package='planning',
-            executable='follow_goal',
-            name='follow_goal',
-            output='screen',
-            parameters=[PythonExpression([
-                '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
-                _planning_default, '"',
-            ])],
-        ),
+        # Node(
+        #     package='planning',
+        #     executable='follow_goal',
+        #     name='follow_goal',
+        #     output='screen',
+        #     parameters=[PythonExpression([
+        #         '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
+        #         _planning_default, '"',
+        #     ])],
+        # ),
 
-        Node(
-            package='planning',
-            executable='follow_executor',
-            name='follow_executor',
-            output='screen',
-            parameters=[PythonExpression([
-                '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
-                _planning_default, '"',
-            ])],
-        ),
+        # Node(
+        #     package='planning',
+        #     executable='follow_executor',
+        #     name='follow_executor',
+        #     output='screen',
+        #     parameters=[PythonExpression([
+        #         '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
+        #         _planning_default, '"',
+        #     ])],
+        # ),
 
-        Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_navigation',
-            output='screen',
-            parameters=[PythonExpression([
-                '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
-                _planning_default, '"',
-            ])],
-        ),
+        # Node(
+        #     package='nav2_lifecycle_manager',
+        #     executable='lifecycle_manager',
+        #     name='lifecycle_manager_navigation',
+        #     output='screen',
+        #     parameters=[PythonExpression([
+        #         '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
+        #         _planning_default, '"',
+        #     ])],
+        # ),
 
-        TimerAction(
-            period=10.0,
-            actions=[
-                Node(
-                    package='perception',
-                    executable='cam_ops',
-                    name='cam_ops_node',
-                    output='screen',
-                    parameters=[perception_config],
-                    respawn=True,
-                    respawn_delay=3.0,
-                ),
-            ]
-        ),
+        # TimerAction(
+        #     period=10.0,
+        #     actions=[
+        #         Node(
+        #             package='perception',
+        #             executable='cam_ops',
+        #             name='cam_ops_node',
+        #             output='screen',
+        #             parameters=[perception_config],
+        #             respawn=True,
+        #             respawn_delay=3.0,
+        #         ),
+        #     ]
+        # ),
 
-        TimerAction(
-            period=10.0,
-            actions=[
-                Node(
-                    condition=IfCondition(use_yolo26),
-                    package='perception',
-                    executable='yolo26_node',
-                    name='yolo26_node',
-                    output='screen',
-                    parameters=[perception_config],
-                    respawn=True,
-                    respawn_delay=3.0,
-                ),
-            ]
-        ),
+        # TimerAction(
+        #     period=10.0,
+        #     actions=[
+        #         Node(
+        #             condition=IfCondition(use_yolo26),
+        #             package='perception',
+        #             executable='yolo26_node',
+        #             name='yolo26_node',
+        #             output='screen',
+        #             parameters=[perception_config],
+        #             respawn=True,
+        #             respawn_delay=3.0,
+        #         ),
+        #     ]
+        # ),
 
         # Lid controller: drives RS05 motor (cargo bay lid) between open/close.
         # Trigger from Foxglove: Publish panel → /lid_command (std_msgs/String)
@@ -618,103 +628,102 @@ def generate_launch_description():
             package='steamdeck_teleop',
             executable='steamdeck_ws_teleop',
             name='steamdeck_ws_teleop',
-            output='screen',
+            output='log',
             parameters=[_steamdeck_config, {'ui_mode': steamdeck_ui}],
         )] if _steamdeck_available else []),
 
-        # Jump controller: IK-based leg jump via /jump_command (std_msgs/String "jump")
-        # Trigger from Foxglove or CLI: ros2 topic pub /jump_command std_msgs/msg/String '{data: "jump"}' --once
-        Node(
-            package='locomotion',
-            executable='jump_controller',
-            name='jump_controller',
-            output='screen',
-            parameters=[jump_config],
-        ),
+        # Jump controller disabled.
+        # Node(
+        #     package='locomotion',
+        #     executable='jump_controller',
+        #     name='jump_controller',
+        #     output='screen',
+        #     parameters=[jump_config],
+        # ),
 
         # ── Isaac ROS Visual SLAM ─────────────────────────────────────────────
         # VIO odometry from OAK-D stereo (90 Hz / 400p) + camera IMU.
         # Output: /visual_slam/tracking/odometry → fused into EKF as odom1.
         # Requires use_vslam:=true and Docker rebuild with Isaac ROS.
-        # vslam_debug:=true enables observation/landmark/path visualization topics.
-        *([OpaqueFunction(function=lambda context: [Node(
-            package='isaac_ros_visual_slam',
-            executable='isaac_ros_visual_slam',
-            name='visual_slam',
-            output='screen',
-            parameters=[{
-                'use_sim_time': False,
-                'denoise_input_images': False,
-                'rectified_images': True,
-                'enable_imu_fusion': True,
-                'base_frame': 'base_link',
-                'imu_frame': 'oak_imu_frame',
-                'fixed_frame': 'odom',
-                'enable_slam_visualization':
-                    context.perform_substitution(LaunchConfiguration('vslam_debug')) == 'true',
-                'enable_landmarks_view':
-                    context.perform_substitution(LaunchConfiguration('vslam_debug')) == 'true',
-                'enable_observations_view':
-                    context.perform_substitution(LaunchConfiguration('vslam_debug')) == 'true',
-            }],
-            remappings=[
-                ('visual_slam/image_0',       '/oak/left/image_rect'),
-                ('visual_slam/camera_info_0', '/oak/left/camera_info'),
-                ('visual_slam/image_1',       '/oak/right/image_rect'),
-                ('visual_slam/camera_info_1', '/oak/right/camera_info'),
-                ('visual_slam/imu',           '/oak/imu/data'),
-            ],
-            condition=IfCondition(LaunchConfiguration('use_vslam')),
-        )])] if _isaac_ros_available else []),
+        # # vslam_debug:=true enables observation/landmark/path visualization topics.
+        # *([OpaqueFunction(function=lambda context: [Node(
+        #     package='isaac_ros_visual_slam',
+        #     executable='isaac_ros_visual_slam',
+        #     name='visual_slam',
+        #     output='screen',
+        #     parameters=[{
+        #         'use_sim_time': False,
+        #         'denoise_input_images': False,
+        #         'rectified_images': True,
+        #         'enable_imu_fusion': True,
+        #         'base_frame': 'base_link',
+        #         'imu_frame': 'oak_imu_frame',
+        #         'fixed_frame': 'odom',
+        #         'enable_slam_visualization':
+        #             context.perform_substitution(LaunchConfiguration('vslam_debug')) == 'true',
+        #         'enable_landmarks_view':
+        #             context.perform_substitution(LaunchConfiguration('vslam_debug')) == 'true',
+        #         'enable_observations_view':
+        #             context.perform_substitution(LaunchConfiguration('vslam_debug')) == 'true',
+        #     }],
+        #     remappings=[
+        #         ('visual_slam/image_0',       '/oak/left/image_rect'),
+        #         ('visual_slam/camera_info_0', '/oak/left/camera_info'),
+        #         ('visual_slam/image_1',       '/oak/right/image_rect'),
+        #         ('visual_slam/camera_info_1', '/oak/right/camera_info'),
+        #         ('visual_slam/imu',           '/oak/imu/data'),
+        #     ],
+        #     condition=IfCondition(LaunchConfiguration('use_vslam')),
+        # )])] if _isaac_ros_available else []),
 
         # Static TF: nvblox_camera → base_link at the OAK-D depth camera position.
         # Provides a named, independently-managed frame for nvblox, decoupled from
         # depthai internal frame names. Verify position with: ros2 run tf2_tools view_frames
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='nvblox_camera_tf',
-            output='screen',
-            arguments=[
-                str(cam_translation[0]),
-                str(cam_translation[1]),
-                str(cam_translation[2]),
-                str(cam_rpy[2]),  # yaw
-                str(cam_rpy[1]),  # pitch
-                str(cam_rpy[0]),  # roll
-                'base_link',
-                'nvblox_camera',
-            ],
-            condition=IfCondition(use_vslam),
-        ),
+        # Node(
+        #     package='tf2_ros',
+        #     executable='static_transform_publisher',
+        #     name='nvblox_camera_tf',
+        #     output='screen',
+        #     arguments=[
+        #         str(cam_translation[0]),
+        #         str(cam_translation[1]),
+        #         str(cam_translation[2]),
+        #         str(cam_rpy[2]),  # yaw
+        #         str(cam_rpy[1]),  # pitch
+        #         str(cam_rpy[0]),  # roll
+        #         'base_link',
+        #         'nvblox_camera',
+        #     ],
+        #     condition=IfCondition(use_vslam),
+        # ),
 
-        # ── nvblox 3D TSDF costmap ────────────────────────────────────────────
-        # GPU TSDF map from OAK-D aligned depth. Projects ESDF slice into nav2
-        # costmap layers (both local and global when use_nvblox:=true).
-        # Detects drop-offs and 3D obstacles that 2D LaserScan misses.
-        # ESDF slice: 0.0–1.2m above base_link (catches ground obstacles to above robot).
-        *([Node(
-            package='nvblox_ros',
-            executable='nvblox_node',
-            name='nvblox',
-            output='screen',
-            parameters=[{
-                'voxel_size': 0.05,
-                'max_depth_m': 3.0,
-                'min_depth_m': 0.1,
-                'esdf_2d_min_height': 0.0,
-                'esdf_2d_max_height': 1.2,
-                'esdf_slice_height': 0.15,
-                'map_clearing_radius_m': 5.0,
-                'global_frame': 'odom',
-                'pose_frame': 'base_link',
-            }],
-            remappings=[
-                ('depth/image',       '/oak/stereo/image_raw'),
-                ('depth/camera_info', '/oak/stereo/camera_info'),
-            ],
-            condition=IfCondition(use_nvblox),
-        )] if _nvblox_available else []),
+        # # ── nvblox 3D TSDF costmap ────────────────────────────────────────────
+        # # GPU TSDF map from OAK-D aligned depth. Projects ESDF slice into nav2
+        # # costmap layers (both local and global when use_nvblox:=true).
+        # # Detects drop-offs and 3D obstacles that 2D LaserScan misses.
+        # # ESDF slice: 0.0–1.2m above base_link (catches ground obstacles to above robot).
+        # *([Node(
+        #     package='nvblox_ros',
+        #     executable='nvblox_node',
+        #     name='nvblox',
+        #     output='screen',
+        #     parameters=[{
+        #         'voxel_size': 0.05,
+        #         'max_depth_m': 3.0,
+        #         'min_depth_m': 0.1,
+        #         'esdf_2d_min_height': 0.0,
+        #         'esdf_2d_max_height': 1.2,
+        #         'esdf_slice_height': 0.15,
+        #         'map_clearing_radius_m': 5.0,
+        #         'global_frame': 'odom',
+        #         'pose_frame': 'base_link',
+        #     }],
+        #     remappings=[
+        #         ('depth/image',       '/oak/stereo/image_raw'),
+        #         ('depth/camera_info', '/oak/stereo/camera_info'),
+        #     ],
+        #     condition=IfCondition(use_nvblox),
+        # )] if _nvblox_available else []),
 
         # Foxglove bridge — remote visualization + gain tuning topics
         # Disable with: ros2 launch bringup bringup.launch.py foxglove:=false
@@ -722,7 +731,7 @@ def generate_launch_description():
             package='foxglove_bridge',
             executable='foxglove_bridge',
             name='foxglove_bridge',
-            output='screen',
+            output='log',
             parameters=[{
                 'port': 8765,
                 'address': '0.0.0.0',
@@ -731,6 +740,7 @@ def generate_launch_description():
                 'param_whitelist': ['.*'],
                 'max_qos_depth': 1,
             }],
+            ros_arguments=['--log-level', 'foxglove_bridge:=warn'],
             condition=IfCondition(use_foxglove),
         ),
     ])

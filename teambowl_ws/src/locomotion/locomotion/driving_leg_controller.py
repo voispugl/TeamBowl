@@ -170,7 +170,7 @@ class DrivingLegController(Node):
             self._transition_to_running()
 
     def _should_run(self) -> bool:
-        return self._mode != 'off' and not self._estop
+        return self._mode not in ('off', 'recovery') and not self._estop
 
     def _update_state(self):
         want_running = self._should_run()

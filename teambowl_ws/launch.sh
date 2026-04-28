@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+USE_YOLO=false
+for arg in "$@"; do
+    case "$arg" in
+        --yolo) USE_YOLO=true ;;
+        *) echo "[launch] Unknown argument: $arg"; exit 1 ;;
+    esac
+done
+
 cd ~/TeamBowl/teambowl_ws
 
 echo "[launch] Setting CAN network up..."
@@ -73,5 +81,5 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "[launch] Launching bringup..."
-ros2 launch bringup bringup.launch.py
+echo "[launch] Launching bringup (yolo=$USE_YOLO)..."
+ros2 launch bringup bringup.launch.py use_yolo26:=$USE_YOLO

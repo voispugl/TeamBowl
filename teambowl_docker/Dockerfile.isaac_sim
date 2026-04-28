@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-xacro \
     ros-humble-diagnostic-updater \
     ros-humble-diagnostic-msgs \
+    ros-humble-diagnostic-aggregator \
     ros-humble-message-filters \
     ros-humble-imu-tools \
     ros-humble-pointcloud-to-laserscan \
@@ -74,20 +75,51 @@ RUN mkdir -p /opt/isaac_ros_ws/src && \
     git clone --recurse-submodules -b release-3.2 \
         https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common.git && \
     git clone --recurse-submodules -b release-3.2 \
-        https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nvblox.git && \
+        https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nvblox.git
+
+RUN set -o pipefail && \
+    apt-get update && \
     cd /opt/isaac_ros_ws && \
     source /opt/ros/humble/setup.bash && \
     rosdep install --from-paths src --ignore-src -r -y \
-        --skip-keys "libopencv-dev python3-opencv libopencv-contrib-dev" && \
+        --skip-keys "libopencv-dev python3-opencv libopencv-contrib-dev \
+                     isaac_ros_peoplenet_models_install isaac_ros_peoplesemseg_models_install \
+                     isaac_ros_nitros_image_type isaac_ros_nitros_camera_info_type \
+                     isaac_ros_nitros isaac_ros_gxf ament_python" || true && \
     colcon build \
         --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-        2>&1 | tee /tmp/nvblox_build.log && \
+        --packages-ignore nvblox_test nvblox_test_data nvblox_examples_bringup \
+            nvblox_ros nvblox_rviz_plugin \
+        --event-handlers console_direct+ && \
     rm -rf /opt/isaac_ros_ws/build /opt/isaac_ros_ws/log
 
 # Python dependencies for robot workspace
 RUN pip3 install --no-cache-dir \
     numpy \
-    websockets
+    websockets \
+    pyvesc==1.0.5 \
+    python-can
+
+# PyCRC compatibility shim for pyvesc 1.0.5 (see BUILD_ISSUES.md #6b)
+RUN python3 - << 'EOF'
+import os
+d = '/usr/local/lib/python3.10/dist-packages/PyCRC'
+os.makedirs(d, exist_ok=True)
+open(f'{d}/__init__.py', 'w').close()
+with open(f'{d}/CRCCCITT.py', 'w') as f:
+    f.write("""class CRCCCITT:
+    _INIT = {'FFFF': 0xFFFF, '1D0F': 0x1D0F}
+    def __init__(self, version='XModem'):
+        self._crc = self._INIT.get(version, 0x0000)
+    def calculate(self, data=''):
+        crc = self._crc
+        for b in (data.encode() if isinstance(data, str) else data):
+            crc ^= b << 8
+            for _ in range(8):
+                crc = ((crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1) & 0xFFFF
+        return crc
+""")
+EOF
 
 # rosdep
 RUN rosdep init || true

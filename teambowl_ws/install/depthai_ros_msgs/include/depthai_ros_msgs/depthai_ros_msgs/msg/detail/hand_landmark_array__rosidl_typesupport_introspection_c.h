@@ -1,1 +1,1 @@
-/home/box/TeamBowl/teambowl_ws/build/depthai_ros_msgs/rosidl_typesupport_introspection_c/depthai_ros_msgs/msg/detail/hand_landmark_array__rosidl_typesupport_introspection_c.h
+/workspaces/teambowl_ws/build/depthai_ros_msgs/rosidl_typesupport_introspection_c/depthai_ros_msgs/msg/detail/hand_landmark_array__rosidl_typesupport_introspection_c.h

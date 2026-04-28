@@ -16,7 +16,6 @@ echo ""
 
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 BAG_NAME=~/TeamBowl/imu_calib_$(date +%Y%m%d_%H%M%S)
 

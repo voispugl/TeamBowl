@@ -18,8 +18,6 @@ source /opt/ros/humble/setup.bash
 echo "[build] Sourcing workspace overlay..."
 source install/setup.bash
 
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-
 export RCUTILS_COLORIZE_OUTPUT=1
 export RCUTILS_LOGGING_USE_STDOUT=1
 

@@ -34,11 +34,11 @@ if [ ! -f "${BUILD_MARKER}" ]; then
         --cmake-args \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-        2>&1 | tee /tmp/colcon_isaac_sim.log
+        2>&1 | tee "${WS}/colcon_build.log"
 
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
-        echo "[isaac_sim] ERROR: colcon build failed. Check /tmp/colcon_isaac_sim.log"
-        exec bash
+        echo "[isaac_sim] ERROR: colcon build failed. Check colcon_build.log in the workspace."
+        exit 1
     fi
 
     touch "${BUILD_MARKER}"

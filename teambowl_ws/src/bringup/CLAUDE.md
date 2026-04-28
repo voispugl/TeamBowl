@@ -1,5 +1,25 @@
 # bringup
 
+## 2026-04-28 — Consolidated to single oak_cam.yaml; deleted oak_cam_vslam.yaml and oak_nav_rgbd.yaml
+
+**`config/oak_cam.yaml`**: Single camera config for all launch files (based on former oak_cam_vslam.yaml). Contains PoE IP, correct OAK-D W resolutions (1080P RGB, 400P stereo), 30 Hz stereo, VSLAM stereo sync settings.
+
+**`launch/bringup.launch.py`**: Removed `PythonExpression` conditional that switched between oak_cam.yaml and oak_cam_vslam.yaml based on `use_vslam`. Now always uses `oak_cam.yaml`. `use_vslam` arg still controls whether the visual_slam node launches.
+
+**`launch/isaac_ros_test.launch.py`**: Updated oak_params path from `oak_cam_vslam.yaml` → `oak_cam.yaml`.
+
+## 2026-04-28 — Fixed OAK-D W resolution strings → OpenCV remap crash
+
+**`config/oak_cam_vslam.yaml`** and **`config/oak_cam.yaml`**: Changed resolution strings to include the `P` suffix (`'1080P'`, `'720P'`). The depthai-ros driver does not recognise bare numbers (`'1080'`, `'720'`) — it fell back to its own default while building calibration remapping maps for the unrecognised size, causing a size mismatch and an OpenCV `remap` assertion crash on every frame. Also updated stereo from `'400P'` → `'720P'` (OV9282 on OAK-D W does not support 400P).
+
+## 2026-04-28 — Set OAK-D W PoE static IP in oak_cam_vslam.yaml
+
+**`config/oak_cam_vslam.yaml`**: Changed `i_ip` from placeholder `"192.168.1.100"` to `"192.168.11.2"` (camera's configured static IP). Jetson `eno1` must be on `192.168.11.1/24`; reconfigure via `sudo nmcli connection modify "Wired connection 1" ipv4.method manual ipv4.addresses "192.168.11.1/24" ipv4.gateway "" && sudo nmcli connection down "Wired connection 1" && sudo nmcli connection up "Wired connection 1"`.
+
+## 2026-04-21 — Added fall_recovery_controller to bringup
+
+**`launch/bringup.launch.py`**: Added `fall_recovery_controller` node (locomotion pkg, `locomotion_config`). Always launched; stays idle until pitch exceeds trigger threshold.
+
 ## 2026-04-23 — Added isaac_sim.launch.py for Isaac Sim full-stack testing
 
 **`launch/isaac_sim.launch.py`**: Full robot stack connected to Isaac Sim (replaces sim.launch.py).

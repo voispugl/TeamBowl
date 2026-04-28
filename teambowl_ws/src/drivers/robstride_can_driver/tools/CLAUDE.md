@@ -1,5 +1,28 @@
 ## Directory: tools/
 
+### set_foot_pos.py
+Interactive position controller for RS00 foot actuators. Zero = hardstop (fully retracted up).
+Mirrored mode: `e <deg>` commands left=+deg, right=−deg so both feet reach equal height on a flat surface.
+Individual override: `l <deg>` / `r <deg>` for asymmetric positioning.
+Sends Type 1 (MIT mode) at 50 Hz until target is reached or 5 s timeout.
+
+**Usage:**
+```bash
+python set_foot_pos.py [--interface can1] [--kp 40] [--kd 2]
+```
+Commands: `e <deg>` (extend both mirrored), `l <deg>` (left only), `r <deg>` (right only), `h` (hardstop), `s` (refresh), `q` (quit).
+
+### zero_rs00.py
+Interactive zero-setter for RS00 foot actuators (left foot 0x0D, right foot 0x17 on can1). No ROS2 required.
+Enables motors, reads live positions, then lets you set mechanical zero (Type 6) per-motor or both.
+Optionally saves to flash (Type 22) so zero survives power cycles.
+
+**Usage:**
+```bash
+python zero_rs00.py [--interface can1]
+```
+Commands: `l` (zero left), `r` (zero right), `b` (zero both), `s` (refresh readout), `q` (quit).
+
 ### commissioning.py
 Standalone CLI for one-time motor commissioning. No ROS2 required — only `python-can` and `pyyaml`.
 Run this before the ROS2 driver to set motor CAN IDs, mechanical zeros, and zero offsets.

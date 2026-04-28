@@ -1,5 +1,13 @@
 # safety
 
+## 2026-04-21 — system_health: kill switch latch requires ENABLE to clear
+
+- **`safety/system_health.py`**: Added `_kill_switch_latched` flag. Kill switch press sets the flag; `_tick` respects it — heartbeat alive-ness can no longer silently clear a kill-switch-triggered e-stop. Added `/clear_estop` subscription (`_clear_estop_cb`): clears the latch when `True` is received. `_tick` logic: timeout → estop true; not timed out AND not latched → estop false; not timed out AND latched → estop stays true.
+
+## 2026-04-21 — pico_bridge: blue LED for teleop idle
+
+- **`safety/pico_bridge.py`**: Added `/robot_mode` subscription → `_mode_cb`. When `robot_mode == 'teleop'` and robot is idle (no estop, not moving/turning, not stuck), LEDs show solid blue (`0x10 0x00 0x00 0xFF`). All other states unchanged.
+
 ## 2026-04-17 — stuck_detector node
 
 - **`safety/stuck_detector.py`**: New ROS2 node. Detects two failure modes and publishes `/robot_stuck` (Bool) at 10 Hz:

@@ -6,6 +6,13 @@ hold_position_controller:
     torque_ff: 1.0
     publish_rate_hz: 50.0
     rs00_joints: [joint_rs00_1, joint_rs00_2]
+    rs00_kp: 20.0   # ankle position stiffness (RS00 range: 0–500)
+    rs00_kd: 0.3    # ankle velocity damping  (RS00 range: 0–5)
+    imu_topic: /imu/data
+    leveling_enabled: true
+    leveling_kp: 0.5          # position offset (rad) per rad of tilt — start low
+    leveling_max_offset_rad: 0.2  # per-joint safety clamp
+    leveling_alpha: 0.85      # low-pass filter (0=raw, 1=frozen); smooths accel noise
 
 driving_leg_controller:
   ros__parameters:
@@ -28,6 +35,24 @@ vel_cmd_mux:
     auto_timeout_s: 0.5
     publish_rate_hz: 30.0
     debug: false
+
+fall_recovery_controller:
+  ros__parameters:
+    pitch_trigger_rad: 0.45
+    extend_rad: 0.524
+    extend_time_s: 2.5
+    retract_time_s: 0.35
+    retract_undershoot_rad: 0.1
+    recovery_kp: 200.0
+    retract_kd: 2.0
+    ground_settle_s: 1.5
+    drive_back_speed_m_s: 0.3
+    drive_back_dist_m: 0.5
+    settle_time_s: 1.5
+    control_rate_hz: 50.0
+    cooldown_s: 3.0
+    mode_topic: /robot_mode
+    estop_topic: /estop
 
 collision_guard:
   ros__parameters:

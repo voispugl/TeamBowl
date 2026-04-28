@@ -16,7 +16,7 @@ class ModeManagerNode(Node):
       - /robot_mode (String): "off", "teleop", "auton", "trick"
     """
 
-    VALID_MODES = {'off', 'teleop', 'auton', 'trick', 'balance', 'driving'}
+    VALID_MODES = {'off', 'teleop', 'auton', 'trick', 'balance', 'driving', 'recovery'}
 
     def __init__(self):
         super().__init__('mode_manager')

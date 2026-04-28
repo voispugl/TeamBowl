@@ -1,5 +1,14 @@
 # status_leds
 
+## 2026-04-21 — First build and flash on this machine
+
+- Installed ARM GCC toolchain: `sudo apt install gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib`
+- Cloned Pico SDK 2.2.0 to `~/pico-sdk` (with submodules)
+- Built firmware: `mkdir build && cd build && cmake .. -DPICO_BOARD=pico2 -DPICO_SDK_PATH=$HOME/pico-sdk && make -j$(nproc)`
+- Flashed via BOOTSEL mode: mounted at `/dev/sda1`, copied `build/status_leds.uf2`
+- Updated `src/safety/config/safety.yaml` serial_port to `usb-Raspberry_Pi_Pico_1B8494CFA7EDCDA1-if00`
+- All LED states verified working over USB-serial: red, green, yellow, purple, orange wave, purple blink
+
 ## 2026-04-17 — USB CDC serial + kill switch + blink mode
 
 - **`status_leds.c`**:

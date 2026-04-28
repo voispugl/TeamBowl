@@ -104,16 +104,5 @@ else
 fi
 
 echo ""
-echo "[build] Starting sim container..."
-echo "[build] Colcon will build the workspace on first run (~10 min, depthai skipped)."
-echo "[build] Sim launches automatically: ros2 launch bringup sim.launch.py"
-echo "[build] Foxglove bridge: ws://\$(hostname -I | awk '{print \$1}'):8765"
-echo "[build]"
-echo "[build] To tune driving mode instead:"
-echo "[build]   docker compose -f docker-compose.sim.yml run --rm teambowl-sim \\"
-echo "[build]     ros2 launch bringup sim.launch.py velocity_controller:=driving"
-echo "[build]"
-echo "[build] To reset sim: ros2 service call /sim_reset std_srvs/srv/Trigger {}"
-echo "[build] Type Ctrl+C to stop."
+echo "[build] Images ready. Run ./launch.sim.sh to start the simulation."
 echo ""
-docker compose -f "${SIM_COMPOSE}" up

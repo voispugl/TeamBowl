@@ -27,7 +27,7 @@ yolo26_node:
     point_cloud:
       i_enable_feature: true
       i_output_frame: "oak_rgb_camera_optical_frame"
-      i_num_threads: 2
+      i_num_threads: 6
     stereo:
       i_align_depth: true
       i_publish_topic: true

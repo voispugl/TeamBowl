@@ -35,6 +35,35 @@ For the full node inventory, launch arguments, and config file locations see
 pip install aenum          # required by python-can (system package missing this dep)
 ```
 
+### OAK-D W PoE Camera Setup (Jetson AGX Orin)
+
+The OAK-D W PoE camera connects via `eno1`. A PoE injector or PoE switch must be in line — the Jetson ethernet port does not supply power.
+
+**One-time host network config** (sets `eno1` to `192.168.11.1/24`):
+```bash
+sudo nmcli connection modify "Wired connection 1" \
+    ipv4.method manual \
+    ipv4.addresses "192.168.11.1/24" \
+    ipv4.gateway "" ipv4.dns ""
+sudo nmcli connection down "Wired connection 1" && sudo nmcli connection up "Wired connection 1"
+```
+
+**Verify camera reachable:**
+```bash
+ping -c 3 192.168.11.2
+```
+
+If no response (camera at factory default `169.254.1.222`), flash static IP via GUI:
+```bash
+sudo ip route add 169.254.0.0/16 dev eno1    # temp route to reach factory default
+python3 ~/TeamBowl/teambowl_tools/depthai-python/utilities/device_manager.py
+# GUI: set IP=192.168.11.2, Subnet=255.255.255.0, Gateway=192.168.11.1, reboot camera
+```
+
+Camera IP is already set in `bringup/config/oak_cam_vslam.yaml` (`i_ip: "192.168.11.2"`).
+
+---
+
 ### CAN Interface Setup (Jetson AGX Orin)
 
 The AGX Orin has two built-in SocketCAN interfaces (`can0`, `can1`) driven by the `mttcan` kernel module.
@@ -50,27 +79,12 @@ sudo ip link set can0 up
 sudo ip link set can1 up
 ```
 
-#### Persistent (survives reboot) — systemd-networkd
+#### Persistent (survives reboot) — systemd service
 
 ```bash
-sudo tee /etc/systemd/network/80-can0.network << 'EOF'
-[Match]
-Name=can0
-
-[CAN]
-BitRate=1000000
-EOF
-
-sudo tee /etc/systemd/network/80-can1.network << 'EOF'
-[Match]
-Name=can1
-
-[CAN]
-BitRate=1000000
-EOF
-
-sudo systemctl enable systemd-networkd
-sudo systemctl restart systemd-networkd
+sudo cp ~/TeamBowl/teambowl_docker/teambowl-can.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now teambowl-can.service
 ```
 
 #### Verify
@@ -83,33 +97,34 @@ candump can0         # live frames if motors are powered
 
 ---
 
-## Quick Start (Native — Jetson)
+## Quick Start (Docker — Jetson)
 
-### Terminal 1 — Build and launch full stack
+All ROS2 nodes run inside the Docker container. See [teambowl_docker/README.md](teambowl_docker/README.md) for full Docker docs. The prerequisites below (OAK-D camera network + CAN) must be set up on the **host** first.
+
+### 1. Complete host prerequisites
+
+- OAK-D W PoE network config (`eno1` → `192.168.11.1/24`) — see [OAK-D W PoE Camera Setup](#oak-d-w-poe-camera-setup-jetson-agx-orin) below
+- CAN interfaces up — see [CAN Interface Setup](#can-interface-setup-jetson-agx-orin) below
+
+### 2. Build the Docker image (once)
 
 ```bash
-cd ~/TeamBowl/teambowl_ws
-rm -rf build install log
-source /opt/ros/humble/setup.bash
-colcon build --symlink-install --packages-select \
-    robstride_can_interfaces robstride_can_driver \
-    bringup locomotion management safety perception planning vesc_driver
-source install/setup.bash
-ros2 launch bringup bringup.launch.py
+cd ~/TeamBowl/teambowl_docker
+./build.sh
 ```
 
-Or use the convenience script (does the above automatically):
+### 3. Launch
 
 ```bash
-bash ~/TeamBowl/teambowl_ws/build.sh
+./launch.sh
 ```
 
-### Terminal 2 — Keyboard operator
+First run auto-builds the ROS2 workspace (~10–15 min), then starts all nodes with `use_vslam:=true`.
+
+### Keyboard operator (attach to running container)
 
 ```bash
-cd ~/TeamBowl/teambowl_ws
-source /opt/ros/humble/setup.bash
-source ~/TeamBowl/teambowl_ws/install/setup.bash
+docker exec -it teambowl_dev bash
 ros2 run management keyboard_operator
 ```
 
@@ -138,10 +153,10 @@ ros2 run management keyboard_operator
 Use `trajectory_test.launch.py` to test Nav2 path planning and execution without any
 additional setup. It launches the full stack in driving mode automatically.
 
-### Terminal 1 — Launch
+### Launch (inside Docker container)
 
 ```bash
-ros2 launch bringup trajectory_test.launch.py
+docker exec -it teambowl_dev ros2 launch bringup trajectory_test.launch.py
 ```
 
 Brings up bringup + Nav2 (planner + controller) + driving leg controller, then
@@ -170,11 +185,7 @@ auto-sets robot mode to `"driving"` after 3 seconds.
 
 ## Steam Deck Web UI
 
-A browser-based control panel runs at `http://ROBOT_IP:8888` (served by the `steamdeck_ws_teleop` node).
-
-```bash
-ros2 launch steamdeck_teleop steamdeck_ws.launch.py
-```
+A browser-based control panel runs at `http://ROBOT_IP:8888` (served by the `steamdeck_ws_teleop` node, launched automatically by `bringup.launch.py` inside Docker).
 
 Navigate to `http://ROBOT_IP:8888` from any browser (Steam Deck, laptop, phone). Three UI modes selectable via `steamdeck_ui` launch arg:
 
@@ -194,13 +205,19 @@ No ROS2 or software installation needed on the client device.
 
 ## Incremental Rebuild (after code changes)
 
-No need to clean rebuild if only Python files changed and `--symlink-install` was used:
+The workspace is volume-mounted with `--symlink-install`, so Python file edits take effect immediately (no rebuild needed). For C++ packages, use the Docker rebuild script:
 
 ```bash
-cd ~/TeamBowl/teambowl_ws
-source /opt/ros/humble/setup.bash
+cd ~/TeamBowl/teambowl_docker
+./colcon_build.sh        # rebuilds robstride_can_interfaces, robstride_can_driver, locomotion
+docker compose restart
+```
+
+To rebuild any other package, attach a shell and run colcon inside the container:
+
+```bash
+docker exec -it teambowl_dev bash
 colcon build --symlink-install --packages-select <changed_package>
-source install/setup.bash
 ```
 
 Common packages to rebuild after edits:
@@ -214,12 +231,46 @@ Common packages to rebuild after edits:
 
 ---
 
+## Fall Recovery
+
+The `fall_recovery_controller` node detects fallover and automatically runs a kip-up manoeuvre:
+
+1. **Trigger**: `|pitch| > 0.45 rad` (≈26°) from `/imu/data`
+2. **EXTENDING** (2.5 s): slowly splay `joint_rs04_2/3/5/6` outward by 30°
+3. **RETRACTING** (0.35 s): fast snap back to driving position (Kd reduced to 2.0 for speed)
+4. **SETTLING** (1.5 s): smooth return to exact YAML positions (Kd restored to 15.0)
+
+The node sets robot mode to `"recovery"` during the manoeuvre (stopping the driving leg controller)
+and returns to `"driving"` when done. Wheels are locked at zero throughout.
+
+---
+
 ## Joint Layout
 
 - **RS04** (`joint_rs04_1` … `joint_rs04_6`, `can0`): actively controlled by leg controllers.
 - **RS00** (`joint_rs00_1`, `joint_rs00_2`, `can1`): coast mode (zero gains, damper disabled).
 - **RS05** (`joint_rs05_1`, `can1`): cargo bay lid motor. Controlled by `lid_controller`
   node in MIT mode (50 Hz `/joint_commands`). Commands via `/lid_command` (`open` / `close` / `toggle`).
+
+---
+
+## Status LEDs (Pico 2)
+
+The Pico 2 drives a WS2812 NeoPixel strip on GPIO 28. The `pico_bridge` ROS2 node maps robot state to LED colors automatically.
+
+| State | Color | Pattern |
+|-------|-------|---------|
+| E-stopped | Red | Solid |
+| Turning right | Orange | Wave right |
+| Turning left | Orange | Wave left |
+| Moving forward/back | Yellow | Solid |
+| Stuck (`/robot_stuck true`) | Purple | Blink ~3 Hz |
+| Teleop, idle | Blue | Solid |
+| Alive / default | Green | Solid |
+
+**Build:** `cd pico/status_leds && mkdir build && cd build && cmake .. -DPICO_BOARD=pico2 -DPICO_SDK_PATH=$HOME/pico-sdk && make -j$(nproc)`  
+**Flash:** Hold BOOTSEL, plug USB, mount `/dev/sda1`, copy `build/status_leds.uf2`.  
+**Serial port:** `/dev/serial/by-id/usb-Raspberry_Pi_Pico_1B8494CFA7EDCDA1-if00` (configured in `safety/config/safety.yaml`).
 
 ---
 

@@ -70,7 +70,7 @@ def generate_launch_description():
     cam_translation, cam_rpy = _compute_cam_tf(robot_urdf)
 
     oak_params = os.path.join(
-        get_package_share_directory('bringup'), 'config', 'oak_cam_vslam.yaml')
+        get_package_share_directory('bringup'), 'config', 'oak_cam.yaml')
 
     try:
         get_package_share_directory('isaac_ros_visual_slam')
@@ -111,7 +111,7 @@ def generate_launch_description():
                 'launch', 'camera.launch.py')),
             launch_arguments={
                 'name': 'oak',
-                'rectify_rgb': 'true',
+                'rectify_rgb': 'false',
                 'pointcloud.enable': 'true',
                 'params_file': oak_params,
                 'parent_frame': 'base_link',
@@ -212,5 +212,6 @@ def generate_launch_description():
                 'param_whitelist': ['.*'],
                 'max_qos_depth': 1,
             }],
+            ros_arguments=['--log-level', 'foxglove_bridge:=warn'],
         )] if _foxglove_available else []),
     ])

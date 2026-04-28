@@ -52,7 +52,7 @@ class Yolo26Node(Node):
         self._target_last_seen: float | None = None  # ROS time in seconds
 
         self.get_logger().info(f'Loading YOLO26 model from {model_path} ...')
-        self.yolo = YOLO(model_path)
+        self.yolo = YOLO(model_path, task='detect')
         self.get_logger().info('YOLO26 model loaded.')
 
         self.det_pub    = self.create_publisher(Detection2DArray, '/yolo26/detections', 10)
