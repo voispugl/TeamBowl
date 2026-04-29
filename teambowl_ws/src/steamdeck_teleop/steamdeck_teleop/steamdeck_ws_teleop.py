@@ -26,7 +26,11 @@ import asyncio
 import http
 import json
 import math
+import os
+import signal
+import subprocess
 import threading
+import time
 
 import numpy as np
 import rclpy
@@ -34,7 +38,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool, Float64, String
+from std_msgs.msg import Bool, Float64, Int32, String
 
 import websockets
 from websockets.asyncio.server import serve as ws_serve
@@ -74,12 +78,17 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
 .btn-teleop{background:#1a4b6b}.btn-teleop:active{background:#1e6fa0}
 .btn-auton{background:#4a1a6b}
 .btn-auton:active{background:#7a2aa0}
-.dpad{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:8px;
-  width:min(90vw,320px);margin:0 auto 20px;aspect-ratio:1}
-.dpad-btn{display:flex;align-items:center;justify-content:center;background:#2a2a2a;border:2px solid #444;
-  border-radius:12px;font-size:clamp(2rem,9vw,3.5rem);cursor:pointer;touch-action:none;transition:background 0.05s}
-.dpad-btn:active,.dpad-btn.held{background:#3a5a3a;border-color:#4f4}
-.dpad-empty{background:transparent;border:none}
+.btn-relock{background:#1a5a5a}
+.btn-relock:active{background:#1e8a8a}
+.btn-shutdown{background:#3a0000}
+.btn-shutdown:active{background:#700000}
+#joystick{position:relative;width:min(80vw,300px);height:min(80vw,300px);border-radius:50%;
+  background:#1a1a1a;border:2px solid #444;margin:0 auto 20px;touch-action:none;cursor:pointer;
+  display:flex;align-items:center;justify-content:center}
+#joystick-knob{position:absolute;width:34%;height:34%;border-radius:50%;background:#3a5a3a;
+  border:2px solid #4f4;pointer-events:none;top:50%;left:50%;
+  transform:translate(-50%,-50%);transition:background 0.1s}
+#joystick.active #joystick-knob{background:#2a8a2a}
 .diag{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:12px}
 .diag h3{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #2a2a2a;font-size:15px}
@@ -100,21 +109,13 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
   <button class="btn btn-teleop" style="margin-bottom:0" onclick="send({type:'set_mode',mode:'driving'})">TELEOP</button>
   <button class="btn btn-auton"  style="margin-bottom:0" onclick="send({type:'set_mode',mode:'auton'})">AUTON</button>
 </div>
+<button class="btn btn-relock" onclick="send({type:'yolo_relock'})">RE-LOCK</button>
 <button class="btn btn-lid"    onclick="send({type:'lid_cmd',cmd:'toggle'})">TOGGLE LID</button>
 <button class="btn btn-reset"  onclick="send({type:'reset_odom'})">RESET ODOM</button>
 <button class="btn btn-kill"   onclick="send({type:'estop'})">KILL</button>
+<button class="btn btn-shutdown" onclick="if(confirm('Shut down robot and exit Docker?'))send({type:'mega_kill'})">&#x23FB; SHUTDOWN</button>
 
-<div class="dpad">
-  <div class="dpad-empty"></div>
-  <div class="dpad-btn" id="btn-fwd"  onpointerdown="startDrive(0.15,0,this)"   onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25B2;</div>
-  <div class="dpad-empty"></div>
-  <div class="dpad-btn" id="btn-left" onpointerdown="startDrive(0,0.3,this)"    onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25C4;</div>
-  <div class="dpad-empty"></div>
-  <div class="dpad-btn" id="btn-right"onpointerdown="startDrive(0,-0.3,this)"   onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25BA;</div>
-  <div class="dpad-empty"></div>
-  <div class="dpad-btn" id="btn-back" onpointerdown="startDrive(-0.075,0,this)" onpointerup="stopDrive(this)" onpointercancel="stopDrive(this)">&#x25BC;</div>
-  <div class="dpad-empty"></div>
-</div>
+<div id="joystick"><div id="joystick-knob"></div></div>
 
 <div id="pitch-warn" style="display:none;background:#7a1a00;color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:clamp(1.4rem,6vw,2.2rem);font-weight:bold;text-align:center;letter-spacing:1px"></div>
 
@@ -129,6 +130,7 @@ body{font-family:monospace;background:#111;color:#ddd;padding:16px;max-width:480
   <div class="row"><span class="key">Legs</span>      <span class="val dim"  id="legs-val">—</span></div>
   <div class="row"><span class="key">Planner</span>   <span class="val dim"  id="planner-val">—</span></div>
   <div class="row"><span class="key">Person</span>    <span class="val dim"  id="person-val">—</span></div>
+  <div class="row"><span class="key">Target ID</span> <span class="val dim"  id="target-id-val">—</span></div>
   <div class="row"><span class="key">Pitch</span>      <span class="val dim"  id="pitch-val">—</span></div>
   <div class="row"><span class="key">Ctrl in v/ω</span><span class="val dim" id="ctrl-in-val">—</span></div>
   <div class="row"><span class="key">Motor v/ω</span>  <span class="val dim" id="motor-val">—</span></div>
@@ -162,17 +164,36 @@ function flash(id, txt) {
   const el=document.getElementById(id); if(!el) return;
   el.textContent=txt; setTimeout(()=>{el.textContent='';},3000);
 }
-function startDrive(vx, wz, el) {
-  el.setPointerCapture(event.pointerId);
-  el.classList.add('held');
-  _curVx=vx; _curWz=wz;
-  send({type:'teleop_vel',vx:vx,wz:wz});
-  if(_driveTimer) clearInterval(_driveTimer);
-  _driveTimer = setInterval(()=>send({type:'teleop_vel',vx:_curVx,wz:_curWz}), 100);
+
+const MAX_VX=0.3, MAX_WZ=0.8;
+const _joy=document.getElementById('joystick');
+const _knob=document.getElementById('joystick-knob');
+function _joyMove(dx,dy){
+  const pad=_joy.getBoundingClientRect();
+  const maxR=(pad.width-pad.width*0.34)/2;
+  const dist=Math.hypot(dx,dy);
+  const scale=dist>maxR?maxR/dist:1;
+  const cx=dx*scale, cy=dy*scale;
+  _knob.style.transform=`translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+  _curVx=-cy/maxR*MAX_VX; _curWz=-cx/maxR*MAX_WZ;
 }
-function stopDrive(el) {
-  el.classList.remove('held');
-  if(_driveTimer){ clearInterval(_driveTimer); _driveTimer=null; }
+_joy.addEventListener('pointerdown',e=>{
+  _joy.setPointerCapture(e.pointerId);
+  _joy.classList.add('active');
+  const r=_joy.getBoundingClientRect();
+  const ox=r.left+r.width/2, oy=r.top+r.height/2;
+  _joyMove(e.clientX-ox, e.clientY-oy);
+  if(_driveTimer) clearInterval(_driveTimer);
+  _driveTimer=setInterval(()=>send({type:'teleop_vel',vx:_curVx,wz:_curWz}),100);
+  _joy.onpointermove=ev=>{_joyMove(ev.clientX-ox,ev.clientY-oy);};
+});
+_joy.addEventListener('pointerup',_joyStop);
+_joy.addEventListener('pointercancel',_joyStop);
+function _joyStop(){
+  _joy.onpointermove=null;
+  _joy.classList.remove('active');
+  _knob.style.transform='translate(-50%,-50%)';
+  if(_driveTimer){clearInterval(_driveTimer);_driveTimer=null;}
   send({type:'teleop_vel',vx:0,wz:0});
 }
 
@@ -186,6 +207,7 @@ function handlePush(d) {
   if(d.legs_running!=null)  setBool('legs-val',    d.legs_running,  false);
   if(d.planner_ready!=null) setBool('planner-val', d.planner_ready, false);
   if(d.user_valid!=null)    setBool('person-val',  d.user_valid,    false);
+  if(d.target_id!=null)     set('target-id-val', d.target_id>=0?String(d.target_id):'—', d.target_id>=0?'info':'dim');
   if(d.ctrl_in_vx!=null) set('ctrl-in-val', d.ctrl_in_vx.toFixed(3)+' / '+d.ctrl_in_wz.toFixed(3), 'dim');
   if(d.motor_vx!=null)   set('motor-val',   d.motor_vx.toFixed(3)+' / '+d.motor_wz.toFixed(3), 'info');
   if(d.driving_gains){try{
@@ -405,6 +427,7 @@ label{color:#888;font-size:12px}
     <div class="row"><span class="key">Planner</span><span class="val dim" id="planner-val">—</span></div>
     <div class="row"><span class="key">Legs</span><span class="val dim" id="legs-val">—</span></div>
     <div class="row"><span class="key">Person</span><span class="val dim" id="person-val">—</span></div>
+    <div class="row"><span class="key">Target ID</span><span class="val dim" id="target-id-val">—</span></div>
     <div class="row"><span class="key">Pitch</span><span class="val dim" id="pitch-val">—</span></div>
     <div class="row"><span class="key">Ctrl in (v/ω)</span><span class="val dim" id="ctrl-in-val">—</span></div>
     <div class="row"><span class="key">Motor cmd (v/ω)</span><span class="val dim" id="motor-val">—</span></div>
@@ -437,6 +460,7 @@ label{color:#888;font-size:12px}
       <button onclick="send({type:'set_mode',mode:'auton'})">Auton</button>
       <button class="danger" onclick="send({type:'set_mode',mode:'off'})">Off</button>
       <button style="background:#5a3a00;color:#fff;border-color:#9a6000;font-size:15px;font-weight:bold" onclick="send({type:'reset_odom'})">⟳ Reset Odom</button>
+      <button class="danger" style="background:#3a0000;border-color:#700" onclick="if(confirm('Shut down robot and exit Docker?'))send({type:'mega_kill'})">&#x23FB; Shutdown</button>
     </div>
   </div>
   <div class="box">
@@ -564,6 +588,7 @@ function handlePush(d) {
   if (d.planner_ready != null) setBool('planner-val', d.planner_ready, false);
   if (d.legs_running != null)  setBool('legs-val',   d.legs_running,  false);
   if (d.user_valid != null)    setBool('person-val', d.user_valid,    false);
+  if (d.target_id != null)     set('target-id-val', d.target_id >= 0 ? String(d.target_id) : '—', d.target_id >= 0 ? 'info' : 'dim');
   if (d.ctrl_in_vx  != null) set('ctrl-in-val', d.ctrl_in_vx.toFixed(3)+' / '+d.ctrl_in_wz.toFixed(3), 'dim');
   if (d.motor_vx    != null) set('motor-val',   d.motor_vx.toFixed(3)+' / '+d.motor_wz.toFixed(3), 'info');
   if (d.traj_status) {
@@ -754,7 +779,8 @@ class SteamDeckWSTeleop(Node):
         self.declare_parameter('driving_gains_echo_topic', '/driving_gains_echo')
         self.declare_parameter('trajectory_status_topic',  '/trajectory_status')
         self.declare_parameter('leg_running_topic',         '/leg_controller_running')
-        self.declare_parameter('user_valid_topic',          '/user_valid')
+        self.declare_parameter('user_valid_topic',          '/yolo26/user_valid')
+        self.declare_parameter('target_id_topic',           '/yolo26/target_id')
         self.declare_parameter('battery_voltage_topic',    '/vesc/battery_voltage')
         self.declare_parameter('cmd_vel_topic',            '/cmd_vel')
         self.declare_parameter('cmd_vel_safe_topic',       '/cmd_vel_safe')
@@ -764,6 +790,7 @@ class SteamDeckWSTeleop(Node):
         self.declare_parameter('vesc_gains_topic',         '/vesc_gains')
         self.declare_parameter('set_pose_topic',           '/set_pose')
         self.declare_parameter('teleop_vel_topic',         '/cmd_vel_auto')
+        self.declare_parameter('yolo_relock_topic',        '/yolo26/relock')
 
         p = self.get_parameter
         _ui_mode = str(p('ui_mode').value)
@@ -798,6 +825,7 @@ class SteamDeckWSTeleop(Node):
         self._driving_gains_echo = ''
         self._leg_running = False
         self._user_valid = False
+        self._target_id: int = -1
         self._battery_voltage: float | None = None
         self._latest_cmd_vel: Twist | None = None
         self._latest_cmd_vel_safe: Twist | None = None
@@ -847,6 +875,7 @@ class SteamDeckWSTeleop(Node):
         self.create_subscription(String,        p('trajectory_status_topic').value,  self._traj_status_cb,        reliable)
         self.create_subscription(Bool,          p('leg_running_topic').value,        self._leg_running_cb,        reliable_tl)
         self.create_subscription(Bool,          p('user_valid_topic').value,         self._user_valid_cb,         best_effort)
+        self.create_subscription(Int32,         p('target_id_topic').value,          self._target_id_cb,          best_effort)
         self.create_subscription(Float64,       p('battery_voltage_topic').value,    self._battery_voltage_cb,    best_effort)
         self.create_subscription(Twist,         p('cmd_vel_topic').value,            self._cmd_vel_cb,            best_effort)
         self.create_subscription(Twist,         p('cmd_vel_safe_topic').value,       self._cmd_vel_safe_cb,       best_effort)
@@ -867,6 +896,7 @@ class SteamDeckWSTeleop(Node):
         self._vesc_gains_pub    = self.create_publisher(String,     p('vesc_gains_topic').value,       10)
         self._set_pose_pub      = self.create_publisher(PoseWithCovarianceStamped, p('set_pose_topic').value, 10)
         self._teleop_vel_pub    = self.create_publisher(Twist, p('teleop_vel_topic').value, 10)
+        self._yolo_relock_pub   = self.create_publisher(Bool,  p('yolo_relock_topic').value, 10)
 
         # --- Timers ---
         rate = float(p('joy_rate_hz').value)
@@ -995,6 +1025,7 @@ class SteamDeckWSTeleop(Node):
             [s for s, _ in self.get_service_names_and_types()]
         msg['legs_running']  = self._leg_running
         msg['user_valid']    = self._user_valid
+        msg['target_id']     = self._target_id
         if self._battery_voltage is not None:
             msg['battery_v'] = round(self._battery_voltage, 1)
 
@@ -1091,6 +1122,9 @@ class SteamDeckWSTeleop(Node):
 
     def _user_valid_cb(self, msg: Bool):
         self._user_valid = bool(msg.data)
+
+    def _target_id_cb(self, msg: Int32):
+        self._target_id = int(msg.data)
 
     def _battery_voltage_cb(self, msg: Float64):
         self._battery_voltage = float(msg.data)
@@ -1302,6 +1336,12 @@ class SteamDeckWSTeleop(Node):
             twist.linear.x = float(data.get('vx', 0.0))
             twist.angular.z = float(data.get('wz', 0.0))
             self._teleop_vel_pub.publish(twist)
+        elif t == 'yolo_relock':
+            relock_msg = Bool(); relock_msg.data = True
+            self._yolo_relock_pub.publish(relock_msg)
+            self.get_logger().info('YOLO relock triggered via web UI.')
+        elif t == 'mega_kill':
+            threading.Thread(target=self._mega_kill, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Auto mode setter
@@ -1321,6 +1361,17 @@ class SteamDeckWSTeleop(Node):
         self._state = self.IDLE
         msg = String(); msg.data = 'stop'
         self._traj_cmd_pub.publish(msg)
+
+    def _mega_kill(self):
+        estop_msg = Bool(); estop_msg.data = True
+        self._estop_pub.publish(estop_msg)
+        mode_msg = String(); mode_msg.data = 'off'
+        self._mode_set_pub.publish(mode_msg)
+        self.get_logger().warn('MEGA KILL: bringing down CAN interfaces and shutting down ROS.')
+        time.sleep(0.3)
+        for iface in ('can0', 'can1'):
+            subprocess.run(['ip', 'link', 'set', iface, 'down'], check=False)
+        os.kill(1, signal.SIGINT)
 
 
 def main():

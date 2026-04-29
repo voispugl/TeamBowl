@@ -1,5 +1,11 @@
 # perception
 
+## 2026-04-28 — Fixed user_valid staying True after person leaves
+
+**`config/bytetrack.yaml`**: `track_buffer: 150 → 5` — 150 frames at 5 Hz = 30s of Kalman prediction, which kept the bounding box alive at the last known position. Depth there was often valid (wall/floor), so `target_xyz` stayed non-None → `user_valid=True` → lights stayed green. 5 frames ≈ 1s is enough for brief occlusion recovery.
+
+**`perception/yolo26_node.py`**: Moved `_target_last_seen = now_s` from "any frame where target is in tracker list" to inside `if z is not None:` (only when depth is confirmed). Previously, ByteTrack predictions kept `_target_last_seen` fresh even without a real 3D detection, preventing the 15-second relock timer from ever firing.
+
 ## 2026-04-21 — Added ByteTrack identity tracking to yolo26_node
 
 **`perception/yolo26_node.py`**: Replaced `model()` inference with `model.track(persist=True, tracker='bytetrack.yaml')`. ByteTrack assigns a persistent integer ID to each person across frames. Node auto-locks onto the largest person on first detection and follows that track ID. If the target is absent for `target_lost_timeout_s` (default 3s), the lock resets and re-locks on the next detection. New topic `/yolo26/target_id` (Int32, -1 = no lock) published every frame. Debug image marks the locked target in green (thick) and others in gray (thin).

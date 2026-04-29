@@ -1,29 +1,22 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
-    <participant profile_name="shm_participant" is_default_profile="true">
-        <rtps>
-            <!-- Explicitly define transports to ensure SHM is used -->
-            <useBuiltinTransports>false</useBuiltinTransports>
-            <userTransports>
-                <transport_id>shm_transport</transport_id>
-                <transport_id>udp_transport</transport_id>
-            </userTransports>
-        </rtps>
-    </participant>
 
     <transport_descriptors>
-        <!-- Shared Memory Transport -->
         <transport_descriptor>
             <transport_id>shm_transport</transport_id>
             <type>SHM</type>
-            <!-- Increase max message size for high-res images if needed (default 512KB) -->
-            <maxMessageSize>1048576</maxMessageSize>
-        </transport_descriptor>
-
-        <!-- UDP Transport for cross-machine communication (fallback) -->
-        <transport_descriptor>
-            <transport_id>udp_transport</transport_id>
-            <type>UDPv4</type>
+            <segment_size>33554432</segment_size>
+            <maxMessageSize>33554432</maxMessageSize>
         </transport_descriptor>
     </transport_descriptors>
+
+    <participant profile_name="shm_profile" is_default_profile="true">
+        <rtps>
+            <userTransports>
+                <transport_id>shm_transport</transport_id>
+            </userTransports>
+            <useBuiltinTransports>false</useBuiltinTransports> 
+        </rtps>
+    </participant>
+
 </profiles>

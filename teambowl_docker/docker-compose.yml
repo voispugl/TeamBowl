@@ -10,6 +10,7 @@ services:
     stdin_open: true
     tty: true
     privileged: true
+    stop_grace_period: 30s
     runtime: nvidia
     environment:
       - ROS_DOMAIN_ID=0
@@ -17,6 +18,7 @@ services:
       - FASTRTPS_DEFAULT_PROFILES_FILE=/workspaces/teambowl_ws/fastdds_shm_profile.xml
     volumes:
       - ${TEAMBOWL_WS:-/home/box/TeamBowl/teambowl_ws}:/workspaces/teambowl_ws
+      - ${TEAMBOWL_MODELS:-/home/box/TeamBowl/models}:/home/box/TeamBowl/models
       - /dev:/dev
       # libcusparseLt: required by PyTorch 2.5.0 JetPack wheel, not in l4t-jetpack
       # base image — must be installed on host via JetPack SDK Manager first.

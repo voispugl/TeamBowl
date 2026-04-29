@@ -1,0 +1,7 @@
+tracker_type: bytetrack
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 5     # frames to keep lost track alive; at 5 Hz camera = ~1s window for re-association
+match_thresh: 0.5   # lowered from 0.8 — more liberal IoU matching, reduces ID switches on partial occlusion
+fuse_score: True

@@ -1,5 +1,13 @@
 # bringup
 
+## 2026-04-29 — Fixed camera TF orientation (depth was pointing straight up)
+
+**`launch/bringup.launch.py`** — `_compute_base_to_rgb_camera_tf()`: was hardcoding RPY `[0,0,0]`, which ignored the URDF `rgb_cam_0` joint rotation (`rpy="-π/2, 0, 0"` in URDF frame). With zero RPY the `oak` frame aligned with `base_link` and the optical Z axis pointed straight up. Fixed by converting the URDF RPY to base_link frame: URDF roll θ → base_link pitch −θ (since URDF-x = −base_link-y). For URDF roll=−π/2 this gives cam_pitch=+π/2, rotating optical Z to point forward (+X).
+
+## 2026-04-28 — Replaced point cloud obstacle pipeline with depthimage_to_laserscan
+
+**`launch/bringup.launch.py`**: Removed `nav_cloud_filter` and `pointcloud_to_laserscan_node`. Replaced with a single `depthimage_to_laserscan_node` that reads `/oak/stereo/image_raw` + `/oak/stereo/camera_info` directly and publishes `/oak/nav_scan` (LaserScan). The point cloud pipeline was broken anyway (`pointcloud.enable: false` on the camera) and too bandwidth-heavy when enabled. New node: `scan_height=60` (vertical pixel band), `range_min=0.15`, `range_max=2.50`, `output_frame_id=oak_right_camera_optical_frame`. Nav2 local costmap unchanged — still consumes `/oak/nav_scan`.
+
 ## 2026-04-28 — Consolidated to single oak_cam.yaml; deleted oak_cam_vslam.yaml and oak_nav_rgbd.yaml
 
 **`config/oak_cam.yaml`**: Single camera config for all launch files (based on former oak_cam_vslam.yaml). Contains PoE IP, correct OAK-D W resolutions (1080P RGB, 400P stereo), 30 Hz stereo, VSLAM stereo sync settings.

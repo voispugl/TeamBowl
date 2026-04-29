@@ -10,6 +10,10 @@ if [ -f /opt/isaac_ros_ws/install/setup.bash ]; then
     source /opt/isaac_ros_ws/install/setup.bash
 fi
 
+# Clean up stale FastDDS SHM lock files from previous container runs.
+# Without this, nodes fail to init their SHM ports and silently can't communicate.
+rm -f /dev/shm/fastrtps_*
+
 WS=/workspaces/teambowl_ws
 BUILD_MARKER="${WS}/install/.colcon_build_complete"
 

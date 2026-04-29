@@ -25,10 +25,10 @@
       i_subpixel: true
       i_align_depth: true
       i_reverse_stereo_socket_order: true
-      i_publish_synced_rect_pair: false
+      i_publish_synced_rect_pair: true
     left:
-      i_resolution: '400P'
+      i_resolution: '720P'
       i_fps: 30.0
     right:
-      i_resolution: '400P'
+      i_resolution: '720P'
       i_fps: 30.0

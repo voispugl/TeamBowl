@@ -210,13 +210,15 @@ RUN apt-get update && apt-get install -y \
     ros-humble-depthai \
     && rm -rf /var/lib/apt/lists/*
 
-# Nav2 planning stack + EKF + pointcloud converter
-# Added 2026-04-16: required by bringup (state_estimation EKF, nav2 planner/controller,
-# /oak/points → /oak/nav_scan conversion for nav2 local costmap obstacle layer).
+# Nav2 planning stack + EKF + obstacle scan converter
+# Added 2026-04-16: required by bringup (state_estimation EKF, nav2 planner/controller).
+# depthimage-to-laserscan: converts /oak/stereo/image_raw depth → /oak/nav_scan LaserScan
+# for nav2 local costmap obstacle layer (replaces pointcloud-to-laserscan pipeline).
 RUN apt-get update && apt-get install -y \
     ros-humble-robot-localization \
     ros-humble-navigation2 \
     ros-humble-pointcloud-to-laserscan \
+    ros-humble-depthimage-to-laserscan \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies
@@ -231,6 +233,32 @@ RUN pip3 install --no-cache-dir \
     pyvesc==1.0.5 \
     python-can \
     websockets
+
+# ultralytics installed with --no-deps to avoid two conflicts:
+#   1. opencv-python: PyPI cv2 would shadow the CUDA 12.6 OpenCV built from source above.
+#   2. torchvision: PyPI 0.20.x built against torch==2.5.0 release; NVIDIA JetPack wheel
+#      is torch-2.5.0a0 (pre-release ABI). TRT inference in yolo26_node never calls torchvision.
+# Explicit deps: everything ultralytics needs at TRT inference time except cv2 and torchvision.
+# ultralytics installed with --no-deps to keep opencv-python out (would shadow CUDA cv2).
+# torchvision intentionally omitted: PyPI torchvision is ABI-incompatible with the NVIDIA
+# torch-2.5.0a0 wheel (operator torchvision::nms does not exist in NVIDIA's libtorch).
+# yolo26_node.py imports via `from ultralytics.models.yolo import YOLO` (not the top-level
+# `from ultralytics import YOLO`) to bypass the SAM3 submodule which hard-imports torchvision.
+RUN pip3 install --no-cache-dir --no-deps ultralytics && \
+    pip3 install --no-cache-dir \
+        scipy \
+        pillow \
+        matplotlib \
+        psutil \
+        requests \
+        ultralytics-thop \
+        polars \
+        lap \
+        onnx \
+        onnxslim && \
+    sed -i '/from .sam import SAM/d' \
+        /usr/local/lib/python3.10/dist-packages/ultralytics/models/__init__.py && \
+    python3 -c "import os; d='/usr/local/lib/python3.10/dist-packages/torchvision-0.20.0.dist-info'; os.makedirs(d,exist_ok=True); open(d+'/METADATA','w').write('Metadata-Version: 2.1\nName: torchvision\nVersion: 0.20.0\n'); open(d+'/INSTALLER','w').write('pip\n'); open(d+'/RECORD','w').close()"
 
 # PyCRC compatibility shim for pyvesc 1.0.5.
 # pyvesc imports `from PyCRC.CRCCCITT import CRCCCITT` but the original PyCRC

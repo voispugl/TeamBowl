@@ -1,5 +1,18 @@
 # steamdeck_teleop
 
+## 2026-04-28 — Added SHUTDOWN button (mega kill) to phone and full UIs
+
+**`steamdeck_ws_teleop.py`**: Added `⏻ SHUTDOWN` button to `_HTML_PHONE` (below KILL) and `_HTML_FULL` (Robot Mode panel). Button sends `{type:'mega_kill'}` with a browser confirm dialog. Handler (`_mega_kill`) runs in a daemon thread: publishes `/estop True` + mode `off`, waits 300ms, brings down `can0`/`can1` via `ip link set`, then sends `SIGINT` to PID 1 (ros2 launch, via `exec` in entrypoint). This triggers graceful ROS shutdown — camera driver and CAN driver exit cleanly — and the Docker container exits naturally. Container must be `privileged: true` for CAN shutdown to work.
+
+## 2026-04-28 — Virtual joystick replacing D-pad in Phone UI
+
+- **`steamdeck_ws_teleop.py`** (`_HTML_PHONE` only): Replaced the 4-button D-pad with a drag virtual joystick. `#joystick` (circle, min(80vw,300px)) contains `#joystick-knob` (34% inner circle). Pointer events handle drag: `vx = -dy/maxR * 0.3`, `wz = -dx/maxR * 0.8`. Knob follows finger, snaps back on release. Sends `teleop_vel` at 100 ms intervals while held. Rescue and full UIs unchanged.
+
+## 2026-04-28 — Fixed person detection topic; added Target ID row
+
+- **`config/steamdeck_teleop.yaml`**: Fixed `user_valid_topic` from `/user_valid` → `/yolo26/user_valid` (wrong topic was why Person always showed "—"). Added `target_id_topic: /yolo26/target_id`.
+- **`steamdeck_ws_teleop.py`**: Added `Int32` import. Added `target_id_topic` parameter, `_target_id` state (default -1), `_target_id_cb` subscription. `_build_push_msg()` now includes `target_id`. Both `_HTML_PHONE` and `_HTML_FULL` diagnostics panels now have a **Target ID** row — shows the track ID (blue) when locked, "—" (dim) when no target.
+
 ## 2026-04-21 — ENABLE button now properly clears kill-switch latch
 
 - **`steamdeck_ws_teleop.py`**: Added `_clear_estop_pub` publisher on `/clear_estop`. On `clear_estop` web message, publishes `Bool(True)` to `/clear_estop` (in addition to existing `/estop false`). This signals `system_health` to clear its kill-switch latch so the heartbeat tick can no longer silently override it.

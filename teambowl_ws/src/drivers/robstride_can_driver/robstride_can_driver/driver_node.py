@@ -128,7 +128,8 @@ class RobstrideCanDriverNode(Node):
 
         # --- Shutdown hooks ---
         atexit.register(self._shutdown)
-        signal.signal(signal.SIGINT, self._sigint_handler)
+        signal.signal(signal.SIGINT,  self._sigint_handler)
+        signal.signal(signal.SIGTERM, self._sigint_handler)  # Docker sends SIGTERM on stop
 
         # --- RX threads (one per bus) ---
         self._running = True

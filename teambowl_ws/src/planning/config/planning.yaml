@@ -1,7 +1,7 @@
 plan_wheels:
   ros__parameters:
-    target_topic: /user_pos
-    target_valid_topic: /user_valid
+    target_topic: /yolo26/user_pos
+    target_valid_topic: /yolo26/user_valid
     cmd_vel_topic: /cmd_vel_auto
     target_timeout_s: 0.5
     publish_rate_hz: 20.0
@@ -34,8 +34,8 @@ nav_cloud_filter:
 
 follow_goal:
   ros__parameters:
-    target_topic: /user_pos
-    target_valid_topic: /user_valid
+    target_topic: /yolo26/user_pos
+    target_valid_topic: /yolo26/user_valid
     target_timeout_s: 0.5
     base_frame: base_link
     world_frame: odom
@@ -52,7 +52,7 @@ follow_goal:
 follow_executor:
   ros__parameters:
     goal_topic: /follow_goal
-    goal_timeout_s: 0.75
+    goal_timeout_s: 10.0
     replan_rate_hz: 5.0
     min_goal_change_m: 0.25
     min_goal_change_rad: 0.20
@@ -102,7 +102,7 @@ planner_server:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 20.0
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.05
     min_y_velocity_threshold: 0.05
     min_theta_velocity_threshold: 0.05
@@ -126,7 +126,7 @@ controller_server:
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
-      model_dt: 0.05
+      model_dt: 0.10
       batch_size: 2000
       vx_std: 0.2
       wz_std: 0.4

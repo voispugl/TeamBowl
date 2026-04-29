@@ -1,0 +1,14 @@
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 150       # at 5 Hz camera = 30s window for re-association
+match_thresh: 0.5       # IoU threshold for first-pass spatial association
+fuse_score: True
+gmc_method: sparseOptFlow  # global motion compensation (handles moving camera)
+
+# ReID — appearance-based re-identification
+proximity_thresh: 0.5   # min IoU required before ReID is attempted
+appearance_thresh: 0.7  # cosine distance cutoff; lower = stricter match
+with_reid: False
+model: auto             # disabled — TRT engine doesn't expose intermediate features for ReID

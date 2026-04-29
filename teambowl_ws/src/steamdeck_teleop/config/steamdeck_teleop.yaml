@@ -47,7 +47,8 @@ steamdeck_ws_teleop:
     driving_gains_echo_topic: /driving_gains_echo
     trajectory_status_topic: /trajectory_status
     leg_running_topic: /leg_controller_running
-    user_valid_topic: /user_valid
+    user_valid_topic: /yolo26/user_valid
+    target_id_topic: /yolo26/target_id
 
     cmd_vel_topic: /cmd_vel
     cmd_vel_safe_topic: /cmd_vel_safe
@@ -57,6 +58,7 @@ steamdeck_ws_teleop:
     vesc_gains_topic: /vesc_gains
     set_pose_topic: /set_pose
     teleop_vel_topic: /cmd_vel_auto
+    yolo_relock_topic: /yolo26/relock
     odom_topic: /odometry/filtered
     mode_topic: /robot_mode
     mode_set_topic: /robot_mode_set

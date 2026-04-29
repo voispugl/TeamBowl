@@ -1,5 +1,20 @@
 ## Directory: tools/
 
+### sweep_motor.py
+Slow motor range sweep to find physical limits without triggering a hard fault. Steps a single motor from its current position toward a target in small increments, printing position / velocity / torque / fault at each step. Stops immediately on any hardware fault (overcurrent, overload, encoder, overtemp, undervoltage).
+
+**Usage:**
+```bash
+# Sweep right RS00 foot motor toward -125° in 0.05 rad steps
+python3 sweep_motor.py --bus can1 --motor-id 0x17 --motor-type RS00 \
+                       --target -2.1817 --step 0.05 --delay 0.3
+
+# Sweep left RS00 toward +90°
+python3 sweep_motor.py --bus can1 --motor-id 0x0D --motor-type RS00 \
+                       --target 1.5708 --step 0.05 --delay 0.3
+```
+No ROS2 required. Requires `python-can` and the CAN interface up at 1 Mbps.
+
 ### set_foot_pos.py
 Interactive position controller for RS00 foot actuators. Zero = hardstop (fully retracted up).
 Mirrored mode: `e <deg>` commands left=+deg, right=−deg so both feet reach equal height on a flat surface.

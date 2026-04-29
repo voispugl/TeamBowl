@@ -1,5 +1,9 @@
 # management
 
+## 2026-04-28 — Reworked led_controller to show person-following status
+
+**`management/led_controller.py`**: Removed lid-state and manual-override logic. Now subscribes to `/estop` (Bool), `/robot_stuck` (Bool), `/yolo26/user_valid` (Bool) and applies priority: estop → solid red, stuck → pulsing red, person seen → solid green, default → solid blue.
+
 ## 2026-04-21 — Added "recovery" to valid modes
 
 - **`management/mode_manager.py`**: Added `"recovery"` to `VALID_MODES`. Set automatically by `fall_recovery_controller` when fallover is detected. `driving_leg_controller` will not run in this mode.

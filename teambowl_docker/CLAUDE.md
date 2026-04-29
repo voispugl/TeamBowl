@@ -1,5 +1,16 @@
 # teambowl_docker
 
+## 2026-04-28 — Added ultralytics to Dockerfile (--no-deps to avoid cv2 and torchvision conflicts)
+
+**`Dockerfile`**: Added `ultralytics` for `yolo26_node` (`from ultralytics import YOLO`). Installed with `--no-deps` to prevent two conflicts:
+1. **`opencv-python`**: ultralytics declares it as a hard dep, but pip would install the CPU-only PyPI `cv2` on top of the CUDA 12.6 OpenCV built from source (cmake-installed, not visible to pip).
+2. **`torchvision`**: PyPI 0.20.x is built against `torch==2.5.0` release; the Dockerfile uses NVIDIA's `torch-2.5.0a0` pre-release wheel — ABI may not match on aarch64. TRT inference in `yolo26_node` never calls torchvision anyway.
+Remaining ultralytics runtime deps (`scipy`, `pillow`, `matplotlib`, `psutil`, `requests`, `ultralytics-thop`, `polars`) installed explicitly in a follow-on RUN.
+
+## 2026-04-28 — FastDDS SHM profile already wired up
+
+`fastdds_shm_profile.xml` (in workspace root) sets shared-memory transport with 32 MB segment/message size for large image topics (YOLO camera data). `docker-compose.yml` already sets `FASTRTPS_DEFAULT_PROFILES_FILE=/workspaces/teambowl_ws/fastdds_shm_profile.xml` — no container changes needed. Profile is loaded automatically on every `./launch.sh`.
+
 ## 2026-04-28 — Added launch_cam_debug.sh
 
 **`launch_cam_debug.sh`** (new): Launches OAK-D camera + Isaac VSLAM + nvblox + Foxglove only inside Docker via `docker compose run --rm`. No motors, CAN, Nav2, or robot hardware. Passes through arbitrary launch args (`vslam_debug:=true`, `use_nvblox:=false`). Wraps `bringup/launch/isaac_ros_test.launch.py`.

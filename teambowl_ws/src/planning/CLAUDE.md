@@ -1,5 +1,11 @@
 # planning
 
+## 2026-04-28 — controller_frequency 20 → 10 Hz; nav_cloud_filter retired
+
+**`config/planning.yaml`**: `controller_frequency: 20.0 → 10.0` — MPPI was missing its 50ms budget; 100ms is achievable and sufficient for walking-speed person following.
+
+**`nav_cloud_filter` node** is no longer launched (removed from bringup). Its config block remains in `planning.yaml` but is unused. Obstacle detection now goes directly depth image → depthimage_to_laserscan → `/oak/nav_scan`.
+
 ## 2026-04-21 — Reduced planner/controller load (person-following tuning)
 
 **`config/planning.yaml`**:

@@ -1,4 +1,8 @@
 ---
+## 2026-04-28 — Added SIGTERM handler to driver_node
+
+**`driver_node.py`**: Added `signal.signal(signal.SIGTERM, self._sigint_handler)` alongside the existing SIGINT handler. Docker sends SIGTERM on `docker compose down` / container stop. Without this, Python terminated at the kernel level — `_shutdown()` and atexit never ran, leaving motors enabled after the container exited.
+
 ## 2026-04-20 — Added gains echo publisher and gains subscriber
 
 **`driver_node.py`**:
