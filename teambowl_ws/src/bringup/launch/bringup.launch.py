@@ -90,11 +90,11 @@ def _compute_base_to_rgb_camera_tf(urdf_path):
     ]
 
     # Convert URDF camera RPY (x=right, y=forward, z=up) → base_link (x=forward, y=left, z=up).
-    # URDF-x = −base_link-y, so URDF roll θ → base_link pitch −θ.
-    # URDF-y = base_link-x, so URDF pitch θ → base_link roll θ.
+    # URDF-x = −base_link-y, so URDF roll θ → base_link pitch +θ (depthai applies inverse TF).
+    # URDF-y = base_link-x, so URDF pitch θ → base_link roll −θ.
     # URDF-z = base_link-z, so yaw is unchanged.
     rpy_urdf = joint_origins['rgb_cam_0']['rpy']
-    cam_rpy_base = [rpy_urdf[1], -rpy_urdf[0], rpy_urdf[2]]
+    cam_rpy_base = [-rpy_urdf[1], rpy_urdf[0], -rpy_urdf[2]]
     return cam_pos_in_base, cam_rpy_base
 
 
@@ -260,6 +260,14 @@ def generate_launch_description():
                     'Off by default to reduce console noise.')
     verbose_controllers = LaunchConfiguration('verbose_controllers')
 
+    no_leg_arg = DeclareLaunchArgument(
+        'no_leg',
+        default_value='false',
+        description='Suppress driving_leg_controller and fall_recovery_controller. '
+                    'hold_position_controller still runs if leg_controller:=hold. '
+                    'Use when remounting motors to read raw positions without interference.')
+    no_leg = LaunchConfiguration('no_leg')
+
     use_yolo26_arg = DeclareLaunchArgument(
         'use_yolo26',
         default_value='true',
@@ -296,6 +304,7 @@ def generate_launch_description():
         leg_controller_arg,
         velocity_controller_arg,
         verbose_controllers_arg,
+        no_leg_arg,
         use_yolo26_arg,
         use_vslam_arg,
         use_nvblox_arg,
@@ -388,7 +397,7 @@ def generate_launch_description():
             name='driving_leg_controller',
             output='screen',
             parameters=[locomotion_config, {'verbose': verbose_controllers}],
-            condition=IfCondition(PythonExpression(["'", leg_ctrl, "' == 'driving'"])),
+            condition=IfCondition(PythonExpression(["'", leg_ctrl, "' == 'driving' and '", no_leg, "' != 'true'"])),
         ),
 
         Node(
@@ -397,6 +406,7 @@ def generate_launch_description():
             name='fall_recovery_controller',
             output='screen',
             parameters=[locomotion_config],
+            condition=UnlessCondition(no_leg),
         ),
 
         Node(

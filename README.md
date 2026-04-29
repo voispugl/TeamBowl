@@ -27,6 +27,10 @@ TeamBowl/
 For the full node inventory, launch arguments, and config file locations see
 [`teambowl_ws/src/bringup/README.md`](teambowl_ws/src/bringup/README.md).
 
+## Recent Changes
+
+- **2026-04-29** — Updated driving joint positions in `locomotion/driving_leg_pos.yaml` to calibrated values; added `joint_rs05_1` (lid motor) to the driving configuration.
+
 ---
 
 ## Prerequisites
@@ -276,8 +280,8 @@ The Pico 2 drives a WS2812 NeoPixel strip on GPIO 28. The `pico_bridge` ROS2 nod
 
 ## TODO
 
-- [ ] **YOLO perception** — replace pink-blob detector with YOLOv8 + ByteTrack + Re-ID.
-  Requires Docker (Jetson PyTorch CUDA deps are complex to install natively). See branch `try-yolo-perception`.
+- [x] **YOLO perception** — YOLO26m (medium) + BoT-SORT on Jetson TRT FP16. Enable with `use_yolo26:=true`. Run `python3 src/perception/scripts/export_yolo26.py` once to build the TRT engine (~15 min).
+- [x] **Person permanence** — ghost goal: robot navigates to last known position for 8s when target leaves frame. OSNet ReID (`osnet_x0_25_msmt17.pt`) re-identifies the correct person in crowded scenes on re-entry — won't accidentally lock onto a bystander.
 
 - [ ] **Dockerize** — containerize the full robot stack so bringup, drivers, and
   dependencies are fully encapsulated and reproducible across machines.

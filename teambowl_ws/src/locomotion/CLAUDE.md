@@ -1,5 +1,9 @@
 # locomotion
 
+## 2026-04-29 — Updated driving joint positions (calibrated values)
+
+**`locomotion/driving_leg_pos.yaml`**: Updated all 8 joint positions to freshly calibrated values and added `joint_rs05_1: 0.3840763003061163 rad` (lid motor, CAN ID 0x1E). `driving_leg_controller` will now command RS05 at startup. The old "RS05 is unplugged" note in this file is no longer accurate.
+
 ## 2026-04-27 — Added RS00 foot targets to driving position YAML
 
 **`locomotion/driving_leg_pos.yaml`**: Added `joint_rs00_1: +2.1817 rad (+125°)` and `joint_rs00_2: -2.1817 rad (−125°)`. The driving_leg_controller publishes all joints in this file, so the feet are now held at 125° extension during driving. Mirrored convention: left=+E, right=−E (equal height on flat surface, zero=hardstop up).

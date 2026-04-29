@@ -1,8 +1,18 @@
 # bringup
 
-## 2026-04-29 — Fixed camera TF orientation (depth was pointing straight up)
+## 2026-04-29 — Added `no_leg` launch argument
 
-**`launch/bringup.launch.py`** — `_compute_base_to_rgb_camera_tf()`: was hardcoding RPY `[0,0,0]`, which ignored the URDF `rgb_cam_0` joint rotation (`rpy="-π/2, 0, 0"` in URDF frame). With zero RPY the `oak` frame aligned with `base_link` and the optical Z axis pointed straight up. Fixed by converting the URDF RPY to base_link frame: URDF roll θ → base_link pitch −θ (since URDF-x = −base_link-y). For URDF roll=−π/2 this gives cam_pitch=+π/2, rotating optical Z to point forward (+X).
+**`launch/bringup.launch.py`**: Added `no_leg` boolean arg (default `false`). When `true`, suppresses `driving_leg_controller` and `fall_recovery_controller` — neither will command the RS04 joints. `hold_position_controller` still runs normally if `leg_controller:=hold` (it just freezes motors at their current positions). Use when remounting motors to read raw joint positions without any node sending position commands.
+
+```bash
+ros2 launch bringup bringup.launch.py no_leg:=true
+# or with hold mode to freeze legs wherever they are:
+ros2 launch bringup bringup.launch.py no_leg:=true leg_controller:=hold
+```
+
+## 2026-04-29 — Fixed camera TF z-axis flip (optical Z was pointing backward)
+
+**`launch/bringup.launch.py`** — `_compute_base_to_rgb_camera_tf()`: Previous fix had the sign of the pitch wrong — it used `base_pitch = -URDF_roll`, which gave `+π/2`, but depthai applies the TF parameters as the inverse rotation, so this produced `cam_z → -x` (backward). Fixed by using `base_pitch = +URDF_roll` = `-π/2`, so depthai's inverse gives `cam_z → +x` (forward). Full mapping: `cam_rpy_base = [-rpy_urdf[1], rpy_urdf[0], -rpy_urdf[2]]`.
 
 ## 2026-04-28 — Replaced point cloud obstacle pipeline with depthimage_to_laserscan
 

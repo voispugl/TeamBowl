@@ -2,13 +2,14 @@ tracker_type: botsort
 track_high_thresh: 0.25
 track_low_thresh: 0.1
 new_track_thresh: 0.25
-track_buffer: 150       # at 5 Hz camera = 30s window for re-association
+track_buffer: 30        # ~6s at 5 Hz — enough for brief occlusion; longer risks ghost depth hits
 match_thresh: 0.5       # IoU threshold for first-pass spatial association
 fuse_score: True
 gmc_method: sparseOptFlow  # global motion compensation (handles moving camera)
 
-# ReID — appearance-based re-identification
-proximity_thresh: 0.5   # min IoU required before ReID is attempted
-appearance_thresh: 0.7  # cosine distance cutoff; lower = stricter match
+# ReID — disabled: ultralytics ReID uses a YOLO .pt as feature extractor, not an external model.
+# Re-enable with_reid: True only if yolo26s.pt (PyTorch, not TRT) is available at model path.
+proximity_thresh: 0.5
+appearance_thresh: 0.25
 with_reid: False
-model: auto             # disabled — TRT engine doesn't expose intermediate features for ReID
+model: auto

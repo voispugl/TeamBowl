@@ -107,8 +107,8 @@ motors:
     type: RS00
     bus: can1
     can_id: 0x0D
-    default_kp: 20.0   # position stiffness for foot hold (RS00 range: 0–500)
-    default_kd: 0.3    # velocity damping for foot hold  (RS00 range: 0–5)
+    default_kp: 5.0   # position stiffness for foot hold (RS00 range: 0–500)
+    default_kd: 1.0    # velocity damping for foot hold  (RS00 range: 0–5)
     default_torque_ff: 0.0
     home_position_rad: 0.0
 
@@ -116,8 +116,8 @@ motors:
     type: RS00
     bus: can1
     can_id: 0x17
-    default_kp: 20.0   # position stiffness for foot hold (RS00 range: 0–500)
-    default_kd: 0.3    # velocity damping for foot hold  (RS00 range: 0–5)
+    default_kp: 5.0   # position stiffness for foot hold (RS00 range: 0–500)
+    default_kd: 1.0    # velocity damping for foot hold  (RS00 range: 0–5)
     default_torque_ff: 0.0
     home_position_rad: 0.0
 

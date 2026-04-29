@@ -34,6 +34,9 @@ class Yolo26Node(Node):
         self.declare_parameter('max_depth_m', 8.0)
         self.declare_parameter('depth_window_radius_px', 2)
         self.declare_parameter('target_lost_timeout_s', 15.0)
+        self.declare_parameter('reid_weights', '')
+        self.declare_parameter('reid_threshold', 0.65)
+        self.declare_parameter('reid_update_interval_s', 1.0)
 
         image_topic       = self.get_parameter('image_topic').value
         depth_topic       = self.get_parameter('depth_topic').value
@@ -45,12 +48,20 @@ class Yolo26Node(Node):
         self.depth_r       = int(self.get_parameter('depth_window_radius_px').value)
         self.lost_timeout  = float(self.get_parameter('target_lost_timeout_s').value)
         self._tracker_cfg  = self.get_parameter('tracker_config').value or 'bytetrack.yaml'
+        self._reid_weights_path = str(self.get_parameter('reid_weights').value)
+        self.reid_threshold = float(self.get_parameter('reid_threshold').value)
+        self.reid_update_interval_s = float(self.get_parameter('reid_update_interval_s').value)
 
         self.fx = self.fy = self.cx = self.cy = None
 
         # Track ID we're locked onto (None = waiting for first detection)
         self._target_id: int | None = None
         self._target_last_seen: float | None = None  # ROS time in seconds
+
+        # ReID state
+        self._reid_encoder = None
+        self._target_embedding: np.ndarray | None = None  # EMA of target appearance
+        self._last_reid_update_s: float | None = None
 
         self.get_logger().info(f'Loading YOLO26 model from {model_path} ...')
         self.yolo = YOLO(model_path, task='detect')
@@ -89,7 +100,50 @@ class Yolo26Node(Node):
     def _relock_cb(self, msg: Bool):
         self._target_id = None
         self._target_last_seen = None
+        self._target_embedding = None
+        self._last_reid_update_s = None
         self.get_logger().info('Manual relock triggered — waiting for next person.')
+
+    def _get_reid_encoder(self):
+        if self._reid_encoder is None and self._reid_weights_path:
+            try:
+                import onnxruntime as ort
+                sess = ort.InferenceSession(
+                    self._reid_weights_path,
+                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
+                )
+                self._reid_encoder = sess
+                self.get_logger().info(f'ReID encoder loaded from {self._reid_weights_path}')
+            except Exception as e:
+                self.get_logger().warn(f'ReID encoder load failed: {e} — relocking by size only')
+                self._reid_weights_path = ''  # stop retrying
+        return self._reid_encoder
+
+    def _get_embedding(self, frame, x1, y1, x2, y2):
+        sess = self._get_reid_encoder()
+        if sess is None:
+            return None
+        h, w = frame.shape[:2]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        try:
+            crop = frame[y1:y2, x1:x2]
+            crop = cv2.resize(crop, (128, 256))
+            crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+            crop = (crop - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
+            inp = crop.transpose(2, 0, 1)[np.newaxis].astype(np.float32)
+            emb = sess.run(None, {sess.get_inputs()[0].name: inp})[0][0]
+            norm = np.linalg.norm(emb)
+            return emb / (norm + 1e-8)
+        except Exception:
+            return None
+
+    def _cosine_sim(self, a, b):
+        if a is None or b is None:
+            return 0.0
+        return float(np.dot(a, b))  # both already unit-norm from boxmot
 
     def _camera_info_cb(self, msg: CameraInfo):
         self.fx = float(msg.k[0])
@@ -185,13 +239,30 @@ class Yolo26Node(Node):
                     self._target_id = None
                     self._target_last_seen = None
 
-            # Lock onto the largest person if we have no target yet
+            # Lock onto a person if we have no target yet — use ReID if we have a prior appearance
             if self._target_id is None and tracked:
-                # Lock onto largest box (closest person); indices: tid,x1,y1,x2,y2,conf
-                best = max(tracked, key=lambda t: (t[3] - t[1]) * (t[4] - t[2]))
-                self._target_id = best[0]
+                if self._target_embedding is not None and self._get_reid_encoder() is not None:
+                    best_tid, best_sim = None, 0.0
+                    for tid, x1, y1, x2, y2, conf in tracked:
+                        emb = self._get_embedding(frame, x1, y1, x2, y2)
+                        sim = self._cosine_sim(emb, self._target_embedding)
+                        if sim > best_sim:
+                            best_sim, best_tid = sim, tid
+                    if best_sim >= self.reid_threshold:
+                        self._target_id = best_tid
+                        self.get_logger().info(
+                            f'ReID: re-locked onto ID {self._target_id} (similarity={best_sim:.2f})')
+                    else:
+                        best = max(tracked, key=lambda t: (t[3] - t[1]) * (t[4] - t[2]))
+                        self._target_id = best[0]
+                        self.get_logger().info(
+                            f'ReID: no match (best={best_sim:.2f} < {self.reid_threshold:.2f}) '
+                            f'— locked onto largest (ID {self._target_id})')
+                else:
+                    best = max(tracked, key=lambda t: (t[3] - t[1]) * (t[4] - t[2]))
+                    self._target_id = best[0]
+                    self.get_logger().info(f'Locked onto person with track ID {self._target_id}.')
                 self._target_last_seen = now_s
-                self.get_logger().info(f'Locked onto person with track ID {self._target_id}.')
 
             # Find the locked target in this frame
             target_xyz = None
@@ -212,6 +283,18 @@ class Yolo26Node(Node):
                     if z is not None:
                         target_xyz = self._pixel_to_3d(cx_px, cy_px, z)
                         self._target_last_seen = now_s
+                        # Update appearance embedding at most once per reid_update_interval_s
+                        if (self._last_reid_update_s is None or
+                                now_s - self._last_reid_update_s >= self.reid_update_interval_s):
+                            emb = self._get_embedding(frame, x1, y1, x2, y2)
+                            if emb is not None:
+                                if self._target_embedding is None:
+                                    self._target_embedding = emb
+                                else:
+                                    self._target_embedding = (
+                                        0.9 * self._target_embedding + 0.1 * emb
+                                    )
+                                self._last_reid_update_s = now_s
 
             if target_xyz is not None:
                 pos = PointStamped()

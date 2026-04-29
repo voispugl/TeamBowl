@@ -1,5 +1,25 @@
 # teambowl_docker
 
+## 2026-04-29 — Fixed numpy 2.x upgrade breaking cv2 / yolo26_node
+
+**`Dockerfile`**: Added `RUN pip3 install --no-cache-dir "numpy<2"` as the last pip layer. `boxmot` or one of its transitive deps (e.g. `onnxruntime`) upgrades numpy to 2.x despite the earlier `numpy==1.26.1` pin. OpenCV 4.12.0 was compiled against the NumPy 1.x C-API (`_ARRAY_API`), so `import cv2` fails with `ImportError: numpy.core.multiarray failed to import`. Re-pinning at the very end of all pip installs forces it back under 2.0. Requires `./build.sh --clean` to take effect.
+
+## 2026-04-29 — Added boxmot + torchvision for OSNet ReID (permanent)
+
+**`Dockerfile`**: Added two new layers after the PyTorch JetPack wheel:
+1. `RUN pip3 install --no-cache-dir --no-deps torchvision==0.25.0` — real torchvision (was previously only a manual `~/.local` install inside the running container, lost on rebuild). `--no-deps` prevents pip from reinstalling torch from PyPI (ABI-incompatible with JetPack wheel).
+2. `RUN pip3 install --no-cache-dir boxmot` — OSNet ReID library used by `yolo26_node`. Must come after torchvision.
+
+OSNet weights (`osnet_x0_25_msmt17.pt`, ~3 MB) are NOT in the image — they live in the volume-mounted `models/` directory (`/home/box/TeamBowl/models/`). Already downloaded there.
+
+Requires `./build.sh --clean` to bake into the image.
+
+## 2026-04-29 — Added boxmot for BoT-SORT appearance ReID
+
+**`Dockerfile`**: Added `RUN pip3 install --no-cache-dir boxmot` after the ultralytics + torchvision-stub block. Placed after the stub so pip considers torchvision "satisfied" and doesn't try to pull in the ABI-incompatible PyPI wheel. boxmot provides OSNet ReID models that run on GPU via PyTorch, independent of the TRT engine. OSNet weights (~6 MB) download from HuggingFace on first node launch to `~/.cache/`.
+
+Requires `./build.sh --clean` (or image rebuild) to take effect. For immediate testing without a rebuild: `pip3 install boxmot` in the running container (lost on next rebuild).
+
 ## 2026-04-28 — Added ultralytics to Dockerfile (--no-deps to avoid cv2 and torchvision conflicts)
 
 **`Dockerfile`**: Added `ultralytics` for `yolo26_node` (`from ultralytics import YOLO`). Installed with `--no-deps` to prevent two conflicts:

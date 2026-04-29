@@ -1,5 +1,33 @@
 # perception
 
+## 2026-04-29 — Swapped model from yolo26l → yolo26m
+
+**`config/perception.yaml`**: `model_path` updated to `yolo26m.engine`. Medium variant trades ~3% mAP for faster inference on the Jetson — better real-time tracking cadence.
+
+**`scripts/export_yolo26.py`**: `--model` and `--out` defaults updated to `yolo26m`. Re-run `python3 export_yolo26.py` to generate the new engine (~15-20 min).
+
+**`teambowl_docker/export_model.sh`**: Comments and `--out` flag updated to reference `yolo26m.engine`.
+
+## 2026-04-29 — Upgraded to yolo26l + custom OSNet ReID for crowded environments
+
+**`config/perception.yaml`**: `model_path` updated to `yolo26l.engine`. yolo26l gives significantly better mAP (~55 vs ~48) over yolo26s, which matters for detecting partially occluded persons in crowds. New parameters: `reid_weights`, `reid_threshold` (0.65), `reid_update_interval_s` (1.0).
+
+**`perception/yolo26_node.py`**: Added custom appearance ReID using boxmot's OSNet (`osnet_x0_25_msmt17.pt`, ~3 MB, ~2ms/crop on GPU). Three new helpers (`_get_reid_encoder`, `_get_embedding`, `_cosine_sim`). Appearance embeddings are updated via EMA at most once per second while the target is visible and confirmed by depth. When re-locking after loss, all detected candidates are compared against the saved embedding; best match above `reid_threshold` wins, otherwise falls back to largest person. This prevents the robot from accidentally locking onto a bystander in a crowded scene.
+
+**`scripts/export_yolo26.py`**: Default model changed `yolo26s → yolo26l`. The `.pt` file is now preserved in `models/` after export (needed for future use; OSNet weights are separate at `models/osnet_x0_25_msmt17.pt`).
+
+**One-time setup required**: Run `python3 export_yolo26.py` to generate `yolo26l.engine` (~15-20 min). `osnet_x0_25_msmt17.pt` is already in `models/`.
+
+## 2026-04-29 — Enabled BoT-SORT appearance ReID via boxmot
+
+**`config/botsort.yaml`**: Enabled appearance ReID (`with_reid: True`, `model: osnet_x0_25_msmt17`). BoT-SORT now maintains a lost-tracks pool and re-assigns the original track ID when a person re-enters the frame, matching appearance via OSNet cosine similarity (`appearance_thresh: 0.25`). OSNet runs on GPU via PyTorch (torchvision already installed); `boxmot` must be installed once with `pip install boxmot`. First launch downloads the ~6MB model to `~/.cache/`.
+
+`track_buffer: 150 → 30` — 6s at 5 Hz. The longer buffer was left over from before the ghost-depth fix and is no longer needed; BoT-SORT's ReID pool handles longer-term re-association.
+
+**`config/perception.yaml`**: `target_lost_timeout_s: 3600.0 → 120.0` — 1 hour was never intentional; 2 minutes is generous and allows the relock timer to eventually fire if ReID fails to re-associate.
+
+**Tuning `appearance_thresh`**: If the wrong person gets re-locked, lower toward 0.15 (stricter). If the same person fails to re-lock, raise toward 0.35 (looser).
+
 ## 2026-04-28 — Fixed user_valid staying True after person leaves
 
 **`config/bytetrack.yaml`**: `track_buffer: 150 → 5` — 150 frames at 5 Hz = 30s of Kalman prediction, which kept the bounding box alive at the last known position. Depth there was often valid (wall/floor), so `target_xyz` stayed non-None → `user_valid=True` → lights stayed green. 5 frames ≈ 1s is enough for brief occlusion recovery.

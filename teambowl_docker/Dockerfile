@@ -255,7 +255,9 @@ RUN pip3 install --no-cache-dir --no-deps ultralytics && \
         polars \
         lap \
         onnx \
-        onnxslim && \
+        onnxslim \
+        onnxruntime \
+        onnxscript && \
     sed -i '/from .sam import SAM/d' \
         /usr/local/lib/python3.10/dist-packages/ultralytics/models/__init__.py && \
     python3 -c "import os; d='/usr/local/lib/python3.10/dist-packages/torchvision-0.20.0.dist-info'; os.makedirs(d,exist_ok=True); open(d+'/METADATA','w').write('Metadata-Version: 2.1\nName: torchvision\nVersion: 0.20.0\n'); open(d+'/INSTALLER','w').write('pip\n'); open(d+'/RECORD','w').close()"
@@ -290,6 +292,14 @@ EOF
 RUN pip3 install --upgrade pip && \
     pip3 install --no-cache \
         https://developer.download.nvidia.com/compute/redist/jp/v61/pytorch/torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl
+
+# onnxruntime: used by yolo26_node to run osnet_x0_25_msmt17.onnx for ReID.
+# CPU-only wheel — no torchvision or boxmot dependency needed.
+RUN pip3 install --no-cache-dir onnxruntime
+
+# Re-pin numpy<2: boxmot or its deps can upgrade to numpy 2.x, which breaks
+# OpenCV 4.12.0 (compiled against the 1.x C-API) and the NVIDIA PyTorch wheel.
+RUN pip3 install --no-cache-dir "numpy<2"
 
 # rosdep init may already be done in the base image
 RUN rosdep init || true

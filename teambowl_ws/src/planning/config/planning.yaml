@@ -43,8 +43,10 @@ follow_goal:
     follow_distance_m: 1.0
     min_goal_distance_m: 0.25
     goal_lateral_deadband_m: 0.05
-    goal_update_rate_hz: 10.0
+    goal_update_rate_hz: 1.0
     goal_smoothing_alpha: 0.35
+    valid_holdout_s: 1.0
+    ghost_timeout_s: 8.0
     user_base_topic: /user_pos_base_link
     user_world_topic: /user_pos_odom
     goal_topic: /follow_goal
@@ -53,7 +55,7 @@ follow_executor:
   ros__parameters:
     goal_topic: /follow_goal
     goal_timeout_s: 10.0
-    replan_rate_hz: 5.0
+    replan_rate_hz: 1.0
     min_goal_change_m: 0.25
     min_goal_change_rad: 0.20
     planner_action_name: /compute_path_to_pose
@@ -86,7 +88,7 @@ planner_server:
       analytic_expansion_max_length: 3.0
       minimum_turning_radius: 0.2          # meters — tune to robot's actual min radius
       reverse_penalty: 1.5                    # >1 prefers forward; 1.0 = equal cost
-      change_penalty: 0.05                    # small cost for direction changes
+      change_penalty: 0.1                    # small cost for direction changes
       non_straight_penalty: 1.20
       cost_penalty: 2.0
       retrospective_penalty: 0.015
@@ -102,7 +104,7 @@ planner_server:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 10.0
+    controller_frequency: 15.0
     min_x_velocity_threshold: 0.05
     min_y_velocity_threshold: 0.05
     min_theta_velocity_threshold: 0.05

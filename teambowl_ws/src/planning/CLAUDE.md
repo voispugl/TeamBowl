@@ -1,5 +1,13 @@
 # planning
 
+## 2026-04-29 — Ghost goal: robot navigates to last known position when person leaves frame
+
+**`planning/follow_goal.py`**: Added ghost mode. When `target_valid=False`, instead of returning immediately, the node republishes the last cached follow goal (in odom frame) with a refreshed timestamp for up to `ghost_timeout_s` (default 8s). `follow_executor` and Nav2 see no change. When the person re-enters the frame before the timeout, normal tracking resumes immediately. A `/follow_goal_ghost_active` (Bool) topic is published for Foxglove monitoring.
+
+New state: `_last_ghost_goal` (last computed PoseStamped, odom frame), `_user_lost_time` (when target went invalid).
+
+**`config/planning.yaml`**: Added `ghost_timeout_s: 8.0` to `follow_goal` section.
+
 ## 2026-04-28 — controller_frequency 20 → 10 Hz; nav_cloud_filter retired
 
 **`config/planning.yaml`**: `controller_frequency: 20.0 → 10.0` — MPPI was missing its 50ms budget; 100ms is achievable and sufficient for walking-speed person following.

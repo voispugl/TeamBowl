@@ -1,12 +1,13 @@
-# Target positions (rad) for RS04 leg joints + RS00 foot joints in driving configuration.
+# Target positions (rad) for RS04 leg joints + RS00 foot joints + RS05 lid in driving configuration.
 # Commanded via MIT mode: torque_ff = 0.0 Nm, velocity = 0.0 rad/s.
 # RS00 foot convention: zero = hardstop (fully retracted up). Mirrored: left=+E, right=-E.
 joints:
-  joint_rs04_1:  1.0464   # CAN ID 0x0A
-  joint_rs04_2:  0.5      # CAN ID 0x0B
-  joint_rs04_3:  2.427965 # CAN ID 0x0C
-  joint_rs04_4:  4.9616   # CAN ID 0x14
-  joint_rs04_5:  1.8793   # CAN ID 0x15
-  joint_rs04_6:  0.8      # CAN ID 0x16
-  joint_rs00_1:  2.1817   # CAN ID 0x0D — left foot  +125°
-  joint_rs00_2: -2.1817   # CAN ID 0x17 — right foot −125° (mirrored)
+  joint_rs04_1:  1.0433146030781746  # CAN ID 0x0A
+  joint_rs04_2:  2.5397356952344126  # CAN ID 0x0B
+  joint_rs04_3:  0.4412179565673391  # CAN ID 0x0C
+  joint_rs04_4:  5.060488088556539   # CAN ID 0x14
+  joint_rs04_5:  3.98936965944522    # CAN ID 0x15
+  joint_rs04_6: -1.073611185928085   # CAN ID 0x16
+  joint_rs00_1:  2.2425223824663245  # CAN ID 0x0D — left foot
+  joint_rs00_2:  4.0468010430358547  # CAN ID 0x17 — right foot
+  joint_rs05_1:  0.3840763003061163  # CAN ID 0x1E — lid

@@ -11,16 +11,19 @@ cam_ops_node:
     resize_scale: 0.5
     min_depth_m: 0.2
     max_depth_m: 8.0
-    depth_window_radius_px: 2
+    depth_window_radius_px: 8
 yolo26_node:
   ros__parameters:
     image_topic: /oak/rgb/image_raw
     depth_topic: /oak/stereo/image_raw
     camera_info_topic: /oak/rgb/camera_info
-    model_path: /home/box/TeamBowl/models/yolo26s.engine
+    model_path: /home/box/TeamBowl/models/yolo26m.engine
     min_confidence: 0.5
     min_depth_m: 0.2
     max_depth_m: 8.0
-    depth_window_radius_px: 2
-    target_lost_timeout_s: 3600.0
+    depth_window_radius_px: 8
+    target_lost_timeout_s: 120.0
     tracker_config: /workspaces/teambowl_ws/src/perception/config/botsort.yaml
+    reid_weights: /home/box/TeamBowl/models/osnet_x0_25_msmt17.onnx
+    reid_threshold: 0.65
+    reid_update_interval_s: 1.0
