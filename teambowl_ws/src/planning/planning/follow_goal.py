@@ -60,7 +60,6 @@ class FollowGoal(Node):
         self.declare_parameter('user_base_topic', '/user_pos_base_link')
         self.declare_parameter('user_world_topic', '/user_pos_odom')
         self.declare_parameter('goal_topic', '/follow_goal')
-        self.declare_parameter('ghost_timeout_s', 8.0)
 
         self.target_topic = str(self.get_parameter('target_topic').value)
         self.target_valid_topic = str(self.get_parameter('target_valid_topic').value)
@@ -82,7 +81,6 @@ class FollowGoal(Node):
         self.user_base_topic = str(self.get_parameter('user_base_topic').value)
         self.user_world_topic = str(self.get_parameter('user_world_topic').value)
         self.goal_topic = str(self.get_parameter('goal_topic').value)
-        self.ghost_timeout_s = float(self.get_parameter('ghost_timeout_s').value)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -93,9 +91,6 @@ class FollowGoal(Node):
         self.last_target_time = None
         self.last_smoothed_goal = None
         self._last_tf_warn_ns = 0
-
-        self._last_ghost_goal: PoseStamped | None = None
-        self._user_lost_time: float | None = None
 
         self.target_sub = self.create_subscription(
             PointStamped,
@@ -113,7 +108,6 @@ class FollowGoal(Node):
         self.user_base_pub = self.create_publisher(PointStamped, self.user_base_topic, 10)
         self.user_world_pub = self.create_publisher(PointStamped, self.user_world_topic, 10)
         self.goal_pub = self.create_publisher(PoseStamped, self.goal_topic, 10)
-        self.ghost_pub = self.create_publisher(Bool, '/follow_goal_ghost_active', 10)
 
         period = 1.0 / max(self.goal_update_rate_hz, 1.0)
         self.timer = self.create_timer(period, self._tick)
@@ -206,13 +200,7 @@ class FollowGoal(Node):
         )
         return self.last_smoothed_goal
 
-    def _publish_ghost(self, active: bool):
-        msg = Bool()
-        msg.data = active
-        self.ghost_pub.publish(msg)
-
     def _tick(self):
-        now_s = self.get_clock().now().nanoseconds / 1e9
         valid_recent = (
             self._last_valid_true_time is not None and
             (self.get_clock().now() - self._last_valid_true_time) <= self._valid_holdout
@@ -220,32 +208,7 @@ class FollowGoal(Node):
         target_live = valid_recent and self._target_fresh() and self.last_target_msg is not None
 
         if not target_live:
-            if self._user_lost_time is None and self._last_ghost_goal is not None:
-                self._user_lost_time = now_s
-                self.get_logger().info('Target lost — entering ghost mode.')
-
-            ghost_age = (now_s - self._user_lost_time) if self._user_lost_time is not None else float('inf')
-
-            if self._last_ghost_goal is not None and ghost_age < self.ghost_timeout_s:
-                ghost = PoseStamped()
-                ghost.header.stamp = self.get_clock().now().to_msg()
-                ghost.header.frame_id = self._last_ghost_goal.header.frame_id
-                ghost.pose = self._last_ghost_goal.pose
-                self.goal_pub.publish(ghost)
-                self._publish_ghost(True)
-            else:
-                if self._user_lost_time is not None and ghost_age >= self.ghost_timeout_s:
-                    self.get_logger().info('Ghost mode expired — robot will stop.')
-                    self._user_lost_time = None
-                    self._last_ghost_goal = None
-                self._publish_ghost(False)
             return
-
-        # Normal tracking — reset ghost state
-        if self._user_lost_time is not None:
-            self.get_logger().info('Target re-acquired — leaving ghost mode.')
-        self._user_lost_time = None
-        self._publish_ghost(False)
 
         user_base = self._transform_point_msg(self.last_target_msg, self.base_frame)
         if user_base is None:
@@ -288,7 +251,6 @@ class FollowGoal(Node):
         goal_msg.pose.orientation.y = qy
         goal_msg.pose.orientation.z = qz
         goal_msg.pose.orientation.w = qw
-        self._last_ghost_goal = goal_msg
         self.goal_pub.publish(goal_msg)
 
 

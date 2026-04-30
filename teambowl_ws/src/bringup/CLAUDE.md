@@ -1,5 +1,9 @@
 # bringup
 
+## 2026-04-29 — cam_ops suppressed when use_yolo26:=true
+
+**`launch/bringup.launch.py`**: Added `condition=UnlessCondition(use_yolo26)` to `cam_ops_node`. cam_ops is the old pink HSV tracker; it publishes to `/user_pos` and `/user_valid` which are not used by `follow_goal` (that uses `/yolo26/*`). When running with yolo26, cam_ops was spamming "No synchronized frames" warnings because its ApproximateTimeSynchronizer struggled with the 5 Hz RGB vs 30 Hz stereo rate mismatch — and it served no purpose anyway. Now: `use_yolo26:=true` → only yolo26 runs; `use_yolo26:=false` (default) → only cam_ops runs.
+
 ## 2026-04-29 — Added `no_leg` launch argument
 
 **`launch/bringup.launch.py`**: Added `no_leg` boolean arg (default `false`). When `true`, suppresses `driving_leg_controller` and `fall_recovery_controller` — neither will command the RS04 joints. `hold_position_controller` still runs normally if `leg_controller:=hold` (it just freezes motors at their current positions). Use when remounting motors to read raw joint positions without any node sending position commands.

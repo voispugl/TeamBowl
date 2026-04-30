@@ -94,7 +94,7 @@ def _compute_base_to_rgb_camera_tf(urdf_path):
     # URDF-y = base_link-x, so URDF pitch θ → base_link roll −θ.
     # URDF-z = base_link-z, so yaw is unchanged.
     rpy_urdf = joint_origins['rgb_cam_0']['rpy']
-    cam_rpy_base = [-rpy_urdf[1], rpy_urdf[0], -rpy_urdf[2]]
+    cam_rpy_base = [0, 0, 0]
     return cam_pos_in_base, cam_rpy_base
 
 
@@ -583,6 +583,7 @@ def generate_launch_description():
             period=10.0,
             actions=[
                 Node(
+                    condition=UnlessCondition(use_yolo26),
                     package='perception',
                     executable='cam_ops',
                     name='cam_ops_node',

@@ -1,5 +1,13 @@
 # locomotion
 
+## 2026-04-29 — vel_cmd_mux: driving mode now accepts teleop as fallback
+
+**`locomotion/vel_cmd_mux.py`**: `driving` mode now routes `/cmd_vel_auto` if fresh (Nav2/trajectory_test), falls back to `/cmd_vel_teleop` if fresh (D-pad rescue), else zero. Previously only routed auto, so after `teleop_vel_topic` was changed to `/cmd_vel_teleop` the steamdeck D-pad stopped working in driving mode. Auton mode remains auto-only — D-pad cannot interfere with person-following.
+
+## 2026-04-29 — driving_leg_controller: hold position when YAML target is >π rad away
+
+**`locomotion/driving_leg_controller.py`** — `_publish_commands()`: Before commanding each joint, checks if `abs(target - current) > π`. If so, commands `current` instead of the YAML target and logs a throttled WARN. Prevents glitch moves caused by a bad YAML value or encoder wrap that would otherwise snap the leg to a wildly wrong position.
+
 ## 2026-04-29 — Updated driving joint positions (calibrated values)
 
 **`locomotion/driving_leg_pos.yaml`**: Updated all 8 joint positions to freshly calibrated values and added `joint_rs05_1: 0.3840763003061163 rad` (lid motor, CAN ID 0x1E). `driving_leg_controller` will now command RS05 at startup. The old "RS05 is unplugged" note in this file is no longer accurate.

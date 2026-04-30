@@ -16,6 +16,7 @@ services:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
       - FASTRTPS_DEFAULT_PROFILES_FILE=/workspaces/teambowl_ws/fastdds_shm_profile.xml
+      - RCUTILS_COLORIZE_OUTPUT=1
     volumes:
       - ${TEAMBOWL_WS:-/home/box/TeamBowl/teambowl_ws}:/workspaces/teambowl_ws
       - ${TEAMBOWL_MODELS:-/home/box/TeamBowl/models}:/home/box/TeamBowl/models
@@ -24,4 +25,4 @@ services:
       # base image — must be installed on host via JetPack SDK Manager first.
       - /usr/lib/aarch64-linux-gnu/libcusparseLt:/usr/lib/aarch64-linux-gnu/libcusparseLt:ro
     working_dir: /workspaces/teambowl_ws
-    command: ros2 launch bringup bringup.launch.py use_vslam:=true
+    command: ros2 launch bringup bringup.launch.py use_vslam:=false use_yolo26:=true

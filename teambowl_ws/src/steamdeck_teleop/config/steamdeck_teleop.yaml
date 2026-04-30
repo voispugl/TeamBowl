@@ -57,7 +57,7 @@ steamdeck_ws_teleop:
     vesc_gains_echo_topic: /vesc_gains_echo
     vesc_gains_topic: /vesc_gains
     set_pose_topic: /set_pose
-    teleop_vel_topic: /cmd_vel_auto
+    teleop_vel_topic: /cmd_vel_teleop
     yolo_relock_topic: /yolo26/relock
     odom_topic: /odometry/filtered
     mode_topic: /robot_mode

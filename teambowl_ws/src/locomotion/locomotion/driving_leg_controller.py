@@ -17,6 +17,7 @@ RS00 and RS05 are not controlled by this node. RS00 gains are set to zero
 in motors.yaml so they freewheel by default.
 """
 
+import math
 import os
 
 import yaml
@@ -77,6 +78,7 @@ class DrivingLegController(Node):
         self._running = False
         self._current_positions: dict = {}   # joint_name → float, from /joint_states
         self._trick_offsets: dict = {}       # joint_name → offset (rad), from /trick_leg_offsets
+        self._glitch_warned: set = set()     # joints that have already fired a glitch warning
 
         # ------------------------------------------------------------------ #
         # Publisher
@@ -226,10 +228,21 @@ class DrivingLegController(Node):
             return
 
         in_trick = (self._mode == 'trick')
-        positions = [
-            base + self._trick_offsets.get(name, 0.0) if in_trick else base
-            for name, base in zip(self._joint_names, self._joint_positions)
-        ]
+        positions = []
+        for name, base in zip(self._joint_names, self._joint_positions):
+            target = base + self._trick_offsets.get(name, 0.0) if in_trick else base
+            current = self._current_positions.get(name)
+            if current is not None and abs(target - current) > math.pi:
+                if name not in self._glitch_warned:
+                    self.get_logger().warn(
+                        f'Joint {name}: target {target:.3f} rad is >{math.pi:.3f} rad '
+                        f'from current {current:.3f} rad — holding position.'
+                    )
+                    self._glitch_warned.add(name)
+                target = current
+            else:
+                self._glitch_warned.discard(name)
+            positions.append(target)
 
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()

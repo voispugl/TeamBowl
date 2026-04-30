@@ -1,12 +1,26 @@
 # planning
 
-## 2026-04-29 — Ghost goal: robot navigates to last known position when person leaves frame
+## 2026-04-29 — Fixed YAML integer/float type mismatches crashing follow_executor
 
-**`planning/follow_goal.py`**: Added ghost mode. When `target_valid=False`, instead of returning immediately, the node republishes the last cached follow goal (in odom frame) with a refreshed timestamp for up to `ghost_timeout_s` (default 8s). `follow_executor` and Nav2 see no change. When the person re-enters the frame before the timeout, normal tracking resumes immediately. A `/follow_goal_ghost_active` (Bool) topic is published for Foxglove monitoring.
+**`config/planning.yaml`**: Two bare integers were causing `InvalidParameterTypeException` crashes on node startup:
+- `follow_executor.replan_rate_hz: 2` → `2.0` — node declares as DOUBLE, YAML integer is rejected
+- `plan_wheels.max_linear_x: 1` → `1.0` — same issue
 
-New state: `_last_ghost_goal` (last computed PoseStamped, odom frame), `_user_lost_time` (when target went invalid).
+`follow_executor` was crashing in `__init__` before ever starting, which is why `/follow_path` had no messages and `/cmd_vel_auto` was empty. ROS2 does not coerce YAML integer → DOUBLE parameters.
 
-**`config/planning.yaml`**: Added `ghost_timeout_s: 8.0` to `follow_goal` section.
+## 2026-04-29 — Fixed MPPI controller_frequency and local costmap inflation_radius
+
+**`config/planning.yaml`**:
+- `controller_frequency: 15.0 → 10.0` — MPPI `model_dt: 0.10` means the controller must run at 1/0.10 = 10 Hz. Running at 15 Hz caused MPPI to roll out trajectories with the wrong timestep, producing near-zero velocity output. Nav2 logged "Controller period is less than model dt".
+- `local_costmap.inflation_layer.inflation_radius: 0.3 → 0.4` — robot inscribed radius is 0.324 m; inflation must be ≥ inscribed radius or Nav2 logs `[ERROR]` and MPPI may see the robot as inside an obstacle (zero-velocity trap).
+
+## 2026-04-29 — Removed ghost mode from follow_goal
+
+**`planning/follow_goal.py`**: Removed ghost mode entirely. Ghost mode was republishing the last known goal with a fresh timestamp when the person was lost, to prevent `follow_executor`'s `goal_timeout_s` from expiring. In practice it caused the robot to stop dead: if the robot reached the static ghost position before the person was re-acquired, Nav2's FollowPath action completed and nothing restarted it. Ghost mode was also redundant — `follow_executor` already keeps Nav2 running for `goal_timeout_s: 10.0` seconds after the last received goal without needing refreshed messages. Now: when `target_live=False`, `_tick()` returns immediately; `follow_executor`'s timeout handles the rest.
+
+Removed: `ghost_timeout_s` param/state, `_last_ghost_goal`, `_user_lost_time`, `ghost_pub` (`/follow_goal_ghost_active`), `_publish_ghost()`, all ghost-mode logic in `_tick()`.
+
+**`config/planning.yaml`**: Removed `ghost_timeout_s: 8.0` from `follow_goal` section.
 
 ## 2026-04-28 — controller_frequency 20 → 10 Hz; nav_cloud_filter retired
 

@@ -193,13 +193,16 @@ class VelCmdMuxNode(Node):
                 self.pub_out.publish(zero_twist())
             return
 
-        # Handle driving mode (autonomous nav with locked legs — same routing as auton)
+        # Handle driving mode: auto first (Nav2/trajectory_test), teleop fallback (D-pad rescue)
         if self.robot_mode == 'driving':
             if self._fresh(self.last_auto_time, self.auto_timeout):
-                if self.debug: self.get_logger().info(f'MUX: mode=driving, fresh -> cmd {self.last_auto}')
+                if self.debug: self.get_logger().info(f'MUX: mode=driving, fresh auto -> cmd {self.last_auto}')
                 self.pub_out.publish(self.last_auto)
+            elif self._fresh(self.last_teleop_time, self.teleop_timeout):
+                if self.debug: self.get_logger().info(f'MUX: mode=driving, fresh teleop -> cmd {self.last_teleop}')
+                self.pub_out.publish(self.last_teleop)
             else:
-                if self.debug: self.get_logger().info('MUX: mode=driving, auto stale -> zero')
+                if self.debug: self.get_logger().info('MUX: mode=driving, both stale -> zero')
                 self.pub_out.publish(zero_twist())
             return
 

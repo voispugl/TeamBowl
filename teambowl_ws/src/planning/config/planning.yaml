@@ -8,9 +8,9 @@ plan_wheels:
     follow_distance_m: 1.0
     distance_deadband_m: 0.15
     lateral_deadband_m: 0.10
-    k_linear: 0.8
+    k_linear: 1.5
     k_angular: 1.8
-    max_linear_x: 0.5
+    max_linear_x: 1.0
     max_angular_z: 0.8
     allow_reverse: true
     max_reverse_x: 0.15
@@ -46,7 +46,6 @@ follow_goal:
     goal_update_rate_hz: 1.0
     goal_smoothing_alpha: 0.35
     valid_holdout_s: 1.0
-    ghost_timeout_s: 8.0
     user_base_topic: /user_pos_base_link
     user_world_topic: /user_pos_odom
     goal_topic: /follow_goal
@@ -55,7 +54,7 @@ follow_executor:
   ros__parameters:
     goal_topic: /follow_goal
     goal_timeout_s: 10.0
-    replan_rate_hz: 1.0
+    replan_rate_hz: 2.0
     min_goal_change_m: 0.25
     min_goal_change_rad: 0.20
     planner_action_name: /compute_path_to_pose
@@ -88,7 +87,7 @@ planner_server:
       analytic_expansion_max_length: 3.0
       minimum_turning_radius: 0.2          # meters — tune to robot's actual min radius
       reverse_penalty: 1.5                    # >1 prefers forward; 1.0 = equal cost
-      change_penalty: 0.1                    # small cost for direction changes
+      change_penalty: 0.3                    # small cost for direction changes
       non_straight_penalty: 1.20
       cost_penalty: 2.0
       retrospective_penalty: 0.015
@@ -104,7 +103,7 @@ planner_server:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 15.0
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.05
     min_y_velocity_threshold: 0.05
     min_theta_velocity_threshold: 0.05
@@ -116,7 +115,7 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.05
+      required_movement_radius: 0.01
       movement_time_allowance: 10.0
 
     goal_checker:
@@ -196,8 +195,8 @@ controller_server:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      update_frequency: 3.0
+      publish_frequency: 3.0
       global_frame: odom
       robot_base_frame: base_link
       use_sim_time: false
@@ -211,7 +210,7 @@ global_costmap:
       plugins: ["inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.55
+        inflation_radius: 0.4
         cost_scaling_factor: 3.0
 
 local_costmap:
@@ -249,7 +248,7 @@ local_costmap:
           raytrace_max_range: 2.50
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.3
+        inflation_radius: 0.4
         cost_scaling_factor: 3.0
 
 lifecycle_manager_navigation:

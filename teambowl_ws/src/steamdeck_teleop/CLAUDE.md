@@ -1,5 +1,9 @@
 # steamdeck_teleop
 
+## 2026-04-29 — Fixed teleop D-pad/joystick publishing to wrong velocity topic
+
+**`config/steamdeck_teleop.yaml`**: Changed `teleop_vel_topic` from `/cmd_vel_auto` → `/cmd_vel_teleop`. Previously the D-pad and virtual joystick published to `/cmd_vel_auto` (the autonomous channel). In auton mode `vel_cmd_mux` routes `/cmd_vel_auto` directly to wheels, so joystick commands (including the zero on release) overrode Nav2's controller output — causing the robot to appear stuck and the joystick to drive the robot during auton. Now teleop input goes to `/cmd_vel_teleop`, which the mux correctly ignores in auton mode and uses in teleop/trick modes.
+
 ## 2026-04-28 — Added SHUTDOWN button (mega kill) to phone and full UIs
 
 **`steamdeck_ws_teleop.py`**: Added `⏻ SHUTDOWN` button to `_HTML_PHONE` (below KILL) and `_HTML_FULL` (Robot Mode panel). Button sends `{type:'mega_kill'}` with a browser confirm dialog. Handler (`_mega_kill`) runs in a daemon thread: publishes `/estop True` + mode `off`, waits 300ms, brings down `can0`/`can1` via `ip link set`, then sends `SIGINT` to PID 1 (ros2 launch, via `exec` in entrypoint). This triggers graceful ROS shutdown — camera driver and CAN driver exit cleanly — and the Docker container exits naturally. Container must be `privileged: true` for CAN shutdown to work.

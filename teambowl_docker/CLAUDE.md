@@ -1,5 +1,9 @@
 # teambowl_docker
 
+## 2026-04-29 — Colored errors + default launch args updated
+
+**`docker-compose.yml`**: Added `RCUTILS_COLORIZE_OUTPUT=1` to environment — ROS2 now colors `[ERROR]` red and `[WARN]` yellow in the terminal output. Changed default command to `use_vslam:=false use_yolo26:=true` (was `use_vslam:=true`) to match actual usage.
+
 ## 2026-04-29 — Fixed numpy 2.x upgrade breaking cv2 / yolo26_node
 
 **`Dockerfile`**: Added `RUN pip3 install --no-cache-dir "numpy<2"` as the last pip layer. `boxmot` or one of its transitive deps (e.g. `onnxruntime`) upgrades numpy to 2.x despite the earlier `numpy==1.26.1` pin. OpenCV 4.12.0 was compiled against the NumPy 1.x C-API (`_ARRAY_API`), so `import cv2` fails with `ImportError: numpy.core.multiarray failed to import`. Re-pinning at the very end of all pip installs forces it back under 2.0. Requires `./build.sh --clean` to take effect.
