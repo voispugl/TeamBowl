@@ -10,4 +10,3 @@ joints:
   joint_rs04_6: -1.073611185928085   # CAN ID 0x16
   joint_rs00_1:  2.2425223824663245  # CAN ID 0x0D — left foot
   joint_rs00_2:  4.0468010430358547  # CAN ID 0x17 — right foot
-  joint_rs05_1:  0.3840763003061163  # CAN ID 0x1E — lid

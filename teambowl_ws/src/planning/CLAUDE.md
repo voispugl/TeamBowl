@@ -1,5 +1,49 @@
 # planning
 
+## 2026-04-30 — Added search circle when user is lost for >3 s
+
+**`planning/follow_goal.py`**: When `target_live` is False and the user has been lost for more than `search_timeout_s` (3 s), `_tick()` now publishes a search goal to `/follow_goal` instead of returning silently. The search goal is placed at `follow_distance_m` in the direction 90° left of the robot's current heading (via `base_link→odom` TF). Since the goal direction is always relative to the robot's current yaw, as MPPI steers the robot left, the goal rotates with it — the robot circles continuously left.
+
+When the person is reacquired, `_search_active` is cleared and `last_smoothed_goal` is reset so the first person-tracking goal isn't smoothed against the last search goal.
+
+**`config/planning.yaml`** and **`config/planning_nvblox.yaml`**: Added `search_timeout_s: 3.0` and `search_offset_rad: 1.5708` (π/2) to the `follow_goal` block.
+
+## 2026-04-30 — Fixed follow_goal backup behavior when person is too close
+
+**`planning/follow_goal.py`** `_compute_goal_in_base()`: Removed the `if distance <= follow_distance_m` branch which was placing the goal *toward* the person even when they were already within the follow distance. The unified formula `user_xy * (distance - follow_distance_m) / distance` now handles all cases: positive (follow), zero (hold), and negative (back up). Also changed the early-return guard from `distance < min_goal_distance_m` to `distance < 0.05` (pure numerical safety). Previously the `max(0.0, ...)` clamp explicitly prevented backup motion, causing the robot to advance into the person.
+
+## 2026-04-30 — Added person_scan_filter: excludes person from obstacle costmap
+
+**`planning/person_scan_filter.py`** (new node): subscribes to `/oak/nav_scan` (LaserScan in base_link) and `/user_pos_base_link` (PointStamped from follow_goal). For each scan, any ray whose endpoint is within `exclusion_radius_m: 1.5` of the person's 2D position in base_link is set to inf. Publishes filtered scan to `/oak/nav_scan_filtered`. Passes scan through unmodified if person position is stale (>`person_timeout_s: 1.0`).
+
+**`config/planning.yaml`**: added `person_scan_filter` params block; local costmap `oak_scan` topic changed from `/oak/nav_scan` → `/oak/nav_scan_filtered`.
+
+**`setup.py`**: added `person_scan_filter` console script entry.
+
+**`bringup/launch/bringup.launch.py`**: added `person_scan_filter` node before `follow_goal`.
+
+## 2026-04-30 — CostCritic tuning: critical_cost fixed, footprint off, observation_persistence added
+
+**`config/planning.yaml`**:
+- `CostCritic.critical_cost: 300.0 → 200.0` — costmap max is 254; 300 was unreachable so the critical penalty path never triggered. 200 catches the inflation zone.
+- `CostCritic.consider_footprint: false` — kept off. With footprint on, MPPI trajectories that overshoot past the 1m follow_goal extend into the person's inflation zone at their footprint edge, exceeding critical_cost → collision_cost=1000000 → robot refuses to approach the person. Center-only checking: cost at follow_goal is ~33 (well below critical). Real lethal obstacles (cost=254) still block the robot at their inscribed radius.
+- `obstacle_layer.observation_persistence: 0.0 → 0.5` — raytrace clearing handles forward movement naturally (scan ray passes through old person position to reach new one, clearing it). Lateral movement leaves orphan marks no ray ever clears; 0.5s expiry ages them out, keeping the costmap clean.
+
+These changes depend on the bringup fix (output_frame: base_link) that enables obstacle detection.
+
+## 2026-04-29 — MPPI tuning: reduce wobble, increase speed
+
+**`config/planning.yaml`** MPPI changes:
+- `wz_std: 0.4 → 0.2` — less angular velocity noise in trajectory sampling; was the primary source of yaw wobble
+- `iteration_count: 1 → 2` — second refinement pass selects smoother/faster trajectories from the same 2000 samples
+- `GoalCritic.threshold_to_consider: 1.4 → 0.5` — robot was decelerating from 1.4m out (nearly always inside this zone when following at 1m distance); now only slows within 0.5m of goal
+- `PathAlignCritic.cost_weight: 14.0 → 7.0` — was 3× heavier than any other critic; caused aggressive curve-chasing on Reeds-Shepp paths, producing oscillation
+- `PathAlignCritic.use_path_orientations: true` — MPPI now uses path heading hints to know which way to face along curves, reducing the need for angular correction
+
+## 2026-04-29 — Reduced minimum_turning_radius for tighter in-place turns
+
+**`config/planning.yaml`**: `minimum_turning_radius: 0.2 → 0.05` m. The robot is a differential drive and can turn with near-zero radius. The previous 0.2m value caused the planner to produce wide arcs when the person moved to the side, making auton following look sluggish at reorienting. At 0.05m the Reeds-Shepp planner finds tight arc paths close to in-place rotation.
+
 ## 2026-04-29 — Fixed YAML integer/float type mismatches crashing follow_executor
 
 **`config/planning.yaml`**: Two bare integers were causing `InvalidParameterTypeException` crashes on node startup:
@@ -60,6 +104,16 @@ cancellation is already handled by `_mode_cb`.
 (removed 2026-04-19). Now safe to coexist with `trajectory_test` because the two nodes
 use separate robot modes: `follow_executor` only sends Nav2 goals in `auton` mode,
 `trajectory_test` only sends goals in `driving`/`balance` mode.
+
+## 2026-04-30 — Fixed nvblox plugin class name and local inflation radius in planning_nvblox.yaml
+
+**`config/planning_nvblox.yaml`**: Two fixes for `use_nvblox:=true` launch:
+- `nvblox_layer.plugin`: `"nvblox::NvbloxCostmapLayer"` → `"nvblox::nav2::NvbloxCostmapLayer"` (both global and local costmap). The old name is not registered; nav2 logs `does not exist` and the costmap lifecycle configure transition fails.
+- `local_costmap.inflation_layer.inflation_radius`: `0.3` → `0.4`. Must be ≥ robot inscribed radius (0.32 m) or Nav2 SMAC planner logs an ERROR and runs degraded. Matches the non-nvblox `planning.yaml` value.
+
+## 2026-04-30 — Added planning_nvblox.yaml to setup.py data_files
+
+`setup.py` `data_files` only listed `planning.yaml`; `planning_nvblox.yaml` was never copied to the install tree, causing "not a file" warnings when launching with `use_nvblox:=true`. Added `'config/planning_nvblox.yaml'` to the same install glob.
 
 ## Package overview
 

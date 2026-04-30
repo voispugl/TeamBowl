@@ -6,8 +6,8 @@ driving_controller:
     # Raise kp_vel until crisp response without oscillation.
     # Add kd_vel to damp overshoot. Add ki_vel for steady-state error.
     kp_vel:  1.0    # [m/s command / m/s error]
-    ki_vel:  0.2    # [m/s command / (m/s · s)] — 0.5-second sliding window
-    kd_vel:  0.05   # [m/s command · s / m/s error]
+    ki_vel:  0.0    # [m/s command / (m/s · s)] — 0.5-second sliding window
+    kd_vel:  0.00   # [m/s command · s / m/s error]
 
     # ── Pitch PID ─────────────────────────────────────────────────────────────
     # Corrects nose-dive during deceleration by reducing effective braking.
@@ -38,7 +38,7 @@ driving_controller:
     theta_max_pitch: 0.35  # [rad] ≈ 20°
 
     # ── Output clamp ──────────────────────────────────────────────────────────
-    v_max: 3.0  # [m/s]
+    v_max: 1.5  # [m/s]
 
     # ── Control rate ──────────────────────────────────────────────────────────
     # All three PIDs (velocity, pitch, yaw) run in a single loop at this rate.

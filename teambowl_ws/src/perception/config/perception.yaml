@@ -21,9 +21,9 @@ yolo26_node:
     min_confidence: 0.3
     min_depth_m: 0.2
     max_depth_m: 8.0
-    depth_window_radius_px: 8
-    target_lost_timeout_s: 120.0
+    depth_window_radius_px: 30
+    target_lost_timeout_s: 1.0
     tracker_config: /workspaces/teambowl_ws/src/perception/config/botsort.yaml
     reid_weights: /home/box/TeamBowl/models/osnet_x0_25_msmt17.onnx
-    reid_threshold: 0.5
-    reid_update_interval_s: 1.0
+    reid_threshold: 0.4
+    reid_update_interval_s: 0.5

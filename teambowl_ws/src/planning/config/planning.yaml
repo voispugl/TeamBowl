@@ -8,14 +8,14 @@ plan_wheels:
     follow_distance_m: 1.0
     distance_deadband_m: 0.15
     lateral_deadband_m: 0.10
-    k_linear: 1.5
+    k_linear: 1.0
     k_angular: 1.8
     max_linear_x: 1.0
     max_angular_z: 0.8
     allow_reverse: true
-    max_reverse_x: 0.15
+    max_reverse_x: 0.4
     turn_in_place_angle_only: false
-    turn_only_lateral_threshold_m: 0.5
+    turn_only_lateral_threshold_m: 0.3
 
 nav_cloud_filter:
   ros__parameters:
@@ -32,6 +32,14 @@ nav_cloud_filter:
     voxel_leaf_size_m: 0.3
     min_points_per_voxel: 1500
 
+person_scan_filter:
+  ros__parameters:
+    input_scan_topic: /oak/nav_scan
+    output_scan_topic: /oak/nav_scan_filtered
+    person_pos_topic: /user_pos_base_link
+    exclusion_radius_m: 1.5
+    person_timeout_s: 1.0
+
 follow_goal:
   ros__parameters:
     target_topic: /yolo26/user_pos
@@ -43,9 +51,11 @@ follow_goal:
     follow_distance_m: 1.0
     min_goal_distance_m: 0.25
     goal_lateral_deadband_m: 0.05
-    goal_update_rate_hz: 1.0
-    goal_smoothing_alpha: 0.35
+    goal_update_rate_hz: 5.0
+    goal_smoothing_alpha: 0.7
     valid_holdout_s: 1.0
+    search_timeout_s: 3.0
+    search_offset_rad: 1.5708
     user_base_topic: /user_pos_base_link
     user_world_topic: /user_pos_odom
     goal_topic: /follow_goal
@@ -55,8 +65,8 @@ follow_executor:
     goal_topic: /follow_goal
     goal_timeout_s: 10.0
     replan_rate_hz: 2.0
-    min_goal_change_m: 0.25
-    min_goal_change_rad: 0.20
+    min_goal_change_m: 0.2
+    min_goal_change_rad: 0.1
     planner_action_name: /compute_path_to_pose
     controller_action_name: /follow_path
     planner_id: GridBased
@@ -80,14 +90,14 @@ planner_server:
       tolerance: 0.25
       allow_unknown: true
       max_iterations: 1000000
-      max_planning_time: 5.0
+      max_planning_time: 0.5
       motion_model_for_search: "REEDS_SHEPP"  # supports forward + reverse arcs
       angle_quantization_bins: 36             # 10° resolution — faster startup
       analytic_expansion_ratio: 3.5
       analytic_expansion_max_length: 3.0
-      minimum_turning_radius: 0.2          # meters — tune to robot's actual min radius
-      reverse_penalty: 1.5                    # >1 prefers forward; 1.0 = equal cost
-      change_penalty: 0.3                    # small cost for direction changes
+      minimum_turning_radius: 0.05         # near-zero for diff drive — allows tight/in-place turns
+      reverse_penalty: 2.0                    # >1 prefers forward; 1.0 = equal cost
+      change_penalty: 1.5
       non_straight_penalty: 1.20
       cost_penalty: 2.0
       retrospective_penalty: 0.015
@@ -103,9 +113,9 @@ planner_server:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 10.0
-    min_x_velocity_threshold: 0.05
-    min_y_velocity_threshold: 0.05
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.15
+    min_y_velocity_threshold: 0.15
     min_theta_velocity_threshold: 0.05
     failure_tolerance: 0.3
     odom_topic: /odometry/filtered
@@ -115,26 +125,26 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.01
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.05
+      movement_time_allowance: 5.0
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
       xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.1
+      yaw_goal_tolerance: 0.2
 
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 56
-      model_dt: 0.10
+      time_steps: 30
+      model_dt: 0.05
       batch_size: 2000
-      vx_std: 0.2
-      wz_std: 0.4
-      vx_max: 1.5
+      vx_std: 0.5
+      wz_std: 0.2
+      vx_max: 1.2
       vx_min: -0.5
-      wz_max: 1.9
-      iteration_count: 1
+      wz_max: 2.5
+      iteration_count: 2
       prune_distance: 1.7
       transform_tolerance: 0.2
       temperature: 0.3
@@ -150,7 +160,7 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
-        threshold_to_consider: 1.4
+        threshold_to_consider: 0.5
       GoalAngleCritic:
         enabled: true
         cost_power: 1
@@ -159,16 +169,16 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
+        cost_weight: 2.0
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 14.0
+        cost_weight: 7.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 3
         threshold_to_consider: 0.5
         offset_from_furthest: 20
-        use_path_orientations: false
+        use_path_orientations: true
       PathFollowCritic:
         enabled: true
         cost_power: 1
@@ -187,7 +197,7 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 3.81
-        critical_cost: 300.0
+        critical_cost: 200.0
         consider_footprint: false
         collision_cost: 1000000.0
         near_goal_distance: 1.0
@@ -210,7 +220,7 @@ global_costmap:
       plugins: ["inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.4
+        inflation_radius: 0.2
         cost_scaling_factor: 3.0
 
 local_costmap:
@@ -233,11 +243,11 @@ local_costmap:
         enabled: true
         footprint_clearing_enabled: true
         combination_method: 1
-        observation_persistence: 0.0
+        observation_persistence: 0.5
         max_obstacle_height: 1.20
         observation_sources: oak_scan
         oak_scan:
-          topic: /oak/nav_scan
+          topic: /oak/nav_scan_filtered
           data_type: "LaserScan"
           marking: true
           clearing: true

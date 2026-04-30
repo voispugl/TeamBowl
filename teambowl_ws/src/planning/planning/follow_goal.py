@@ -57,6 +57,9 @@ class FollowGoal(Node):
         self.declare_parameter('goal_update_rate_hz', 10.0)
         self.declare_parameter('goal_smoothing_alpha', 0.35)
 
+        self.declare_parameter('search_timeout_s', 3.0)
+        self.declare_parameter('search_offset_rad', math.pi / 2)
+
         self.declare_parameter('user_base_topic', '/user_pos_base_link')
         self.declare_parameter('user_world_topic', '/user_pos_odom')
         self.declare_parameter('goal_topic', '/follow_goal')
@@ -77,6 +80,10 @@ class FollowGoal(Node):
         self.goal_lateral_deadband_m = float(self.get_parameter('goal_lateral_deadband_m').value)
         self.goal_update_rate_hz = float(self.get_parameter('goal_update_rate_hz').value)
         self.goal_smoothing_alpha = float(self.get_parameter('goal_smoothing_alpha').value)
+        self._search_timeout = Duration(
+            seconds=float(self.get_parameter('search_timeout_s').value)
+        )
+        self._search_offset_rad = float(self.get_parameter('search_offset_rad').value)
 
         self.user_base_topic = str(self.get_parameter('user_base_topic').value)
         self.user_world_topic = str(self.get_parameter('user_world_topic').value)
@@ -91,6 +98,7 @@ class FollowGoal(Node):
         self.last_target_time = None
         self.last_smoothed_goal = None
         self._last_tf_warn_ns = 0
+        self._search_active = False
 
         self.target_sub = self.create_subscription(
             PointStamped,
@@ -176,13 +184,10 @@ class FollowGoal(Node):
     def _compute_goal_in_base(self, user_base: PointStamped) -> np.ndarray | None:
         user_xy = np.array([user_base.point.x, user_base.point.y], dtype=np.float64)
         distance = float(np.linalg.norm(user_xy))
-        if not math.isfinite(distance) or distance < self.min_goal_distance_m:
+        if not math.isfinite(distance) or distance < 0.05:
             return None
 
-        if distance <= self.follow_distance_m:
-            goal_xy = user_xy * max(0.0, (distance - self.min_goal_distance_m)) / distance
-        else:
-            goal_xy = user_xy * (distance - self.follow_distance_m) / distance
+        goal_xy = user_xy * (distance - self.follow_distance_m) / distance
 
         if abs(goal_xy[1]) < self.goal_lateral_deadband_m:
             goal_xy[1] = 0.0
@@ -200,6 +205,10 @@ class FollowGoal(Node):
         )
         return self.last_smoothed_goal
 
+    def _robot_yaw(self, base_to_world) -> float:
+        q = base_to_world.transform.rotation
+        return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
     def _tick(self):
         valid_recent = (
             self._last_valid_true_time is not None and
@@ -208,7 +217,43 @@ class FollowGoal(Node):
         target_live = valid_recent and self._target_fresh() and self.last_target_msg is not None
 
         if not target_live:
+            lost_elapsed = (
+                (self.get_clock().now() - self._last_valid_true_time)
+                if self._last_valid_true_time is not None
+                else Duration(seconds=999)
+            )
+            if lost_elapsed < self._search_timeout:
+                return
+
+            base_to_world = self._lookup_transform(self.world_frame, self.base_frame, Time())
+            if base_to_world is None:
+                return
+
+            self._search_active = True
+            search_yaw = self._robot_yaw(base_to_world) + self._search_offset_rad
+            dist = self.follow_distance_m
+            qx, qy, qz, qw = _yaw_to_quat(search_yaw)
+
+            goal_msg = PoseStamped()
+            goal_msg.header.stamp = self.get_clock().now().to_msg()
+            goal_msg.header.frame_id = self.world_frame
+            goal_msg.pose.position.x = (
+                base_to_world.transform.translation.x + dist * math.cos(search_yaw)
+            )
+            goal_msg.pose.position.y = (
+                base_to_world.transform.translation.y + dist * math.sin(search_yaw)
+            )
+            goal_msg.pose.position.z = 0.0
+            goal_msg.pose.orientation.x = qx
+            goal_msg.pose.orientation.y = qy
+            goal_msg.pose.orientation.z = qz
+            goal_msg.pose.orientation.w = qw
+            self.goal_pub.publish(goal_msg)
             return
+
+        if self._search_active:
+            self._search_active = False
+            self.last_smoothed_goal = None
 
         user_base = self._transform_point_msg(self.last_target_msg, self.base_frame)
         if user_base is None:

@@ -10,7 +10,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', ['config/planning.yaml']),
+        ('share/' + package_name + '/config', ['config/planning.yaml', 'config/planning_nvblox.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -30,6 +30,7 @@ setup(
             'follow_goal = planning.follow_goal:main',
             'follow_executor = planning.follow_executor:main',
             'trajectory_test = planning.trajectory_test:main',
+            'person_scan_filter = planning.person_scan_filter:main',
         ],
     },
 )

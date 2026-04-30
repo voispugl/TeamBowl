@@ -1,5 +1,15 @@
 # locomotion
 
+## 2026-04-29 — Removed joint_rs05_1 (lid) from driving_leg_pos.yaml
+
+**`locomotion/driving_leg_pos.yaml`**: Removed `joint_rs05_1` entry. `driving_leg_controller` was publishing 50 Hz MIT-mode position commands to the lid motor, fighting `lid_controller` which also commands it — causing the lid to vibrate when opening/closing. The lid is owned exclusively by `lid_controller`; `driving_leg_pos.yaml` should only contain leg/foot joints.
+
+## 2026-04-29 — Fixed QoS mismatches on /cmd_vel and /estop
+
+**`locomotion/wheel_odom.py`**: Changed `/cmd_vel` subscription from default RELIABLE to BEST_EFFORT. `driving_controller` publishes `/cmd_vel` as BEST_EFFORT; the default RELIABLE subscription caused a QoS incompatibility → EKF wheel odometry was never receiving cmd_vel updates.
+
+**`locomotion/lid_controller.py`**: Changed `/estop` subscription from TRANSIENT_LOCAL to default QoS (depth=10, RELIABLE+VOLATILE). All `/estop` publishers (system_health, steamdeck, fall_recovery, keyboard_operator) use VOLATILE durability. The TRANSIENT_LOCAL subscription was incompatible → lid_controller never received estop messages.
+
 ## 2026-04-29 — vel_cmd_mux: driving mode now accepts teleop as fallback
 
 **`locomotion/vel_cmd_mux.py`**: `driving` mode now routes `/cmd_vel_auto` if fresh (Nav2/trajectory_test), falls back to `/cmd_vel_teleop` if fresh (D-pad rescue), else zero. Previously only routed auto, so after `teleop_vel_topic` was changed to `/cmd_vel_teleop` the steamdeck D-pad stopped working in driving mode. Auton mode remains auto-only — D-pad cannot interfere with person-following.
@@ -7,6 +17,26 @@
 ## 2026-04-29 — driving_leg_controller: hold position when YAML target is >π rad away
 
 **`locomotion/driving_leg_controller.py`** — `_publish_commands()`: Before commanding each joint, checks if `abs(target - current) > π`. If so, commands `current` instead of the YAML target and logs a throttled WARN. Prevents glitch moves caused by a bad YAML value or encoder wrap that would otherwise snap the leg to a wildly wrong position.
+
+## 2026-04-30 — RS00 torque-zeroing sole leveling in brake mode
+
+**`locomotion/driving_leg_controller.py`**: Added `_update_rs00_leveling(dt)`. While in brake mode, each tick integrates RS00 joint torque toward zero: `offset -= kp_rs00_level * torque * dt`, clamped to `±max_rs00_level_rad` (0.5 rad). Commanded RS00 position = `brake_position + offset`. When torque → 0 the sole is flush with the ground — no IMU or Jacobian needed. Offsets reset to 0 on transition back to rolling. If the foot levels in the wrong direction, negate `kp_rs00_level` in yaml.
+
+**`config/locomotion.yaml`**: Added `kp_rs00_level: 0.05` and `max_rs00_level_rad: 0.5`.
+
+## 2026-04-30 — Ground-force PI + brake mode in driving_leg_controller
+
+**`locomotion/driving_leg_controller.py`**:
+- **Ground-force PI (when moving)**: Each publish tick, reads RS04 joint efforts from `/joint_states` and runs a PI loop (`kp_gnd`, `ki_gnd`) to adjust `torque_ff` until the mean RS04 effort converges to `target_ground_torque` (default 2.0 Nm). Ensures rollers stay pressed to the ground under varying loads. Resets to 0.0 Nm on stop or e-stop.
+- **Brake mode (when stopped)**: Subscribes to `/cmd_vel`. When both `|linear.x|` and `|angular.z|` are below `vel_stopped_threshold` (0.05) for `brake_debounce_s` (0.3 s), RS00 joints move to brake positions (tiptoe YAML ± `rs00_brake_offsets` ≈ ±π/2), putting the sandpaper soles flat on the ground for friction braking. Immediately returns to tiptoe (rollers) on any non-zero velocity command.
+- Added `_current_efforts` dict populated from `/joint_states` effort field.
+- Added `_on_cmd_vel`, `_update_ground_torque_pi` methods; rewrote `_publish_commands` for per-joint effort and brake/roll position switching.
+- Preserved existing glitch guard (holds position if target > π rad from current).
+- Removed `torque_ff` param (replaced by PI-computed per-joint effort).
+
+**`config/locomotion.yaml`**: Replaced `torque_ff: 0.0` with new params: `cmd_vel_topic`, `rs00_brake_offsets`, `vel_stopped_threshold`, `brake_debounce_s`, `target_ground_torque`, `kp_gnd`, `ki_gnd`, `max_torque_ff_nm`.
+
+**Tuning notes**: Start with `target_ground_torque: 2.0`. If rollers slip, increase. If the robot rocks during braking, adjust `brake_debounce_s`. The PI gains (`kp_gnd: 0.5`, `ki_gnd: 0.1`) are conservative — increase `kp_gnd` first if response is sluggish.
 
 ## 2026-04-29 — Updated driving joint positions (calibrated values)
 

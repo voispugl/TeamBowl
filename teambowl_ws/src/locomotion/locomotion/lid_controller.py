@@ -91,7 +91,7 @@ class LidController(Node):
         # Subscribers
         # ------------------------------------------------------------------ #
         self.create_subscription(String, '/lid_command', self._on_command, 10)
-        self.create_subscription(Bool, '/estop', self._on_estop, transient)
+        self.create_subscription(Bool, '/estop', self._on_estop, 10)
         self.create_subscription(
             JointState, '/joint_states', self._on_joint_states, 10)
 

@@ -1,5 +1,9 @@
 # steamdeck_teleop
 
+## 2026-04-29 — D-pad/joystick uses Nav2 goal navigation in driving mode
+
+**`steamdeck_ws_teleop.py`** — `_handle_panel_cmd` `teleop_vel` branch: when `robot_mode == 'driving'`, instead of publishing raw Twist to `/cmd_vel_teleop`, the joystick now maps to a relative Nav2 goal and publishes to `/trajectory_goal` + sends `"go"` to `/trajectory_cmd`. Joystick released (vx≈0, wz≈0) sends `"stop"`. Goal mapping: `vx * 1.5m` forward (or `vx * 0.5m` backward), `wz * 90°` rotation. In teleop/trick modes, raw velocity behavior is unchanged.
+
 ## 2026-04-29 — Fixed teleop D-pad/joystick publishing to wrong velocity topic
 
 **`config/steamdeck_teleop.yaml`**: Changed `teleop_vel_topic` from `/cmd_vel_auto` → `/cmd_vel_teleop`. Previously the D-pad and virtual joystick published to `/cmd_vel_auto` (the autonomous channel). In auton mode `vel_cmd_mux` routes `/cmd_vel_auto` directly to wheels, so joystick commands (including the zero on release) overrode Nav2's controller output — causing the robot to appear stuck and the joystick to drive the robot during auton. Now teleop input goes to `/cmd_vel_teleop`, which the mux correctly ignores in auton mode and uses in teleop/trick modes.

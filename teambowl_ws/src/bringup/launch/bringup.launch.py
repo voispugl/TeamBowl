@@ -527,7 +527,7 @@ def generate_launch_description():
                 'scan_time':       0.2,   # matches stereo at 5 Hz
                 'range_min':       0.15,
                 'range_max':       2.50,
-                'output_frame': 'oak_rgb_camera_optical_frame',
+                'output_frame': 'base_link',
             }],
             condition=UnlessCondition(use_nvblox),
         ),
@@ -539,6 +539,17 @@ def generate_launch_description():
             package='planning',
             executable='trajectory_test',
             name='trajectory_test',
+            output='screen',
+            parameters=[PythonExpression([
+                '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
+                _planning_default, '"',
+            ])],
+        ),
+
+        Node(
+            package='planning',
+            executable='person_scan_filter',
+            name='person_scan_filter',
             output='screen',
             parameters=[PythonExpression([
                 '"', _planning_nvblox, '" if "', use_nvblox, '" == "true" else "',
@@ -733,7 +744,7 @@ def generate_launch_description():
             package='foxglove_bridge',
             executable='foxglove_bridge',
             name='foxglove_bridge',
-            output='log',
+            output={'stdout': 'log', 'stderr': 'log'},
             parameters=[{
                 'port': 8765,
                 'address': '0.0.0.0',

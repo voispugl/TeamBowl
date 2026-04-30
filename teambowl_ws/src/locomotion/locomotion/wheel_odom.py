@@ -21,6 +21,7 @@ import math
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Header
@@ -72,7 +73,12 @@ class WheelOdomNode(Node):
             self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
         # Subscriber
-        self.create_subscription(Twist, self._cmd_topic, self._on_cmd_vel, 10)
+        best_effort = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
+        self.create_subscription(Twist, self._cmd_topic, self._on_cmd_vel, best_effort)
 
         # Update timer at 50 Hz
         self.create_timer(0.02, self._update)

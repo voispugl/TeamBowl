@@ -1332,10 +1332,32 @@ class SteamDeckWSTeleop(Node):
             self._set_pose_pub.publish(pose_msg)
             self.get_logger().info('Odometry reset to origin.')
         elif t == 'teleop_vel':
-            twist = Twist()
-            twist.linear.x = float(data.get('vx', 0.0))
-            twist.angular.z = float(data.get('wz', 0.0))
-            self._teleop_vel_pub.publish(twist)
+            vx = float(data.get('vx', 0.0))
+            wz = float(data.get('wz', 0.0))
+            if self._robot_mode == 'driving':
+                # Goal-based driving: map joystick to a relative Nav2 goal so the
+                # planner+MPPI handle the motion (smooth paths, proper turning).
+                if abs(vx) < 0.05 and abs(wz) < 0.05:
+                    cmd = String(); cmd.data = 'stop'
+                    self._traj_cmd_pub.publish(cmd)
+                else:
+                    forward_m = vx * 5.0 if vx >= 0.0 else vx * 1.5
+                    rotation_rad = wz * (math.pi / 2.0)
+                    goal = String()
+                    goal.data = json.dumps({
+                        'x': round(forward_m, 3),
+                        'y': 0.0,
+                        'theta': round(rotation_rad, 3),
+                        'relative': True,
+                    })
+                    self._traj_goal_pub.publish(goal)
+                    cmd = String(); cmd.data = 'go'
+                    self._traj_cmd_pub.publish(cmd)
+            else:
+                twist = Twist()
+                twist.linear.x = vx
+                twist.angular.z = wz
+                self._teleop_vel_pub.publish(twist)
         elif t == 'yolo_relock':
             relock_msg = Bool(); relock_msg.data = True
             self._yolo_relock_pub.publish(relock_msg)

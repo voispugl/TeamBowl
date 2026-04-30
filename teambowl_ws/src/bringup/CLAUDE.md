@@ -1,5 +1,21 @@
 # bringup
 
+## 2026-04-30 — Suppressed foxglove_bridge terminal output (stdout + stderr → log)
+
+**`launch/bringup.launch.py`**: Changed `output='log'` to `output={'stdout': 'log', 'stderr': 'log'}` on the `foxglove_bridge` node. `output='log'` only redirected stdout; stderr (connection errors, WebSocket noise) still leaked to the terminal. The dict form suppresses both streams.
+
+## 2026-04-30 — Added person_scan_filter node to bringup
+
+**`launch/bringup.launch.py`**: added `person_scan_filter` node (planning package) before `follow_goal`. It filters `/oak/nav_scan` → `/oak/nav_scan_filtered`, zeroing out scan rays within 1.5m of the detected person. The local costmap now subscribes to `/oak/nav_scan_filtered` so the person is never marked as an obstacle.
+
+## 2026-04-30 — Fixed obstacle costmap: output_frame optical→base_link
+
+**`launch/bringup.launch.py`**: Changed `depthimage_to_laserscan_node` parameter `output_frame` from `oak_rgb_camera_optical_frame` to `base_link`.
+
+Root cause: Nav2's costmap projects LaserScan endpoints as `(r·cos θ, r·sin θ, 0)` in the sensor frame, assuming angle=0 is along +x. The optical frame has z=forward/x=right, so angle=0 was rightward, not forward. After the optical→base_link TF rotation, ~97% of rays transformed to z < 0 in base_link and were silently filtered by `min_obstacle_height: 0.0`. The remaining 3% were projected sideways and overwritten by clearing. Result: costmap was all-free regardless of obstacles.
+
+With `output_frame: base_link`, `depthimage_to_laserscan` applies the camera→base_link TF to rotate angles correctly before publishing. Angle=0 now maps to forward (+x in base_link), and obstacles appear in front of the robot.
+
 ## 2026-04-29 — cam_ops suppressed when use_yolo26:=true
 
 **`launch/bringup.launch.py`**: Added `condition=UnlessCondition(use_yolo26)` to `cam_ops_node`. cam_ops is the old pink HSV tracker; it publishes to `/user_pos` and `/user_valid` which are not used by `follow_goal` (that uses `/yolo26/*`). When running with yolo26, cam_ops was spamming "No synchronized frames" warnings because its ApproximateTimeSynchronizer struggled with the 5 Hz RGB vs 30 Hz stereo rate mismatch — and it served no purpose anyway. Now: `use_yolo26:=true` → only yolo26 runs; `use_yolo26:=false` (default) → only cam_ops runs.

@@ -50,6 +50,8 @@ follow_goal:
     goal_lateral_deadband_m: 0.05
     goal_update_rate_hz: 10.0
     goal_smoothing_alpha: 0.35
+    search_timeout_s: 3.0
+    search_offset_rad: 1.5708
     user_base_topic: /user_pos_base_link
     user_world_topic: /user_pos_odom
     goal_topic: /follow_goal
@@ -215,7 +217,7 @@ global_costmap:
       always_send_full_costmap: true
       plugins: ["nvblox_layer", "inflation_layer"]
       nvblox_layer:
-        plugin: "nvblox::NvbloxCostmapLayer"
+        plugin: "nvblox::nav2::NvbloxCostmapLayer"
         enabled: true
         nvblox_map_slice_height: 0.15
       inflation_layer:
@@ -241,12 +243,12 @@ local_costmap:
       always_send_full_costmap: true
       plugins: ["nvblox_layer", "inflation_layer"]
       nvblox_layer:
-        plugin: "nvblox::NvbloxCostmapLayer"
+        plugin: "nvblox::nav2::NvbloxCostmapLayer"
         enabled: true
         nvblox_map_slice_height: 0.15
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.3
+        inflation_radius: 0.4
         cost_scaling_factor: 3.0
 
 lifecycle_manager_navigation:

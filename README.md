@@ -29,7 +29,8 @@ For the full node inventory, launch arguments, and config file locations see
 
 ## Recent Changes
 
-- **2026-04-29** — Updated driving joint positions in `locomotion/driving_leg_pos.yaml` to calibrated values; added `joint_rs05_1` (lid motor) to the driving configuration.
+- **2026-04-30** — Added ground-force PI hold and brake mode to `driving_leg_controller`: RS04 joints now maintain target ground contact force via closed-loop torque feedback; RS00 foot joints switch to flat-sole (sandpaper) braking position when velocity command drops to zero.
+- **2026-04-29** — Updated driving joint positions in `locomotion/driving_leg_pos.yaml` to calibrated values.
 
 ---
 

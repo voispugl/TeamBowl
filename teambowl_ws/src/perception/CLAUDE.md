@@ -1,5 +1,14 @@
 # perception
 
+## 2026-04-30 — Faster relock and looser track matching for large robot movements
+
+**`config/perception.yaml`**:
+- `target_lost_timeout_s: 120.0 → 3.0` — primary fix. After BoT-SORT drops a track and assigns a new ID to the same person, `yolo26_node` was waiting 2 minutes before triggering ReID relock. Now resets in 3s and relocks via OSNet appearance embedding.
+- `reid_threshold: 0.3 → 0.25` — slightly more permissive appearance match on relock, since person appearance can shift during large/fast movements.
+
+**`config/botsort.yaml`**:
+- `match_thresh: 0.5 → 0.3` — lower IoU threshold keeps BoT-SORT track alive through larger bounding-box shifts caused by camera motion. GMC (sparseOptFlow) compensates for camera movement but can fail on fast/blurry motion; this adds tolerance.
+
 ## 2026-04-29 — Swapped model from yolo26l → yolo26m
 
 **`config/perception.yaml`**: `model_path` updated to `yolo26m.engine`. Medium variant trades ~3% mAP for faster inference on the Jetson — better real-time tracking cadence.

@@ -3,7 +3,7 @@ track_high_thresh: 0.25
 track_low_thresh: 0.1
 new_track_thresh: 0.25
 track_buffer: 30        # ~6s at 5 Hz — enough for brief occlusion; longer risks ghost depth hits
-match_thresh: 0.5       # IoU threshold for first-pass spatial association
+match_thresh: 0.3       # IoU threshold for first-pass spatial association
 fuse_score: True
 gmc_method: sparseOptFlow  # global motion compensation (handles moving camera)
 
